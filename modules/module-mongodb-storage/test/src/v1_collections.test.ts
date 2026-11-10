@@ -6,9 +6,18 @@ import { describe, expect, test, vi } from 'vitest';
 import { up as parameterIndexes } from '../../src/migrations/db/migrations/1684951997326-init.js';
 import { up as bucketIndexes } from '../../src/migrations/db/migrations/1741697235857-bucket-state-index.js';
 import { up as dirtyBucketIndexes } from '../../src/migrations/db/migrations/1760433882550-bucket-state-index2.js';
+import {
+  up as removeUnusedV1Collections,
+  down as restoreV1Collections
+} from '../../src/migrations/db/migrations/1794268800000-v1-storage-collections.js';
 import { env } from './env.js';
 
 const collectionNames = ['current_data', 'bucket_data', 'bucket_parameters', 'bucket_state', 'source_tables'];
+const migrationContext = {
+  service_context: {
+    configuration: { storage: { type: 'mongodb', uri: env.MONGO_TEST_URL }, slot_name_prefix: 'test_' }
+  }
+} as unknown as Parameters<typeof parameterIndexes>[0];
 const testStorage = mongoTestStorageFactoryGenerator({
   url: env.MONGO_TEST_URL,
   isCI: env.CI,
@@ -66,10 +75,9 @@ describe('v1/v2 collection lifecycle', () => {
     await using factory = await testStorage.factory();
     await factory.db.drop();
     await factory.db.createCheckpointEventsCollection();
-    const context = {
-      service_context: { configuration: { storage: { type: 'mongodb', uri: env.MONGO_TEST_URL } } }
-    } as unknown as Parameters<typeof parameterIndexes>[0];
-    for (const migration of [parameterIndexes, bucketIndexes, dirtyBucketIndexes]) await migration(context);
+    for (const migration of [parameterIndexes, bucketIndexes, dirtyBucketIndexes, removeUnusedV1Collections]) {
+      await migration(migrationContext);
+    }
     for (const name of collectionNames) expect(await names(factory)).not.toContain(name);
     await activate(factory, storage.STORAGE_VERSION_4, '1/1');
     for (const name of collectionNames) expect(await names(factory)).not.toContain(name);
@@ -126,24 +134,57 @@ describe('v1/v2 collection lifecycle', () => {
       // A missing storage_version also identifies a v1 stream.
       await factory.db.sync_rules.updateOne({ _id: current.replicationStreamId }, { $unset: { storage_version: 1 } });
       expect(await factory.dropUnusedV1StorageCollections()).toBe(false);
+      await removeUnusedV1Collections(migrationContext);
+      expect(await names(factory)).toEqual(expect.arrayContaining(collectionNames));
+      expect(await factory.db.current_data.countDocuments({ '_id.g': current.replicationStreamId })).toBe(1);
     }
   );
 
-  test('cleans up unused collections on startup without a stopped stream', async () => {
+  test('restarting and clearing an active v4 stream do not drop v1 collections', async () => {
     await using factory = await testStorage.factory();
     const previous = await activate(factory, storage.STORAGE_VERSION_2, '1/1');
     await releaseTestStorageLease(factory, previous.replicationStreamId);
-    await activate(factory, storage.STORAGE_VERSION_4, '2/1');
+    const current = await activate(factory, storage.STORAGE_VERSION_4, '2/1');
     await factory.db.sync_rules.updateOne(
       { _id: previous.replicationStreamId },
       { $set: { state: storage.SyncRuleState.TERMINATED } }
     );
     await using restarted = await testStorage.factory({ doNotClear: true });
-    expect(await restarted.getStoppedReplicationStreams()).toEqual([]);
-    for (const name of collectionNames) expect(await names(restarted)).not.toContain(name);
     const drop = vi.spyOn(restarted, 'dropUnusedV1StorageCollections');
     expect(await restarted.getStoppedReplicationStreams()).toEqual([]);
     expect(drop).not.toHaveBeenCalled();
+    expect(await names(restarted)).toEqual(expect.arrayContaining(collectionNames));
+    await factory.getInstance(current).clear();
+    expect(await names(factory)).toEqual(expect.arrayContaining(collectionNames));
+  });
+
+  test('migration removes unused v1 collections and rollback recreates collections and indexes', async () => {
+    await using factory = await testStorage.factory();
+    const previous = await activate(factory, storage.STORAGE_VERSION_2, '1/1');
+    await releaseTestStorageLease(factory, previous.replicationStreamId);
+    const current = await activate(factory, storage.STORAGE_VERSION_4, '2/1');
+    await factory.db.sync_rules.updateOne(
+      { _id: previous.replicationStreamId },
+      { $set: { state: storage.SyncRuleState.TERMINATED } }
+    );
+    await removeUnusedV1Collections(migrationContext);
+    for (const name of collectionNames) expect(await names(factory)).not.toContain(name);
+    // Both directions are idempotent, and rollback must retain any existing data.
+    await removeUnusedV1Collections(migrationContext);
+    await restoreV1Collections(migrationContext);
+    await factory.db.current_data.insertOne({ _id: { g: 99, t: 'test', k: 'item' } } as any);
+    await restoreV1Collections(migrationContext);
+    expect(await names(factory)).toEqual(expect.arrayContaining(collectionNames));
+    expect(await factory.db.current_data.countDocuments({ '_id.g': 99 })).toBe(1);
+    expect((await factory.db.bucket_parameters.listIndexes().toArray()).map((index) => index.name)).toEqual(
+      expect.arrayContaining(['_id_', 'lookup1'])
+    );
+    expect((await factory.db.bucket_state.listIndexes().toArray()).map((index) => index.name)).toEqual(
+      expect.arrayContaining(['_id_', 'bucket_updates', 'dirty_count'])
+    );
+    expect((await factory.getActiveSyncConfig())?.replicationStream.replicationStreamId).toBe(
+      current.replicationStreamId
+    );
   });
 
   test('retries a partially completed collection drop', async () => {

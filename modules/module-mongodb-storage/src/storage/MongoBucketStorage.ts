@@ -91,7 +91,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   private activeStorageCache: MongoSyncBucketStorage | undefined;
-  private checkedUnusedV1StorageCollections = false;
 
   public readonly db: PowerSyncMongo;
   public readonly chunkCompactionConcurrency: number;
@@ -623,13 +622,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         { projection: { _id: 1 } }
       );
       if (live != null) return false;
-      for (const collection of [
-        this.db.current_data,
-        this.db.bucket_data,
-        this.db.bucket_parameters,
-        this.db.bucket_state,
-        this.db.source_tables
-      ]) {
+      for (const collection of this.db.v1DataCollections) {
         signal?.throwIfAborted();
         await refresh();
         const dropped = await collection
@@ -847,12 +840,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         state: storage.SyncRuleState.STOP
       })
       .toArray();
-
-    // Check once at startup for unused collections even when no stream needs termination.
-    if (docs.length == 0 && !this.checkedUnusedV1StorageCollections) {
-      await this.dropUnusedV1StorageCollections();
-      this.checkedUnusedV1StorageCollections = true;
-    }
 
     return (
       await Promise.all(

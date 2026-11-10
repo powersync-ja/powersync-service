@@ -27,9 +27,7 @@ export class VersionedPowerSyncMongoV1 extends BaseVersionedPowerSyncMongo {
   }
 
   async initializeStreamStorage(_replicationStreamId: number): Promise<void> {
-    await this.upstream.bucket_parameters.createIndex({ 'key.g': 1, lookup: 1, _id: 1 }, { name: 'lookup1' });
-    await this.upstream.createBucketStateIndex();
-    await this.upstream.createBucketStateIndex2();
+    await this.upstream.initializeV1StorageCollections();
   }
 
   get bucketDataV1(): mongo.Collection<BucketDataDocumentV1> {

@@ -405,7 +405,11 @@ export abstract class MongoSyncBucketStorage
     this.factory.discardOpIdAllocator(this.replicationStreamId);
     await this.clearSyncRuleState();
 
-    const droppedV1Collections = await this.factory.dropUnusedV1StorageCollections(signal);
+    // Only stopped-stream cleanup may remove shared collections. Clearing an
+    // active or processing stream for a snapshot must not change shared storage.
+    const droppedV1Collections =
+      this.replicationStream.state == storage.SyncRuleState.STOP &&
+      (await this.factory.dropUnusedV1StorageCollections(signal));
     if (this.storageConfig.version >= storage.STORAGE_VERSION_3 || !droppedV1Collections) {
       await this.clearBucketData(signal);
       await this.clearParameterIndexes(signal);
