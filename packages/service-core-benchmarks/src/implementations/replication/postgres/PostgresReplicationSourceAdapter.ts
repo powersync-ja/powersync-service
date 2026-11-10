@@ -44,7 +44,7 @@ export function comparePostgresWalPositions(checkpoint: string, target: string):
   const normalizedCheckpoint = normalizeWalLsn(checkpoint);
   const normalizedTarget = normalizeWalLsn(target);
   return {
-    comparable: true,
+    positionCompared: true,
     reached: normalizedCheckpoint >= normalizedTarget,
     details: { checkpoint, target, semantics: 'wal-lsn' }
   };
@@ -230,7 +230,7 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
   }
 
   comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison {
-    if (target.nativePosition == null) return { comparable: false, reached: true };
+    if (target.nativePosition == null) return { positionCompared: false, reached: true };
     return comparePostgresWalPositions(checkpoint, target.nativePosition);
   }
 

@@ -115,6 +115,7 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
           );
         }
     };
+
     const session = this.client.startSession();
     try {
       await session.withTransaction(() => writeBatches(session), { writeConcern: { w: 'majority' } });
@@ -134,9 +135,9 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
   }
 
   comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison {
-    if (target.nativePosition == null) return { comparable: false, reached: true };
+    if (target.nativePosition == null) return { positionCompared: false, reached: true };
     return {
-      comparable: true,
+      positionCompared: true,
       reached: checkpoint >= target.nativePosition,
       details: { checkpoint, target: target.nativePosition, semantics: 'mongo-lsn' }
     };

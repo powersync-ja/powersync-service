@@ -40,7 +40,7 @@ export interface ReplicationSourceCapabilities {
 }
 
 export interface ReplicationPositionComparison {
-  readonly comparable: boolean;
+  readonly positionCompared: boolean;
   readonly reached: boolean;
   readonly details?: object;
 }

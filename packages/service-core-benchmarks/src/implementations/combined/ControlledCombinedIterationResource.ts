@@ -55,7 +55,7 @@ export async function waitForCombinedTargetEvidence(
     if (
       evidence.snapshotDone &&
       evidence.syncConfigActive &&
-      comparison.comparable &&
+      comparison.positionCompared &&
       comparison.reached &&
       markerContainsTarget(marker)
     ) {

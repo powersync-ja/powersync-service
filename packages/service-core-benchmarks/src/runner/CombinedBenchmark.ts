@@ -169,7 +169,7 @@ export class CombinedBenchmark extends Benchmark<
     const comparison = context.resource.comparePosition(storage.checkpoint, storage.target);
     const checks: BenchmarkCorrectnessCheck[] = [
       check('snapshot_complete', storage.snapshotDone, { actual: storage.snapshotDone }),
-      check('checkpoint_position', comparison.comparable && comparison.reached, comparison),
+      check('checkpoint_position', comparison.positionCompared && comparison.reached, comparison),
       check('storage_bucket_count', storage.bucketCount === this.scenario.expected_bucket_count, {
         expected: this.scenario.expected_bucket_count,
         actual: storage.bucketCount
