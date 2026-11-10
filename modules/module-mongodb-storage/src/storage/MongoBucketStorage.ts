@@ -52,6 +52,8 @@ export interface MongoBucketStorageOptions {
    */
   replicationStreamNamePrefix: string;
   readPreference?: mongo.ReadPreference;
+  /** Read preference for collection discovery and collection stats used by storage metrics. */
+  statsReadPreference?: mongo.ReadPreference;
   checksumCacheTtlMs?: number;
   clearBatchThrottleRate?: number;
   defaultStorageVersion?: number;
@@ -774,7 +776,12 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     if (storageConfig.incrementalReprocessing) {
       const v3 = doc as ReplicationStreamDocumentV3;
-      const matching = v3.sync_configs.filter((c) => stateFilter.includes(c.state));
+      // Cleanup of a stopped stream requires all embedded configs, regardless of
+      // their individual states, so every config's storage can be terminated.
+      const matching =
+        v3.state == storage.SyncRuleState.STOP && stateFilter.includes(storage.SyncRuleState.STOP)
+          ? v3.sync_configs
+          : v3.sync_configs.filter((c) => stateFilter.includes(c.state));
       if (matching.length == 0) {
         return null;
       }
@@ -897,7 +904,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
             $regex: '^(bucket_data|bucket_parameters|current_data)$|^(bucket_data_|parameter_index_|source_records_)'
           }
         },
-        { nameOnly: true }
+        { nameOnly: true, readPreference: this.options.statsReadPreference }
       )
       .toArray();
     const sizesByCollection = new Map<string, number>();
@@ -920,7 +927,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       ];
       const stats = await this.db.db
         .collection(batch[0].name)
-        .aggregate<{ ns: string; size: number | bigint }>(pipeline)
+        .aggregate<{ ns: string; size: number | bigint }>(pipeline, {
+          readPreference: this.options.statsReadPreference
+        })
         .toArray();
       for (const stat of stats) {
         const name = stat.ns.slice(this.db.db.databaseName.length + 1);

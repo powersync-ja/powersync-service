@@ -78,6 +78,10 @@ export class MongoStorageProvider implements storage.StorageProvider {
       chunkCompactionConcurrency,
       replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
       readPreference,
+      statsReadPreference:
+        decodedConfig.stats_read_preference == null
+          ? undefined
+          : new lib_mongo.mongo.ReadPreference(decodedConfig.stats_read_preference),
       clearBatchThrottleRate: normalizeClearBatchThrottleRate(decodedConfig.clear_batch_throttle_rate),
       checksumCacheTtlMs: resolvedConfig.api_parameters.bucket_count_cache_ttl_minutes * 60_000,
       defaultStorageVersion: decodedConfig.default_storage_version,
