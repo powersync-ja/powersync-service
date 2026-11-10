@@ -441,6 +441,13 @@ class PgConnection {
       const m = new FrontendMessage.CancelRequest(this._backendKeyData);
       this._logFemsg(m, null);
       await MessageWriter.writeMessage(socket, m);
+      // The server closes this connection after processing CancelRequest.
+      // Wait before releasing responseEndLock so a late cancellation cannot
+      // affect the next query, even if ReadyForQuery has already arrived.
+      const response = new Uint8Array(1);
+      while ((await _net.read(socket, response)) != null) {
+        // Drain until EOF. A CancelRequest has no response message.
+      }
     } finally {
       _net.closeNullable(socket);
     }
