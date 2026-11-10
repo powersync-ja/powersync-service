@@ -9,6 +9,7 @@ import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
 import * as utils from '../util/util-index.js';
+import { SyncConfigEngine } from './SyncConfigEngine.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
@@ -19,6 +20,11 @@ export interface ServiceContext {
   storageEngine: storage.StorageEngine;
   migrations: PowerSyncMigrationManager;
   syncContext: SyncContext;
+  /**
+   * Shared parsing and admission. The configured snapshot covers filesystem, Base64, or inline YAML
+   * supplied through service configuration; API deployments use separate submission validation.
+   */
+  syncConfigEngine: SyncConfigEngine;
   writeCheckpointBatcher: utils.WriteCheckpointBatcher;
   serviceMode: ServiceContextMode;
   eventsEngine: EventsEngine;
@@ -50,6 +56,7 @@ export class ServiceContextContainer implements ServiceContext {
   storageEngine: storage.StorageEngine;
   eventsEngine: EventsEngine;
   syncContext: SyncContext;
+  syncConfigEngine: SyncConfigEngine;
   routerEngine: routes.RouterEngine;
   writeCheckpointBatcher: utils.WriteCheckpointBatcher;
   serviceMode: ServiceContextMode;
@@ -82,9 +89,7 @@ export class ServiceContextContainer implements ServiceContext {
     });
 
     this.routerEngine = new routes.RouterEngine();
-    this.lifeCycleEngine.withLifecycle(this.routerEngine, {
-      stop: (routerEngine) => routerEngine.shutDown()
-    });
+    this.syncConfigEngine = new SyncConfigEngine(configuration.sync_rules, () => this.routerEngine.getAPI());
 
     this.writeCheckpointBatcher = new utils.WriteCheckpointBatcher(
       () => this.routerEngine.getAPI(),

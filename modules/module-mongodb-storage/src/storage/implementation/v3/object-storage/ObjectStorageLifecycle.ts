@@ -1,6 +1,8 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import * as bson from 'bson';
 import { createHash, randomUUID } from 'node:crypto';
+import { REPLICATION_WRITE_OPTIONS } from '../../MongoReplicationOptions.js';
 import { MongoWriteBatch } from '../../MongoWriteBatch.js';
 import { ObjectStorageDeletionMarker } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from '../VersionedPowerSyncMongoV3.js';
@@ -8,6 +10,12 @@ import { BucketDataObjectStorage } from './BucketDataObjectStorage.js';
 import { ObjectStorage, ObjectStorageOperationOptions } from './ObjectStorage.js';
 
 export const OBJECT_STORAGE_UPLOAD_LEASE_MS = 60 * 60 * 1000;
+/**
+ * Leave time for the bounded publication transaction and clock skew before
+ * cleanup can select a marker. Publication must finish within this margin after
+ * its eligibility check; checked marker deletion alone cannot protect an object
+ * from a cleanup worker that already selected an expired marker.
+ */
 export const OBJECT_STORAGE_PUBLICATION_SAFETY_MARGIN_MS = 2 * 60 * 1000;
 export const OBJECT_STORAGE_REFERENCE_GRACE_MS = 15 * 60 * 1000;
 /**
@@ -21,6 +29,11 @@ export interface PreparedObjectStorageUpload {
   markerId: bson.ObjectId;
   path: string;
   deleteAfter: Date;
+}
+
+export interface ObjectStorageUploadPayload {
+  upload: PreparedObjectStorageUpload;
+  payload: Uint8Array;
 }
 
 /**
@@ -67,18 +80,26 @@ export class ObjectStorageLifecycle {
    * Indicate that files will be uploaded to S3.
    *
    * These markers are expected to be removed using publishUploads(). If that does not happen within
-   * the grace period, the files will be deleted.
+   * the grace period, the files will be deleted. Registration must be majority
+   * acknowledged before any PUT starts: losing a marker on failover would lose
+   * the only cleanup obligation for an unpublished object. A failed/ambiguous
+   * insert must therefore prevent uploads, even if some markers were inserted.
    */
-  async prepareUploads(paths: string[], now = new Date()): Promise<PreparedObjectStorageUpload[]> {
+  async prepareUploads(
+    paths: string[],
+    now = new Date(),
+    session?: mongo.ClientSession
+  ): Promise<PreparedObjectStorageUpload[]> {
     const deleteAfter = new Date(now.getTime() + OBJECT_STORAGE_UPLOAD_LEASE_MS);
     const uploads = paths.map((path) => ({ markerId: new bson.ObjectId(), path, deleteAfter }));
-    if (uploads.length) {
+    if (uploads.length > 0) {
       await this.db.pendingObjectStorageDeletes(this.replicationStreamId).insertMany(
         uploads.map((upload) => ({
           _id: upload.markerId,
           path: upload.path,
           delete_after: upload.deleteAfter
-        }))
+        })),
+        { ...REPLICATION_WRITE_OPTIONS, session }
       );
     }
     return uploads;
@@ -86,6 +107,57 @@ export class ObjectStorageLifecycle {
 
   canPublish(upload: PreparedObjectStorageUpload, now = new Date()): boolean {
     return now.getTime() < upload.deleteAfter.getTime() - OBJECT_STORAGE_PUBLICATION_SAFETY_MARGIN_MS;
+  }
+
+  /**
+   * Upload a durably registered generation, joining every started PUT on failure.
+   * The shared adapter limits concurrency; its queue must observe the same signal
+   * as an active request so no queued PUT can start after the protection deadline.
+   *
+   * Failed/ambiguous PUTs retain their original markers. S3's bounded request
+   * timeouts are far shorter than the one-hour orphan grace, including when a
+   * response is lost or the process dies. Cancellation does not prove an object
+   * is absent, so never delete an object or its marker on upload failure.
+   */
+  async storeUploads(uploads: ObjectStorageUploadPayload[], options?: ObjectStorageOperationOptions): Promise<void> {
+    if (uploads.length === 0) {
+      return;
+    }
+    const deadline =
+      Math.min(...uploads.map(({ upload }) => upload.deleteAfter.getTime())) -
+      OBJECT_STORAGE_PUBLICATION_SAFETY_MARGIN_MS;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error('Object storage upload lease expired before PUT');
+    }
+    const expiration = new AbortController();
+    const timer = setTimeout(
+      () => expiration.abort(new Error('Object storage upload lease expired during PUT')),
+      remaining
+    );
+    timer.unref();
+    const signal = options?.signal ? AbortSignal.any([options.signal, expiration.signal]) : expiration.signal;
+    let results: PromiseSettledResult<unknown>[];
+    try {
+      results = await Promise.allSettled(
+        uploads.map(async ({ upload, payload }) => {
+          signal.throwIfAborted();
+          // The timer handles time in the adapter's queue; this check also catches
+          // wall-clock changes before dispatch. Publication checks again later.
+          if (!this.canPublish(upload)) {
+            throw new Error(`Object storage upload lease expired for ${upload.path}`);
+          }
+          await this.bucketData.storeSerialized(upload.path, payload, { signal });
+        })
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') {
+      throw failure.reason;
+    }
+    signal.throwIfAborted();
   }
 
   /**
@@ -107,7 +179,9 @@ export class ObjectStorageLifecycle {
       this.db.pendingObjectStorageDeletes(this.replicationStreamId),
       { _id: { $in: uploads.map((upload) => upload.markerId) } },
       (deletedCount) => {
-        if (deletedCount !== uploads.length) throw new Error('Missing object storage publication markers');
+        if (deletedCount !== uploads.length) {
+          throw new Error('Missing object storage publication markers');
+        }
       }
     );
   }

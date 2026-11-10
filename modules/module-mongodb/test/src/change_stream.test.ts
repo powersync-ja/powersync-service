@@ -7,6 +7,7 @@ import { createWriteCheckpoint, storage, WriteCheckpointBatcher } from '@powersy
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
+import { ChunkedSnapshotQuery } from '@module/replication/MongoSnapshotQuery.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
@@ -67,6 +68,63 @@ bucket_definitions:
     ]);
   });
 
+  test('continues active source updates after cancelling a pending deployment', async () => {
+    const activeConfig = /* yaml */ `
+      # Active sync config fixture.
+      config:
+        edition: 3
+      streams:
+        global:
+          auto_subscribe: true
+          query: SELECT _id AS id, description FROM test_data
+    `;
+    let id: mongo.ObjectId;
+    {
+      await using context = await openContext();
+      await context.updateSyncRules(activeConfig);
+      id = (await context.db.collection('test_data').insertOne({ description: 'before' })).insertedId;
+      await context.replicateSnapshot();
+      context.startStreaming();
+      await context.getCheckpoint();
+    }
+    // Resume the persisted active config in a new worker before submitting pending replacement work.
+    await using context = await openContext({ doNotClear: true });
+    await context.updateSyncRules(/* yaml */ `
+      # Pending replacement sync config fixture.
+      config:
+        edition: 3
+      streams:
+        global:
+          auto_subscribe: true
+          query: SELECT _id AS id, description FROM test_data
+        pending:
+          query: SELECT _id AS id FROM pending_data
+    `);
+    const pending = (await context.factory.getDeployingSyncConfig())!;
+    // Rejected startup admission uses this same cancellation path while retaining the active config.
+    const oldJobId = pending.replicationStream.replicationJobId;
+    await context.factory.stopProcessingSyncConfigs();
+    expect(await context.factory.getDeployingSyncConfig()).toBeNull();
+    const active = (await context.factory.getActiveSyncConfig())!;
+    expect(active.content.sync_rules_content).toBe(activeConfig);
+    // Shared-stream cancellation changes job identity so the old A/B worker cannot keep writing.
+    if (storageVersion >= 3) {
+      expect(active.replicationStream.replicationJobId).not.toBe(oldJobId);
+    }
+    await context.loadActiveSyncRules();
+    await context.replicateSnapshot();
+    context.startStreaming();
+    // A source change must still reach client buckets after the replacement was cancelled.
+    await context.db.collection('test_data').updateOne({ _id: id }, { $set: { description: 'after' } });
+    const data = await context.getBucketData('global|0[]');
+    expect(data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining(test_utils.putOp('test_data', { id: id.toHexString(), description: 'after' }))
+      ])
+    );
+    expect((await context.factory.getActiveSyncConfig())?.content.sync_rules_content).toBe(activeConfig);
+  });
+
   test('replicating wildcard', async () => {
     await using context = await openContext();
     const { db } = context;
@@ -110,14 +168,40 @@ bucket_definitions:
     // 4. Streaming sees the delete, writes the delete.
     // 5. Snapshot still sees row A and writes it.
     // The streaming delete should win, using skipExistingRows. For that to work, we rely on soft deletes.
-    // To trigger this case, we need the delete to trigger and process the delete in between the snapshot read and the snapshot write, which we can do using beforeBatchFlush.
+    // Trigger and process the delete after reading the snapshot chunk, before
+    // handing it to storage. beforeBatchFlush runs inside the lease's writer
+    // mutex, so waiting there for another writer would deadlock. Pausing the
+    // source read instead preserves the stale snapshot row without holding that
+    // mutex, and streaming can durably write its tombstone before the snapshot.
 
     let collection!: mongo.Collection;
     let testId!: mongo.ObjectId;
-    let interceptedSnapshotFlush = false;
+    let interceptedSnapshotRead = false;
     let sourceDeleteWritten = false;
     let sourceDeleteFlushBatch: storage.BucketStorageBatch | undefined;
     const streamDeleteFlushed = Promise.withResolvers<void>();
+    const nextChunk = ChunkedSnapshotQuery.prototype.nextChunk;
+    using _snapshotRead = vi.spyOn(ChunkedSnapshotQuery.prototype, 'nextChunk').mockImplementation(async function (
+      this: ChunkedSnapshotQuery,
+      ...args
+    ) {
+      const chunk = await nextChunk.apply(this, args);
+      if (chunk.docs.length === 0 || interceptedSnapshotRead) {
+        return chunk;
+      }
+      interceptedSnapshotRead = true;
+      await collection.deleteOne({ _id: testId });
+      sourceDeleteWritten = true;
+      if (supportsConcurrentSnapshots) {
+        await Promise.race([
+          streamDeleteFlushed.promise,
+          setTimeout(10_000).then(() => {
+            throw new Error('Timed out waiting for streamed delete to flush');
+          })
+        ]);
+      }
+      return chunk;
+    });
 
     await using context = await openContext({
       streamOptions: {
@@ -127,24 +211,6 @@ bucket_definitions:
             if (!batch.skipExistingRows && sourceDeleteWritten && sourceDeleteFlushBatch == null) {
               sourceDeleteFlushBatch = batch;
             }
-
-            // skipExistingRows means we're busy with snapshotting.
-            if (!batch.skipExistingRows || interceptedSnapshotFlush) {
-              return;
-            }
-
-            interceptedSnapshotFlush = true;
-            await collection.deleteOne({ _id: testId });
-            sourceDeleteWritten = true;
-            if (!supportsConcurrentSnapshots) {
-              return;
-            }
-            await Promise.race([
-              streamDeleteFlushed.promise,
-              setTimeout(10_000).then(() => {
-                throw new Error('Timed out waiting for streamed delete to flush');
-              })
-            ]);
           },
           afterBatchFlush: async (batch) => {
             if (batch == sourceDeleteFlushBatch) {
@@ -166,7 +232,7 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
-    expect(interceptedSnapshotFlush).toBe(true);
+    expect(interceptedSnapshotRead).toBe(true);
     await context.getCheckpoint();
 
     const data = await context.getBucketData('global[]');

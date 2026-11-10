@@ -1,13 +1,13 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import {
+  parseSyncConfig,
   PrecompiledSyncConfig,
   SerializedSyncPlan as RawSerializedSyncPlan,
   SerializedCompatibilityContext,
   serializeSyncPlan,
-  SqlSyncRules,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
-import { ReplicationError } from '@powersync/service-types';
+import { ReplicationError, ValidationDiagnostic } from '@powersync/service-types';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { PersistedReplicationStream } from './PersistedReplicationStream.js';
 import { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
@@ -71,6 +71,11 @@ export abstract class BucketStorageFactory
   abstract updateSyncRules(options: UpdateSyncRulesOptions): Promise<PersistedReplicationStream>;
 
   /**
+   * Stop pending processing atomically, preserving active configs. Used for rejected startup submissions.
+   */
+  abstract stopProcessingSyncConfigs(): Promise<void>;
+
+  /**
    * Indicate that a slot was removed, and we should re-sync by creating
    * a new replication stream.
    *
@@ -78,6 +83,8 @@ export abstract class BucketStorageFactory
    * config, but also accounts for cases where the current sync config is not
    * the latest one.
    *
+   * Recovery of the active config must atomically recheck pending work and create its replacement,
+   * preserving any newer pending deployment rather than superseding it with the active config.
    * Replication should be restarted after this.
    */
   abstract restartReplication(replicationStreamId: number): Promise<void>;
@@ -175,23 +182,29 @@ export interface StorageSyncConfigMetrics {
   attributed_object_storage_bytes: number;
 }
 
+/**
+ * Sync config content and its compiled representation, shared by startup validation and deployment.
+ * Validation errors are retained in parsed even when the config cannot be deployed.
+ */
+export interface CompiledSyncConfig {
+  yaml: string;
+  /**
+   * The serialized sync plan for the sync configuration, or `null` for configurations not using the Sync Streams
+   * compiler.
+   */
+  plan: SerializedSyncPlan | null;
+
+  /**
+   * Parsed sync config, primarily to generate a definition mapping.
+   * Not persisted, and the defaultSchema used for parsing is not relevant.
+   */
+  parsed: SyncConfigWithErrors;
+}
+
 export interface UpdateSyncRulesOptions {
   /** Optional operator-supplied label identifying this deployed sync config version. */
   version_label?: string;
-  config: {
-    yaml: string;
-    /**
-     * The serialized sync plan for the sync configuration, or `null` for configurations not using the Sync Streams
-     * compiler.
-     */
-    plan: SerializedSyncPlan | null;
-
-    /**
-     * Parsed sync config, primarily to generate a definition mapping.
-     * Not persisted, and the defaultSchema used for parsing is not relevant.
-     */
-    parsed: SyncConfigWithErrors;
-  };
+  config: CompiledSyncConfig;
   lock?: boolean;
   storageVersion?: number;
 
@@ -228,7 +241,7 @@ export function updateSyncRulesFromYaml(
   options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
 ): UpdateSyncRulesOptions {
   const { validate, ...updateOptions } = options ?? {};
-  const config = SqlSyncRules.fromYaml(content, {
+  const config = parseSyncConfig(content, {
     // No schema-based validation at this point
     schema: undefined,
     defaultSchema: options?.defaultSchema ?? 'not_applicable', // Not needed for validation
@@ -263,20 +276,23 @@ export function updateSyncRulesFromConfig(
 }
 
 /**
- * Logs the errors and warnings of a parsed sync config
- *
- * Call this where a sync config is loaded or deployed, so that operators see these in the service logs and not only
- * in the diagnostics and validate API responses.
- *
- * Fatal errors usually throw during parsing before this is reached. They can reach this when the sync config is parsed
- * without validation, such as at startup with `exit_on_error: false`.
+ * Log parser errors and warnings from a parsed config, or combined parsing and source-capability
+ * diagnostics from SyncConfigEngine. Use when loading or deploying a sync config so operators see
+ * diagnostics in service logs as well as API responses. Fatal diagnostics are logged at error level;
+ * warnings remain advisory. Uses the supplied logger or the service logger by default.
  */
-export function logSyncConfigErrors(parsed: SyncConfigWithErrors, log: typeof logger = logger) {
-  for (const error of parsed.errors) {
-    if (error.type == 'warning') {
-      log.warn(`Sync config warning: ${error.message}`);
+export function logSyncConfigErrors(
+  result: SyncConfigWithErrors | ValidationDiagnostic[],
+  log: typeof logger = logger
+) {
+  const diagnostics = Array.isArray(result)
+    ? result
+    : result.errors.map((error) => ({ level: error.type, message: error.message }));
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.level == 'warning') {
+      log.warn(`Sync config warning: ${diagnostic.message}`);
     } else {
-      log.error(`Sync config error: ${error.message}`);
+      log.error(`Sync config error: ${diagnostic.message}`);
     }
   }
 }

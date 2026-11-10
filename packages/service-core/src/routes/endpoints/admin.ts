@@ -1,11 +1,12 @@
 import * as sqlite from 'node:sqlite';
+import { assertAcceptedSyncConfig, assertConfiguredSyncConfigValid } from '../../system/SyncConfigEngine.js';
 
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import {
   HydratedSyncConfig,
   nodeSqlite,
+  parseSyncConfig,
   SourceSchema,
-  SqlSyncRules,
   StaticSchema
 } from '@powersync/service-sync-rules';
 import { internal_routes, ServiceInfo } from '@powersync/service-types';
@@ -67,11 +68,17 @@ export const diagnostics = routeDefinition({
 
     const apiHandler = service_context.routerEngine.getAPI();
 
+    const rejectedConfig = api.getInvalidLocalSyncConfigStatus(
+      await service_context.syncConfigEngine.getConfigured(),
+      include_content,
+      service_context.configuration.sync_rules.version_label
+    );
     const status = await apiHandler.getConnectionStatus();
     if (!status) {
       return internal_routes.DiagnosticsResponse.encode({
         ...serviceResponse,
-        connections: []
+        connections: [],
+        deploying_sync_rules: rejectedConfig
       });
     }
 
@@ -96,8 +103,12 @@ export const diagnostics = routeDefinition({
       active?.storage
     );
 
+    // Prefer validation errors from this instance's configured content: rejected configs are
+    // never persisted, so stored pending work may belong to an earlier deployment. Fall back
+    // to stored deployment status when there is no rejected config to report.
     const deploying_status =
-      deploying == null
+      rejectedConfig ??
+      (deploying == null
         ? undefined
         : await api.getSyncRulesStatus(
             apiHandler,
@@ -109,7 +120,7 @@ export const diagnostics = routeDefinition({
               active: false
             },
             deploying.storage
-          );
+          ));
 
     return internal_routes.DiagnosticsResponse.encode({
       ...serviceResponse,
@@ -161,6 +172,8 @@ export const reprocess = routeDefinition({
       });
     }
 
+    await assertConfiguredSyncConfigValid(service_context.syncConfigEngine);
+
     const active = await activeBucketStorage.getActiveSyncConfig();
     if (active == null) {
       throw new errors.ServiceError({
@@ -173,22 +186,16 @@ export const reprocess = routeDefinition({
     // 1. This always re-parses the source YAML. If there are changes to the Sync Streams compiler, that can affect the sync plan.
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
-    const parsed = SqlSyncRules.fromYaml(active.content.sync_rules_content, {
-      ...apiHandler.getParseSyncRulesOptions(),
-      schema: undefined,
-      // This sync config already passed validation. But if the config is not valid anymore due
-      // to a service change, we do want to report the error here.
-      throwOnError: true
-    });
-    storage.logSyncConfigErrors(parsed);
-    await api.assertSourceCapabilities(apiHandler, parsed.config);
-
-    const new_rules = await activeBucketStorage.updateSyncRules(
-      storage.updateSyncRulesFromConfig(parsed, {
-        version_label: active.content.version_label,
-        forceNewReplicationStream: true
-      })
+    const compiled = assertAcceptedSyncConfig(
+      await service_context.syncConfigEngine.validate(active.content.sync_rules_content)
     );
+
+    storage.logSyncConfigErrors(compiled.parsed);
+    const new_rules = await activeBucketStorage.updateSyncRules({
+      config: compiled,
+      version_label: active.content.version_label,
+      forceNewReplicationStream: true
+    });
 
     const baseConfig = await apiHandler.getSourceConfig();
 
@@ -214,7 +221,7 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
   }
 
   parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
-    const syncConfig = SqlSyncRules.fromYaml(this.sync_rules_content, {
+    const syncConfig = parseSyncConfig(this.sync_rules_content, {
       ...options,
       schema: this.schema
     });

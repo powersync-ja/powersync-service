@@ -1,5 +1,19 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.36
+
+### Patch Changes
+
+- a564bf5: [MongoDB storage] Sequential/batched metric calculations to reduce connection pool usage. Tweak idle timeout and metric cache durations.
+
+## 0.6.35
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+- Updated dependencies [574ddbd]
+  - @powersync/lib-services-framework@0.10.5
+
 ## 0.6.34
 
 ### Patch Changes

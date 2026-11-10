@@ -1,5 +1,64 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.24.2
+
+### Patch Changes
+
+- 2d50d1e: Fix cleanup of MongoDB replication streams when deploying a sync config that switches from storage version 4 to version 2.
+- 1c953e3: Add `storage.stats_read_preference` for MongoDB collection discovery and collection stats used by storage metrics.
+  - @powersync/service-core@1.28.2
+
+## 0.24.1
+
+### Patch Changes
+
+- a564bf5: [MongoDB storage] Sequential/batched metric calculations to reduce connection pool usage. Tweak idle timeout and metric cache durations.
+- Updated dependencies [a564bf5]
+  - @powersync/lib-service-mongodb@0.6.36
+  - @powersync/service-core@1.28.1
+
+## 0.24.0
+
+### Minor Changes
+
+- ebba2a3: Restructure replication in MongoDB V4 storage to avoid orphaned objects on S3.
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+- 071507a: Reject sync configs with fatal parsing or source-capability errors before they enter replication. A context-owned `SyncConfigEngine` shares one source-aware parsed config and validation result between replication startup, diagnostics, and manual reprocess guards. The engine loads filesystem, Base64, or inline input on first use and caches the result.
+
+  With `exit_on_error: false`, a rejected startup submission stops pending processing work while preserving active replication, including when active and processing configs share a replication stream. This also stops invalid pending configs persisted by older services. Rejected content is exposed through diagnostics `deploying_sync_rules`. With `exit_on_error: true`, validation failures stop startup before storage changes. Warnings are advisory.
+
+  API-managed deployments share validation and reject fatal submissions before storage changes. Rejected API requests do not cancel accepted pending work or create a local diagnostic overlay.
+
+- b64957d: Improve propagation of abort errors and fix some unhandled rejections.
+- 0c0e688: [MongoDB storage] Move chunks to object storage during compacting, if relevant.
+- 070ef34: Prevent unused publication tables from blocking initial replication after an interruption with Postgres storage or MongoDB storage versions 1 and 2. Tables unused by the sync config no longer create persisted source-table records. Existing affected deployments must explicitly redeploy the sync config after upgrading; restarting the service or reloading unchanged configuration does not clear the existing state.
+- a418960: Evaluate parameter lookups in batches so requests with 996 or more lookups no longer exceed MongoDB's 1000-stage aggregation pipeline limit.
+- Updated dependencies [17a026d]
+- Updated dependencies [ebba2a3]
+- Updated dependencies [7cf585d]
+- Updated dependencies [574ddbd]
+- Updated dependencies [071507a]
+- Updated dependencies [b64957d]
+- Updated dependencies [070ef34]
+- Updated dependencies [85c5e12]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-core@1.28.0
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/lib-service-mongodb@0.6.35
+  - @powersync/service-jsonbig@0.17.14
+  - @powersync/service-types@0.21.0
+
+## 0.23.2
+
+### Patch Changes
+
+- @powersync/service-core@1.27.2
+
 ## 0.23.1
 
 ### Patch Changes

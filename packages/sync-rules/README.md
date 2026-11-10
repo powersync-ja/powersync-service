@@ -18,7 +18,7 @@ Both engines define the same two operations:
 
 None of the SQL is executed against a database. It is used to pre-process replicated rows into a format for efficient sync.
 
-`SqlSyncRules.fromYaml()` in `src/SqlSyncRules.ts` parses either engine into a `SyncConfig`. The service hydrates it with persisted state into a `HydratedSyncConfig` (`src/HydratedSyncConfig.ts`), which is what replication and sync use at runtime.
+`parseSyncConfig()` in `src/from_yaml.ts` parses either engine into a `SyncConfig`. The service hydrates it with persisted state into a `HydratedSyncConfig` (`src/HydratedSyncConfig.ts`), which is what replication and sync use at runtime.
 
 # Sync Streams
 

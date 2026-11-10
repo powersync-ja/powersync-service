@@ -1,8 +1,9 @@
 import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SourceTableRef, SyncConfigErrors, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
+import { ConfiguredSyncConfigResult, SyncConfigResultStatus } from '../system/SyncConfigEngine.js';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { RouteAPI, SlotWalBudgetInfo } from './RouteAPI.js';
 
@@ -31,6 +32,25 @@ export interface DiagnosticsOptions {
 }
 
 export const DEFAULT_DATASOURCE_ID = 'default';
+
+/**
+ * Project the cached local admission result without creating a persisted deployment.
+ */
+export function getInvalidLocalSyncConfigStatus(
+  result: ConfiguredSyncConfigResult,
+  includeContent: boolean,
+  versionLabel?: string
+): SyncRulesStatus | undefined {
+  if (result.status !== SyncConfigResultStatus.REJECTED) {
+    return undefined;
+  }
+  return {
+    version_label: versionLabel,
+    content: includeContent ? result.content : undefined,
+    connections: [],
+    errors: result.diagnostics
+  };
+}
 
 export async function getSyncRulesStatus(
   apiHandler: RouteAPI,
@@ -70,7 +90,7 @@ export async function getSyncRulesStatus(
       connections: [],
       // Report each sync config error separately, retaining its source location.
       errors:
-        e instanceof SyncRulesErrors
+        e instanceof SyncConfigErrors
           ? e.errors.map((error) => syncConfigYamlErrorToReplicationError(error, now))
           : [{ level: 'fatal', message: e.message, ts: now }]
     };

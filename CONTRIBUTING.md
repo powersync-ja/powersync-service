@@ -2,6 +2,8 @@
 
 We want this community to be friendly and respectful to each other. Please follow it in all your interactions with the project.
 
+Before you contribute, please review our [Enterprise Roadmap](https://roadmap.powersync.com/tabs/8-enterprise-roadmap), specifically what's listed under **PowerSync Service**. It lists planned premium features which are closed-source. We rely on an 'open-core' model to sustain ourselves and fund our open-source work.
+
 All types of contributions are encouraged and valued. See the [Table of Contents](#table-of-contents) for different ways to help and details about how this project handles them. Please make sure to read the relevant section before making your contribution. It will make it a lot easier for us maintainers and smooth out the experience for all involved. The community looks forward to your contributions.
 
 > And if you like the project, but just don't have time to contribute, that's fine. There are other easy ways to support the project and show your appreciation, which we would also be very happy about:
@@ -91,10 +93,6 @@ pnpm changeset add
 ```
 
 Merging a PR with Changesets will automatically create a PR with version bumps. That PR will be merged when releasing.
-
-## Legal Notice
-
-This repo requires acceptance of our [CLA](https://www.powersync.com/legal/cla) in order to contribute. We use [cla-assistant](https://cla-assistant.io/) to automate this process.
 
 ## Attribution
 

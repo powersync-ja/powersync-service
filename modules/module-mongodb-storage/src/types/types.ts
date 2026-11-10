@@ -55,6 +55,12 @@ export const MongoStorageConfig = service_types.configFile.BaseStorageConfig.and
      */
     bulk_read_preference: MongoStorageReadPreference.optional(),
     /**
+     * Read preference for collection discovery and collection stats used by storage metrics.
+     * For example, use secondaryPreferred to offload collection stats from the primary.
+     * If unset, MongoDB driver defaults are used.
+     */
+    stats_read_preference: MongoStorageReadPreference.optional(),
+    /**
      * Throttle clear operations after sync config deploys, by pausing between batches.
      * The rate produces a pause proportional to the previous batch duration.
      *

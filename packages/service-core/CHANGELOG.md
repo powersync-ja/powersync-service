@@ -1,5 +1,45 @@
 # @powersync/service-core
 
+## 1.28.2
+
+## 1.28.1
+
+### Patch Changes
+
+- a564bf5: [MongoDB storage] Sequential/batched metric calculations to reduce connection pool usage. Tweak idle timeout and metric cache durations.
+
+## 1.28.0
+
+### Minor Changes
+
+- ebba2a3: Restructure replication in MongoDB V4 storage to avoid orphaned objects on S3.
+- 85c5e12: Add `powersync_sync_connections_total` to track sync stream close outcomes and setup rejections across HTTP and RSocket.
+
+### Patch Changes
+
+- 17a026d: Improve the error raised when loading an unrecognized connection or storage type: the message now lists the supported types, and is raised as a `ServiceError` with code `PSYNC_S3201` instead of a plain `Error`.
+- 574ddbd: Change license from FSL to Apache-2.0
+- 071507a: Reject sync configs with fatal parsing or source-capability errors before they enter replication. A context-owned `SyncConfigEngine` shares one source-aware parsed config and validation result between replication startup, diagnostics, and manual reprocess guards. The engine loads filesystem, Base64, or inline input on first use and caches the result.
+
+  With `exit_on_error: false`, a rejected startup submission stops pending processing work while preserving active replication, including when active and processing configs share a replication stream. This also stops invalid pending configs persisted by older services. Rejected content is exposed through diagnostics `deploying_sync_rules`. With `exit_on_error: true`, validation failures stop startup before storage changes. Warnings are advisory.
+
+  API-managed deployments share validation and reject fatal submissions before storage changes. Rejected API requests do not cancel accepted pending work or create a local diagnostic overlay.
+
+- b64957d: Improve propagation of abort errors and fix some unhandled rejections.
+- Updated dependencies [7cf585d]
+- Updated dependencies [574ddbd]
+- Updated dependencies [070ef34]
+- Updated dependencies [85c5e12]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/service-rsocket-router@0.3.0
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/service-jsonbig@0.17.14
+  - @powersync/service-types@0.21.0
+
+## 1.27.2
+
 ## 1.27.1
 
 ### Patch Changes

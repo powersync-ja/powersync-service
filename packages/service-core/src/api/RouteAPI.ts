@@ -44,6 +44,12 @@ export interface RouteAPI {
   /**
    * Checks whether the source supports the capabilities required by this sync config.
    * Must not modify the source. Return advisory warnings and fatal validation diagnostics.
+   * May receive a partial config with fatal parser diagnostics; report capability issues independently.
+   * SyncConfigEngine currently caches admission results for the configured snapshot until restart,
+   * including fatal diagnostics created from unexpected validation exceptions. Temporary failures
+   * can therefore leave diagnostics reporting a stale rejection. Retrying failed validation attempts
+   * from diagnostics without reloading the configured YAML is a future improvement.
+   * Check configured executor capabilities here; live connectivity and table metadata checks are separate.
    * An empty array means no issues; throw only for unexpected failures.
    */
   validateSourceCapabilities?(syncConfig: SyncConfig): Promise<types.ValidationDiagnostic[]>;

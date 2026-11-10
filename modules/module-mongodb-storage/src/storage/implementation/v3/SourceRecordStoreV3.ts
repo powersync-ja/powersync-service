@@ -5,11 +5,23 @@ import { BucketDefinitionMapping, storage } from '@powersync/service-core';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
+import { REPLICATION_READ_OPTIONS, REPLICATION_WRITE_OPTIONS } from '../MongoReplicationOptions.js';
 import { cacheKey } from '../OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { CurrentDataDocumentV3, serializeParameterLookup, SourceTableDocumentV3 } from './models.js';
 
+/**
+ * Source-record access for v3/v4 preparation and post-commit cleanup.
+ *
+ * The loadSizes(), loadDocuments() and loadTruncateBatch() methods are preparation
+ * reads: callers must hold the lease's writer mutex and use its shared causal
+ * session outside any transaction. These reads always request primary/majority
+ * consistency, so they observe earlier writes in that session. Keep the mutex
+ * held through publication to prevent another local writer from changing the
+ * source records between preparation and commit. Publication transactions write
+ * the prepared result without calling these read methods again.
+ */
 export class SourceRecordStoreV3 implements SourceRecordStore {
   constructor(
     private readonly db: VersionedPowerSyncMongoV3,
@@ -60,7 +72,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
 
   async loadSizes(session: mongo.ClientSession, entries: SourceRecordLookupEntry[]): Promise<Map<string, number>> {
     const sizes = new Map<string, number>();
-    for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
+    for (const { sourceTableId, replicaIds } of this.groupEntries(entries)) {
       const filter = {
         _id: { $in: replicaIds as any[] }
       } as unknown as mongo.Filter<CurrentDataDocumentV3>;
@@ -78,7 +90,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
               }
             }
           ],
-          { session }
+          { session, ...REPLICATION_READ_OPTIONS }
         );
       for await (const doc of sizeCursor.stream()) {
         sizes.set(cacheKey(sourceTableId, doc._id), doc.size);
@@ -94,13 +106,15 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   ): Promise<Map<string, LoadedSourceRecord>> {
     const documents = new Map<string, LoadedSourceRecord>();
     const projection = idsOnly ? { _id: 1 } : undefined;
-    for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
+    for (const { sourceTableId, replicaIds } of this.groupEntries(entries)) {
       const filter = {
         _id: { $in: replicaIds as any[] }
       } as unknown as mongo.Filter<CurrentDataDocumentV3>;
-      const cursor = this.db
-        .sourceRecords(this.replicationStreamId, sourceTableId)
-        .find(filter, { session, projection });
+      const cursor = this.db.sourceRecords(this.replicationStreamId, sourceTableId).find(filter, {
+        session,
+        projection,
+        ...REPLICATION_READ_OPTIONS
+      });
       for await (const doc of cursor.stream()) {
         const loaded = this.createLoadedDocument(
           sourceTableId,
@@ -131,7 +145,8 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
           lookups: 1
         },
         limit,
-        session
+        session,
+        ...REPLICATION_READ_OPTIONS
       }
     );
     return (await cursor.toArray()).map((doc) =>
@@ -182,7 +197,9 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     }
 
     if (sourceTableUpdates.length > 0) {
-      await this.db.sourceTables(this.replicationStreamId).bulkWrite(sourceTableUpdates, { ordered: false });
+      await this.db
+        .sourceTables(this.replicationStreamId)
+        .bulkWrite(sourceTableUpdates, { ordered: false, ...REPLICATION_WRITE_OPTIONS });
     }
     if (deletedCount > 0) {
       logger.info(`Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`);
@@ -195,6 +212,8 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     lastCheckpoint: bigint,
     logger: Logger
   ) {
+    // A previous owner's in-flight cleanup must commute with a new
+    // publisher: live upserts clear pending_delete and never match.
     return retryOnMongoMaxTimeMSExpired(
       () =>
         collection.deleteMany(
@@ -202,7 +221,8 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
             pending_delete: { $exists: true, $lte: lastCheckpoint }
           },
           {
-            maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
+            maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+            ...REPLICATION_WRITE_OPTIONS
           }
         ),
       {
@@ -214,13 +234,23 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     );
   }
 
-  private groupEntries(entries: SourceRecordLookupEntry[]): Map<bson.ObjectId, storage.ReplicaId[]> {
-    const grouped = new Map<bson.ObjectId, storage.ReplicaId[]>();
+  /** Group table IDs by value and deduplicate replica IDs, preserving first-seen order. */
+  private groupEntries(
+    entries: SourceRecordLookupEntry[]
+  ): { sourceTableId: bson.ObjectId; replicaIds: storage.ReplicaId[] }[] {
+    const grouped = new Map<string, { sourceTableId: bson.ObjectId; replicas: Map<string, storage.ReplicaId> }>();
     for (const entry of entries) {
-      const existing = grouped.get(entry.sourceTableId) ?? [];
-      existing.push(entry.replicaId);
-      grouped.set(entry.sourceTableId, existing);
+      const key = entry.sourceTableId.toHexString();
+      let group = grouped.get(key);
+      if (group == null) {
+        group = { sourceTableId: entry.sourceTableId, replicas: new Map() };
+        grouped.set(key, group);
+      }
+      group.replicas.set(cacheKey(entry.sourceTableId, entry.replicaId), entry.replicaId);
     }
-    return grouped;
+    return [...grouped.values()].map(({ sourceTableId, replicas }) => ({
+      sourceTableId,
+      replicaIds: [...replicas.values()]
+    }));
   }
 }

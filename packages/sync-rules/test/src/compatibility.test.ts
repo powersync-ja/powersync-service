@@ -7,10 +7,10 @@ import {
   DateTimeValue,
   HydrateSyncConfigParams,
   nodeSqlite,
+  parseSyncConfig,
   SerializedCompatibilityContext,
-  SqlSyncRules,
   TimeValuePrecision,
-  toSyncRulesValue
+  toSyncConfigValue
 } from '../../src/index.js';
 
 import { DEFAULT_HYDRATION_STATE, HydrationState, versionedHydrationState } from '../../src/HydrationState.js';
@@ -24,7 +24,7 @@ describe('compatibility options', () => {
     });
 
     test('uses old format by default', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 bucket_definitions:
   mybucket:
@@ -48,7 +48,7 @@ bucket_definitions:
     });
 
     test('can opt-in to new format', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 bucket_definitions:
   mybucket:
@@ -75,7 +75,7 @@ config:
     });
 
     test('streams use new format by default', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 streams:
   stream:
@@ -111,7 +111,7 @@ config:
     });
 
     test('streams can disable new format', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 streams:
   stream:
@@ -154,7 +154,7 @@ config:
   });
 
   test('streams use new options by default', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const rules = parseSyncConfig(
       `
 streams:
   stream:
@@ -186,7 +186,7 @@ config:
     const description = JSON.stringify({ foo: { bar: 'baz' } });
 
     test('old behavior', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 bucket_definitions:
   a:
@@ -208,7 +208,7 @@ bucket_definitions:
     });
 
     test('new behavior', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 bucket_definitions:
   a:
@@ -234,7 +234,7 @@ config:
 
   test('warning for unknown option', () => {
     expect(() => {
-      SqlSyncRules.fromYaml(
+      parseSyncConfig(
         `
 bucket_definitions:
   mybucket:
@@ -250,7 +250,7 @@ config:
   });
 
   test('arrays', () => {
-    const data = toSyncRulesValue([
+    const data = toSyncConfigValue([
       'static value',
       new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
         subSecondPrecision: TimeValuePrecision.seconds,
@@ -273,7 +273,7 @@ config:
         `;
       }
 
-      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).config.hydrate(generateHydrationParams());
+      const rules = parseSyncConfig(syncRules, PARSE_OPTIONS).config.hydrate(generateHydrationParams());
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
@@ -310,7 +310,7 @@ config:
   describe('max datetime precision', () => {
     test('is not supported in edition 1', () => {
       expect(() => {
-        SqlSyncRules.fromYaml(
+        parseSyncConfig(
           `
 bucket_definitions:
   mybucket:
@@ -326,7 +326,7 @@ config:
     });
 
     test('can set max precision', () => {
-      const { config: rules } = SqlSyncRules.fromYaml(
+      const { config: rules } = parseSyncConfig(
         `
 bucket_definitions:
   mybucket:

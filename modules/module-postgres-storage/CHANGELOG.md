@@ -1,5 +1,59 @@
 # @powersync/service-module-postgres-storage
 
+## 0.19.7
+
+### Patch Changes
+
+- e104596: Insert bucket data and parameter data rows while a replication batch accumulates, instead of holding all rows until the end of the transaction. This bounds the memory used by a single source row evaluated into many buckets by `batch_limits.max_estimated_size`.
+  - @powersync/service-core@1.28.2
+
+## 0.19.6
+
+### Patch Changes
+
+- Updated dependencies [a564bf5]
+  - @powersync/service-core@1.28.1
+
+## 0.19.5
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+- 071507a: Reject sync configs with fatal parsing or source-capability errors before they enter replication. A context-owned `SyncConfigEngine` shares one source-aware parsed config and validation result between replication startup, diagnostics, and manual reprocess guards. The engine loads filesystem, Base64, or inline input on first use and caches the result.
+
+  With `exit_on_error: false`, a rejected startup submission stops pending processing work while preserving active replication, including when active and processing configs share a replication stream. This also stops invalid pending configs persisted by older services. Rejected content is exposed through diagnostics `deploying_sync_rules`. With `exit_on_error: true`, validation failures stop startup before storage changes. Warnings are advisory.
+
+  API-managed deployments share validation and reject fatal submissions before storage changes. Rejected API requests do not cancel accepted pending work or create a local diagnostic overlay.
+
+- b64957d: Improve propagation of abort errors and fix some unhandled rejections.
+- 071507a: Prevent replication recovery from cancelling a newer sync config deployment. Check active and processing configs and create any recovery replacement in one transaction, using a table lock to serialize concurrent sync config state changes. This preserves valid deployments submitted while recovery is starting, including after an invalid configured sync config cancels pending processing.
+- f75978e: Fix replication failing with `RangeError: Invalid string length` when a single source row with large data is evaluated into many buckets. Bucket data and parameter data are now flushed in size-bounded INSERT statements.
+- 070ef34: Prevent unused publication tables from blocking initial replication after an interruption with Postgres storage or MongoDB storage versions 1 and 2. Tables unused by the sync config no longer create persisted source-table records. Existing affected deployments must explicitly redeploy the sync config after upgrading; restarting the service or reloading unchanged configuration does not clear the existing state.
+- cc6d30b: Only resnapshot rows with missing TOAST values when a streamed update has no stored record, as the MongoDB storage already does. A complete row is evaluated and stored anyway, so the resnapshot was redundant. On a bulk update to rows not yet snapshotted this queued one resnapshot per row and kept confirmed_flush_lsn from advancing.
+- Updated dependencies [17a026d]
+- Updated dependencies [ebba2a3]
+- Updated dependencies [7cf585d]
+- Updated dependencies [574ddbd]
+- Updated dependencies [071507a]
+- Updated dependencies [b64957d]
+- Updated dependencies [070ef34]
+- Updated dependencies [85c5e12]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-core@1.28.0
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/lib-service-postgres@0.5.8
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/service-jpgwire@0.21.27
+  - @powersync/service-jsonbig@0.17.14
+  - @powersync/service-types@0.21.0
+
+## 0.19.4
+
+### Patch Changes
+
+- @powersync/service-core@1.27.2
+
 ## 0.19.3
 
 ### Patch Changes

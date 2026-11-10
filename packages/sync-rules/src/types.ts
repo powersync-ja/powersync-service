@@ -6,12 +6,41 @@ import { CompatibilityContext } from './compatibility.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { RequestFunctionCall } from './request_functions.js';
 import { SourceTableRef } from './SourceTableRef.js';
-import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { jsonValueToSqlite, toSyncRulesParameters } from './utils.js';
+import { jsonValueToSqlite, toSyncConfigParameters } from './utils.js';
 
-export interface QueryParseOptions extends SyncRulesOptions {
+/**
+ * Source connection types keyed by connection tag for sync config validation.
+ */
+export type SourceConnectionMap = Record<string, { type: string }>;
+
+/**
+ * Options for {@link parseSyncConfig} and {@link validateSyncConfig}.
+ */
+export interface SyncConfigParseOptions {
+  /**
+   * Source database schema.
+   */
+  schema?: SourceSchema;
+
+  /**
+   * The default schema to use when only a table name is specified.
+   *
+   * 'public' for Postgres, default database for MongoDB/MySQL.
+   */
+  defaultSchema: string;
+
+  /**
+   * Source connection types keyed by connection tag. When omitted, source-specific options report warnings
+   * if their connection type cannot be checked.
+   */
+  connections?: SourceConnectionMap;
+
+  throwOnError?: boolean;
+}
+
+export interface QueryParseOptions extends SyncConfigParseOptions {
   accept_potentially_dangerous_queries?: boolean;
   priority?: BucketPriority;
   compatibility: CompatibilityContext;
@@ -208,7 +237,7 @@ export class RequestParameters implements ParameterValueSet {
     // Client and token parameters don't contain DateTime values or other custom types, so we don't need to consider
     // compatibility.
     this.parsedTokenPayload = tokenPayload.parsedPayload;
-    this.legacyTokenParameters = toSyncRulesParameters(
+    this.legacyTokenParameters = toSyncConfigParameters(
       {
         ...legacyParameters,
         // sub takes presedence over any embedded parameters
@@ -220,7 +249,7 @@ export class RequestParameters implements ParameterValueSet {
     this.rawTokenPayload = JSONBig.stringify(tokenPayload.parsedPayload);
 
     this.rawUserParameters = JSONBig.stringify(clientParameters);
-    this.userParameters = toSyncRulesParameters(clientParameters!, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    this.userParameters = toSyncConfigParameters(clientParameters!, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
     this.streamParameters = null;
     this.rawStreamParameters = null;
   }
