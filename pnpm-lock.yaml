@@ -802,7 +802,7 @@ importers:
         specifier: workspace:*
         version: link:../../modules/module-postgres-storage
       jose:
-        specifier: ^4.15.9
+        specifier: ^4.15.1
         version: 4.15.9
       mongodb-connection-string-url:
         specifier: ^3.0.2
