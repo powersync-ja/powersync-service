@@ -1,43 +1,74 @@
 import type { RequestedStream } from '@powersync/service-sync-rules';
+import * as YAML from 'yaml';
 import { createRow, rowId } from '../generators/benchmark-data.js';
 import type { BenchmarkDataDefinition, BenchmarkDataPhase } from '../types/BenchmarkDataDefinition.js';
 import type { BenchmarkCorrectnessCheck } from '../types/BenchmarkIteration.js';
 import type { BenchmarkSourceTable } from '../types/BenchmarkScenario.js';
-import type { BenchmarkSyncDefinition } from '../types/BenchmarkSyncDefinition.js';
+import type { BenchmarkStreamDefinition, BenchmarkSyncDefinition } from '../types/BenchmarkSyncDefinition.js';
 import { operationMatchesRow, streamNameForBucket, type OperationEvidence } from './operation-evidence.js';
 import { qualifiedTable } from './replication-sync-rules.js';
+
+function buildQuery(
+  data: BenchmarkDataDefinition,
+  source: BenchmarkSourceTable,
+  sync: BenchmarkSyncDefinition,
+  stream: BenchmarkStreamDefinition,
+  key: string
+) {
+  const table = data.tables.find((t) => t.key === key);
+  if (table == null) throw new Error(`Missing sync table ${key}`);
+
+  const qualified = qualifiedTable({ schema: source.schema, table: table.name });
+  const where =
+    stream.bucket_count === 1
+      ? ''
+      : ` WHERE (partition_key - CAST(partition_key / ${stream.bucket_count} AS INTEGER) * ${stream.bucket_count}) = ${sync.engine === 'sync-streams' ? "subscription.parameter('partition')" : 'bucket.partition'}`;
+  return `SELECT * FROM ${qualified}${where}`;
+}
+
+function buildStream(
+  data: BenchmarkDataDefinition,
+  source: BenchmarkSourceTable,
+  sync: BenchmarkSyncDefinition,
+  stream: BenchmarkStreamDefinition
+) {
+  const queries = stream.tables.map((key) => buildQuery(data, source, sync, stream, key));
+
+  if (sync.engine === 'sync-streams') {
+    return [
+      stream.name,
+      {
+        ...(stream.bucket_count === 1 ? { auto_subscribe: true } : { accept_potentially_dangerous_queries: true }),
+        queries
+      }
+    ];
+  }
+
+  return [
+    stream.name,
+    {
+      ...(stream.bucket_count === 1
+        ? {}
+        : {
+            accept_potentially_dangerous_queries: true,
+            parameters: `SELECT value AS partition FROM json_each(request.parameter('${stream.name}_partitions'))`
+          }),
+      data: queries
+    }
+  ];
+}
 
 export function renderBenchmarkSync(
   data: BenchmarkDataDefinition,
   sync: BenchmarkSyncDefinition,
   source: BenchmarkSourceTable
 ): string {
-  const sections = sync.streams
-    .map((stream) => {
-      const queries = stream.tables
-        .map((key) => {
-          const table = data.tables.find((t) => t.key === key);
-          if (table == null) throw new Error(`Missing sync table ${key}`);
-          const qualified = qualifiedTable({ schema: source.schema, table: table.name });
-          const where =
-            stream.bucket_count === 1
-              ? ''
-              : ` WHERE (partition_key - CAST(partition_key / ${stream.bucket_count} AS INTEGER) * ${stream.bucket_count}) = ${sync.engine === 'sync-streams' ? "subscription.parameter('partition')" : 'bucket.partition'}`;
-          return `      - ${JSON.stringify(`SELECT * FROM ${qualified}${where}`)}`;
-        })
-        .join('\n');
-      if (sync.engine === 'sync-streams')
-        return `  ${stream.name}:\n    ${stream.bucket_count === 1 ? 'auto_subscribe: true' : 'accept_potentially_dangerous_queries: true'}\n    queries:\n${queries}`;
-      const parameters =
-        stream.bucket_count === 1
-          ? ''
-          : `    accept_potentially_dangerous_queries: true\n    parameters: SELECT value AS partition FROM json_each(request.parameter('${stream.name}_partitions'))\n`;
-      return `  ${stream.name}:\n${parameters}    data:\n${queries}`;
-    })
-    .join('\n');
-  return sync.engine === 'sync-streams'
-    ? `config:\n  edition: 3\nstreams:\n${sections}\n`
-    : `bucket_definitions:\n${sections}\n`;
+  const definitions = Object.fromEntries(sync.streams.map((stream) => buildStream(data, source, sync, stream)));
+  const config =
+    sync.engine === 'sync-streams'
+      ? { config: { edition: 3 }, streams: definitions }
+      : { bucket_definitions: definitions };
+  return YAML.stringify(config);
 }
 
 export function benchmarkClientParameters(sync: BenchmarkSyncDefinition): Record<string, unknown> {
