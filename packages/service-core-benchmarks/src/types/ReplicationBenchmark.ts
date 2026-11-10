@@ -35,7 +35,7 @@ export type ReplicationBenchmarkManifest = SnapshotBenchmarkManifest;
 export interface ReplicationSourceCapabilities {
   readonly positionKind: 'wal-lsn' | 'mongo-lsn' | 'gtid' | 'cdc-lsn' | 'convex-cursor';
   readonly positionsComparable: boolean;
-  readonly atomicity: 'transaction' | 'ordered-batch' | 'single-mutation' | 'topology-dependent';
+  readonly atomicity: 'transaction';
   readonly keepalive: 'native' | 'marker' | 'polling';
 }
 

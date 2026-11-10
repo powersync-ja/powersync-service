@@ -14,24 +14,12 @@ import {
 } from '../../../types/ReplicationBenchmark.js';
 import { SnapshotBenchmarkManifest } from '../../../types/SnapshotBenchmark.js';
 
-export type MongoBenchmarkAtomicity = Extract<
-  ReplicationSourceCapabilities['atomicity'],
-  'transaction' | 'ordered-batch'
->;
-
-export function mongoAtomicityForHello(hello: Record<string, unknown>): MongoBenchmarkAtomicity {
-  const supportsSessions = typeof hello.logicalSessionTimeoutMinutes === 'number';
-  const isReplicaSet = typeof hello.setName === 'string';
-  const isShardedCluster = hello.msg === 'isdbgrid';
-  return supportsSessions && (isReplicaSet || isShardedCluster) ? 'transaction' : 'ordered-batch';
-}
-
 const COLLECTION_NAME = 'benchmark_items';
 
 export const MONGODB_REPLICATION_SOURCE_CAPABILITIES: ReplicationSourceCapabilities = {
   positionKind: 'mongo-lsn',
   positionsComparable: true,
-  atomicity: 'topology-dependent',
+  atomicity: 'transaction',
   keepalive: 'marker'
 };
 
@@ -46,7 +34,6 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
   private databaseName?: string;
   private serverVersion?: string;
   private topology?: string;
-  private atomicity?: MongoBenchmarkAtomicity;
   private schemaCreated = false;
   private databaseCleanupComplete = false;
   private clientCleanupComplete = false;
@@ -80,7 +67,10 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
     await this.client.connect();
     const admin = this.client.db('admin');
     const [hello, buildInfo] = await Promise.all([admin.command({ hello: 1 }), admin.command({ buildInfo: 1 })]);
-    this.atomicity = mongoAtomicityForHello(hello);
+    if (typeof hello.logicalSessionTimeoutMinutes !== 'number' || typeof hello.setName !== 'string') {
+      throw new Error('MongoDB replication benchmarks require a replica set with transaction support');
+    }
+
     this.topology = topologyForHello(hello);
     this.serverVersion = typeof buildInfo.version === 'string' ? buildInfo.version : 'unknown';
     this.databaseName = databaseNameForIteration(iterationId);
@@ -115,25 +105,21 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
     const prepared = this.manifest?.transactions.byId(transaction.id);
     if (prepared == null) throw new Error(`Unknown MongoDB benchmark transaction ${transaction.id}`);
 
-    const writeBatches = async (session?: mongo.ClientSession) => {
+    const writeBatches = async (session: mongo.ClientSession) => {
       for (const range of prepared.ranges)
         for (const batch of rowBatches(range, this.manifest!.data.batch_size)) {
           this.signal?.throwIfAborted();
           await database.collection<mongo.Document & { _id: string }>(range.table.name).insertMany(
             batch.map((row) => ({ ...row, _id: row.id })),
-            { ordered: true, ...(session ? { session } : { writeConcern: { w: 'majority' } }) }
+            { ordered: true, session }
           );
         }
     };
-    if (this.atomicity === 'transaction') {
-      const session = this.client.startSession();
-      try {
-        await session.withTransaction(() => writeBatches(session), { writeConcern: { w: 'majority' } });
-      } finally {
-        await session.endSession();
-      }
-    } else {
-      await writeBatches();
+    const session = this.client.startSession();
+    try {
+      await session.withTransaction(() => writeBatches(session), { writeConcern: { w: 'majority' } });
+    } finally {
+      await session.endSession();
     }
 
     const committedAtNs = process.hrtime.bigint().toString();
@@ -162,7 +148,7 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
       source_implementation: this.id,
       source_server_version: this.serverVersion,
       source_topology: this.topology,
-      source_atomicity: this.atomicity,
+      source_atomicity: this.capabilities.atomicity,
       source_position_semantics: 'mongo-lsn'
     };
   }
