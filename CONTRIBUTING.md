@@ -2,7 +2,7 @@
 
 We want this community to be friendly and respectful to each other. Please follow it in all your interactions with the project.
 
-Before you contribute, please review our [Enterprise Roadmap](#enterprise-roadmap), specifically what's listed under **PowerSync Service**. It lists planned premium features which are closed-source. We rely on an 'open-core' model to sustain ourselves and fund our open-source work.
+Before you contribute, please review our [Enterprise Roadmap](https://roadmap.powersync.com/tabs/8-enterprise-roadmap), specifically what's listed under **PowerSync Service**. It lists planned premium features which are closed-source. We rely on an 'open-core' model to sustain ourselves and fund our open-source work.
 
 All types of contributions are encouraged and valued. See the [Table of Contents](#table-of-contents) for different ways to help and details about how this project handles them. Please make sure to read the relevant section before making your contribution. It will make it a lot easier for us maintainers and smooth out the experience for all involved. The community looks forward to your contributions.
 
