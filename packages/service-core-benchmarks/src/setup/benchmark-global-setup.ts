@@ -5,7 +5,6 @@ import { artifactRoot, finishSuite, startSuite } from '../utils/output.js';
 
 export async function setup() {
   const args = process.argv.slice(2);
-  if (args.some((arg) => ['--list-tags', '--help', '-h', '--version', '-v'].includes(arg))) return;
 
   let gitSha: string | null = process.env.CUSTOM_SHA ?? null;
   if (gitSha == null) {
