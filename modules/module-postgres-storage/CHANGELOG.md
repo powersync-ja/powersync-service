@@ -1,5 +1,12 @@
 # @powersync/service-module-postgres-storage
 
+## 0.19.7
+
+### Patch Changes
+
+- e104596: Insert bucket data and parameter data rows while a replication batch accumulates, instead of holding all rows until the end of the transaction. This bounds the memory used by a single source row evaluated into many buckets by `batch_limits.max_estimated_size`.
+  - @powersync/service-core@1.28.2
+
 ## 0.19.6
 
 ### Patch Changes
