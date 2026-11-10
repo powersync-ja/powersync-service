@@ -153,7 +153,6 @@ export class SocketAdapter {
     this._socket.write(data, this._writeResume);
     await p;
     if (this._error) throw this._error; // TODO callstack
-
     return data.length;
   }
   // async closeWrite() {
