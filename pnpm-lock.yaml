@@ -572,9 +572,6 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
-      pgwire:
-        specifier: ^0.8.1
-        version: 0.8.1
     devDependencies:
       vitest:
         specifier: 'catalog:'
@@ -3574,10 +3571,6 @@ packages:
 
   pgsql-ast-parser@11.2.0:
     resolution: {integrity: sha512-/8KCcQjePoQDOtfZQuoV/4Y3WpmQVp7E+RFayAdjJpdBdu2dBnKnuQe9XU4g5Td5qC0G+i/fFK/DlNjvWwg+FA==}
-
-  pgwire@0.8.1:
-    resolution: {integrity: sha512-9Q1Mh5eR0IaeTrfZ+vovkj0zyEpxTijEbGizMezwUjo1vSbJnequf7Y+roSQph7POuJ7xOPDqjQJUMM2OQR+zw==}
-    engines: {node: '>=18.17.0'}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -7090,8 +7083,6 @@ snapshots:
     dependencies:
       moo: 0.5.2
       nearley: 2.20.1
-
-  pgwire@0.8.1: {}
 
   picocolors@1.1.1: {}
 

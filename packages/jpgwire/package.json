@@ -21,8 +21,7 @@
   "dependencies": {
     "@powersync/service-jsonbig": "workspace:^",
     "@powersync/service-sync-rules": "workspace:^",
-    "date-fns": "^4.1.0",
-    "pgwire": "^0.8.1"
+    "date-fns": "^4.1.0"
   },
   "devDependencies": {
     "vitest": "catalog:"
