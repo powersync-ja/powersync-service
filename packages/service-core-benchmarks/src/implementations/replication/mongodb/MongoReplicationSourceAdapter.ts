@@ -135,9 +135,7 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
   }
 
   comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison {
-    if (target.nativePosition == null) return { positionCompared: false, reached: true };
     return {
-      positionCompared: true,
       reached: checkpoint >= target.nativePosition,
       details: { checkpoint, target: target.nativePosition, semantics: 'mongo-lsn' }
     };

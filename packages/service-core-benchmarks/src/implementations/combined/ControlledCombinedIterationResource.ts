@@ -12,12 +12,11 @@ import {
   ReplicationPositionComparison,
   ReplicationReleaseObservation
 } from '../../types/ReplicationBenchmark.js';
-import { SnapshotBenchmarkTarget } from '../../types/SnapshotBenchmark.js';
 
 export interface CombinedTargetEvidenceOptions {
-  readonly target: SnapshotBenchmarkTarget;
+  readonly target: ReplicationBenchmarkTarget;
   readonly collectEvidence: () => Promise<CombinedChildEvidencePayload>;
-  readonly comparePosition: (checkpoint: string, target: SnapshotBenchmarkTarget) => ReplicationPositionComparison;
+  readonly comparePosition: (checkpoint: string, target: ReplicationBenchmarkTarget) => ReplicationPositionComparison;
   readonly delay?: () => Promise<void>;
   readonly now?: () => bigint;
 }
@@ -52,13 +51,7 @@ export async function waitForCombinedTargetEvidence(
     }
     const comparison = options.comparePosition(evidence.checkpoint, options.target);
     const marker = evidence.evidence.markers[options.target.markerId]?.operation;
-    if (
-      evidence.snapshotDone &&
-      evidence.syncConfigActive &&
-      comparison.positionCompared &&
-      comparison.reached &&
-      markerContainsTarget(marker)
-    ) {
+    if (evidence.snapshotDone && evidence.syncConfigActive && comparison.reached && markerContainsTarget(marker)) {
       return {
         target: options.target,
         storageCheckpoint: evidence.storageCheckpoint,
@@ -110,7 +103,7 @@ export class ControlledCombinedIterationResource implements CombinedBenchmarkIte
     });
   }
 
-  comparePosition(checkpoint: string, target: SnapshotBenchmarkTarget): ReplicationPositionComparison {
+  comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison {
     return this.source.comparePosition(checkpoint, target);
   }
 

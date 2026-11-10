@@ -27,6 +27,7 @@ export interface ReplicationBenchmarkItem extends SnapshotBenchmarkItem {}
 export type ReplicationBenchmarkTransaction = BenchmarkTransaction;
 
 export interface ReplicationBenchmarkTarget extends SnapshotBenchmarkTarget {
+  readonly nativePosition: string;
   readonly committedAtNs?: string;
 }
 
@@ -40,7 +41,6 @@ export interface ReplicationSourceCapabilities {
 }
 
 export interface ReplicationPositionComparison {
-  readonly positionCompared: boolean;
   readonly reached: boolean;
   readonly details?: object;
 }

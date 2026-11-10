@@ -10,6 +10,7 @@ import {
   CombinedBenchmarkRunContext,
   CombinedBenchmarkScenario
 } from '../types/CombinedBenchmark.js';
+import { ReplicationBenchmarkTarget } from '../types/ReplicationBenchmark.js';
 import { check } from '../utils/api-utils.js';
 import { benchmarkClientStreams, benchmarkMarkerIds, verifyBenchmarkEvidence } from '../utils/benchmark-sync.js';
 import {
@@ -131,13 +132,14 @@ export class CombinedBenchmark extends Benchmark<
     runtime.metrics.startBoundary('end_to_end_streaming', 'source_commit_start');
     try {
       let firstCommittedAtNs: string | undefined;
-      let target = manifest.target;
+      let target: ReplicationBenchmarkTarget | undefined;
       for (const transaction of manifest.transactions) {
         const committed = await resource.commitTransaction(transaction.id);
         firstCommittedAtNs ??= committed.committedAtNs;
         target = committed;
       }
-      if (firstCommittedAtNs == null) throw new Error('Streaming workload produced no committed target');
+      if (firstCommittedAtNs == null || target == null)
+        throw new Error('Streaming workload produced no committed target');
       runtime.metrics.startBoundary('http_read', 'source_committed');
       let storageObservation: CombinedBenchmarkObservation;
       let clientObservation: NdjsonDrainObservation;
@@ -169,7 +171,7 @@ export class CombinedBenchmark extends Benchmark<
     const comparison = context.resource.comparePosition(storage.checkpoint, storage.target);
     const checks: BenchmarkCorrectnessCheck[] = [
       check('snapshot_complete', storage.snapshotDone, { actual: storage.snapshotDone }),
-      check('checkpoint_position', comparison.positionCompared && comparison.reached, comparison),
+      check('checkpoint_position', comparison.reached, comparison),
       check('storage_bucket_count', storage.bucketCount === this.scenario.expected_bucket_count, {
         expected: this.scenario.expected_bucket_count,
         actual: storage.bucketCount

@@ -91,7 +91,8 @@ export class ReplicationBenchmark extends Benchmark<
 
     if (this.scenario.phase === 'snapshot') {
       const release = await resource.releaseReplication(false);
-      target = release.target ?? manifest.target;
+      if (release.target == null) throw new Error('Replication release did not provide a snapshot target');
+      target = release.target;
       startAtNs = release.releasedAtNs;
       startEvent = 'replication_released';
       releasedAtNs = release.releasedAtNs;

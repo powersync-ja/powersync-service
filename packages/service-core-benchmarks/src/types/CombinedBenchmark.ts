@@ -8,7 +8,6 @@ import {
   ReplicationBenchmarkTarget,
   ReplicationPositionComparison
 } from './ReplicationBenchmark.js';
-import { SnapshotBenchmarkTarget } from './SnapshotBenchmark.js';
 import { StorageBenchmarkImplementationId } from './StorageBenchmark.js';
 
 export interface CombinedBenchmarkScenario extends BenchmarkScenario, ApiClientConfiguration {
@@ -37,7 +36,7 @@ export interface CombinedBenchmarkIterationSetup {
 }
 
 export interface CombinedBenchmarkObservation {
-  readonly target: SnapshotBenchmarkTarget;
+  readonly target: ReplicationBenchmarkTarget;
   /** Exact bucket-storage checkpoint id exposed to clients as last_op_id. */
   readonly storageCheckpoint: string;
   /** Source position associated with the storage checkpoint. */
@@ -63,11 +62,11 @@ export interface CombinedReleaseObservation {
 export interface CombinedBenchmarkIterationResource {
   readonly endpoint: string;
   readonly token: string;
-  readonly target: SnapshotBenchmarkTarget;
+  readonly target: ReplicationBenchmarkTarget;
   releaseReplication(waitForSnapshot?: boolean): Promise<CombinedReleaseObservation>;
   commitTransaction(transactionId: string): Promise<ReplicationBenchmarkTarget>;
   observeCheckpoint(target?: ReplicationBenchmarkTarget): Promise<CombinedBenchmarkObservation>;
-  comparePosition(checkpoint: string, target: SnapshotBenchmarkTarget): ReplicationPositionComparison;
+  comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison;
   dispose(): Promise<void>;
 }
 
