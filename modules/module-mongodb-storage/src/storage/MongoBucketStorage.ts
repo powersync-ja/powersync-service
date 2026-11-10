@@ -576,7 +576,67 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   private async withTransaction<T>(callback: (session: mongo.ClientSession) => Promise<T>): Promise<T> {
-    return this.client.withSession((session) => session.withTransaction(callback));
+    // Serialize deployment with collection drops so newly deployed streams retain their storage.
+    return this.withStorageSchemaLock((refresh) =>
+      this.client.withSession((session) =>
+        session.withTransaction(async () => {
+          await refresh();
+          return callback(session);
+        })
+      )
+    );
+  }
+
+  private async withStorageSchemaLock<T>(callback: (refresh: () => Promise<void>) => Promise<T>): Promise<T> {
+    const name = 'v1-storage-collections';
+    // Seed by unique _id so concurrent first acquisitions share one lock document.
+    await this.db.db
+      .collection<{ _id: string; name: string }>('locks')
+      .updateOne({ _id: name }, { $setOnInsert: { name } }, { upsert: true });
+    const manager = new lib_mongo.locks.MongoLockManager({ collection: this.db.locks, name, timeout: 300_000 });
+    let result!: T;
+    await manager.lock(
+      async (refresh) => {
+        let lastRefresh = Date.now();
+        result = await callback(async () => {
+          // Rate-limit refresh writes; identical timestamps are not a modified document.
+          if (Date.now() - lastRefresh >= 30_000) {
+            await refresh();
+            lastRefresh = Date.now();
+          }
+        });
+      },
+      { max_wait_ms: 60_000 }
+    );
+    return result;
+  }
+
+  /** Returns true when no v1/v2 stream needs the shared data collections. */
+  async dropUnusedV1StorageCollections(signal?: AbortSignal): Promise<boolean> {
+    return this.withStorageSchemaLock(async (refresh) => {
+      signal?.throwIfAborted();
+      const live = await this.db.sync_rules.findOne(
+        {
+          $or: [{ storage_version: { $lt: storage.STORAGE_VERSION_3 } }, { storage_version: { $exists: false } }],
+          // Processing streams write data; errored streams still serve clients.
+          state: { $nin: [storage.SyncRuleState.STOP, storage.SyncRuleState.TERMINATED] }
+        },
+        { projection: { _id: 1 } }
+      );
+      if (live != null) return false;
+      for (const collection of this.db.v1DataCollections) {
+        signal?.throwIfAborted();
+        await refresh();
+        const dropped = await collection
+          .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+          .catch((error) => {
+            if (!lib_mongo.isMongoNamespaceNotFoundError(error)) throw error;
+            return false;
+          });
+        if (dropped) logger.info(`Dropped unused v1/v2 storage collection: ${collection.collectionName}`);
+      }
+      return true;
+    });
   }
 
   /**

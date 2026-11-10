@@ -15,11 +15,6 @@ export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorag
     factory: async (options?: TestStorageOptions) => {
       const db = connectMongoForTests(factoryOptions.url, factoryOptions.isCI, factoryOptions.monitorCommands);
 
-      // None of the tests insert data into this collection, so it was never created
-      if (!(await db.db.listCollections({ name: db.bucket_parameters.collectionName }).hasNext())) {
-        await db.db.createCollection('bucket_parameters');
-      }
-
       // Full migrations are not currently run for tests, so we manually create this
       await db.createCheckpointEventsCollection();
 

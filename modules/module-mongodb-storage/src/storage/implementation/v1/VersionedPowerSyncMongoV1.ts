@@ -26,7 +26,9 @@ export class VersionedPowerSyncMongoV1 extends BaseVersionedPowerSyncMongo {
     return this.upstream.source_tables as any as mongo.Collection<SourceTableDocumentV1>;
   }
 
-  async initializeStreamStorage(_replicationStreamId: number): Promise<void> {}
+  async initializeStreamStorage(_replicationStreamId: number): Promise<void> {
+    await this.upstream.initializeV1StorageCollections();
+  }
 
   get bucketDataV1(): mongo.Collection<BucketDataDocumentV1> {
     return this.upstream.bucket_data;
