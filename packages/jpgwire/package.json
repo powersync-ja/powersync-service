@@ -16,7 +16,9 @@
     "clean": "rm -r ./dist && tsc -b --clean",
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
-    "test": "vitest"
+    "test": "vitest",
+    "test:upstream": "docker compose -f test/upstream/compose.yml up --build --abort-on-container-exit --exit-code-from node",
+    "test:upstream:down": "docker compose -f test/upstream/compose.yml down --volumes --remove-orphans"
   },
   "dependencies": {
     "@powersync/service-jsonbig": "workspace:^",
