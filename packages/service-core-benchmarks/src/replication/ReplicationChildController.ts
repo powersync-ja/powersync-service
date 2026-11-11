@@ -31,7 +31,15 @@ const ALLOWED_COMMANDS: Record<ChildState, readonly ReplicationChildCommandKind[
   new: ['initialize', 'abort'],
   initialized: ['setup_iteration', 'shutdown', 'abort'],
   'iteration-ready': ['release_replication', 'monitor_start', 'cleanup_iteration', 'abort'],
-  running: ['collect_evidence', 'monitor_start', 'monitor_stop', 'cleanup_iteration', 'abort'],
+  running: [
+    'wait_checkpoint',
+    'cancel_checkpoint_wait',
+    'collect_evidence',
+    'monitor_start',
+    'monitor_stop',
+    'cleanup_iteration',
+    'abort'
+  ],
   'shutting-down': [],
   failed: ['abort'],
   stopped: []

@@ -3,7 +3,7 @@ import type { ReplicationReleaseObservation } from '../types/ReplicationBenchmar
 import type { OperationEvidence } from '../utils/operation-evidence.js';
 import type { ReplicationChildClassDescriptor } from './ReplicationChildClassLoader.js';
 
-export const REPLICATION_CHILD_PROTOCOL_VERSION = 4 as const;
+export const REPLICATION_CHILD_PROTOCOL_VERSION = 5 as const;
 
 export interface ReplicationChildInitializePayload {
   readonly storage: ReplicationChildClassDescriptor;
@@ -22,6 +22,8 @@ export interface ReplicationChildCommandPayloads {
   readonly initialize: ReplicationChildInitializePayload;
   readonly setup_iteration: ReplicationChildSetupIterationPayload;
   readonly release_replication: { readonly waitForSnapshot?: boolean };
+  readonly wait_checkpoint: { readonly after?: string };
+  readonly cancel_checkpoint_wait: Record<string, never>;
   readonly collect_evidence: Record<string, never>;
   readonly cleanup_iteration: Record<string, never>;
   readonly monitor_start: Record<string, never>;
@@ -57,6 +59,8 @@ export interface ReplicationChildResponsePayloads {
   readonly initialize: { readonly environment: object; readonly pid: number };
   readonly setup_iteration: { readonly replicationStreamName: string };
   readonly release_replication: ReplicationReleaseObservation;
+  readonly wait_checkpoint: { readonly position: string; readonly visibleAtNs: string } | null;
+  readonly cancel_checkpoint_wait: Record<string, never>;
   readonly collect_evidence: ReplicationChildEvidencePayload;
   readonly cleanup_iteration: Record<string, never>;
   readonly monitor_start: ReplicationChildResourceSamplePayload;
@@ -69,6 +73,8 @@ export type ReplicationChildCommandKind =
   | 'initialize'
   | 'setup_iteration'
   | 'release_replication'
+  | 'wait_checkpoint'
+  | 'cancel_checkpoint_wait'
   | 'collect_evidence'
   | 'cleanup_iteration'
   | 'monitor_start'

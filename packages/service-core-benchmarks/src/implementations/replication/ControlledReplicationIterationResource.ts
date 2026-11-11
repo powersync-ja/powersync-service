@@ -1,6 +1,6 @@
 import { ReplicationChildController } from '../../replication/ReplicationChildController.js';
-import { ReplicationChildEvidencePayload } from '../../replication/replication-child-protocol.js';
 import {
+  ReplicationBenchmarkEvidence,
   ReplicationBenchmarkIterationResource,
   ReplicationBenchmarkIterationSetup,
   ReplicationBenchmarkObservation,
@@ -9,42 +9,6 @@ import {
   ReplicationPositionComparison,
   ReplicationReleaseObservation
 } from '../../types/ReplicationBenchmark.js';
-
-export interface TargetEvidenceOptions {
-  readonly target: ReplicationBenchmarkTarget;
-  readonly releasedAtNs?: string;
-  readonly collectEvidence: () => Promise<ReplicationChildEvidencePayload>;
-  readonly comparePosition: (checkpoint: string, target: ReplicationBenchmarkTarget) => ReplicationPositionComparison;
-  readonly delay?: () => Promise<void>;
-}
-
-export async function waitForTargetEvidence(options: TargetEvidenceOptions): Promise<ReplicationBenchmarkObservation> {
-  const delay = options.delay ?? (() => new Promise((resolve) => setTimeout(resolve, 30)));
-  while (true) {
-    const evidence = await options.collectEvidence();
-    if (evidence.checkpoint == null) {
-      await delay();
-      continue;
-    }
-    const comparison = options.comparePosition(evidence.checkpoint, options.target);
-    const marker = evidence.evidence.markers[options.target.markerId]?.operation;
-    if (comparison.reached && markerContainsTarget(marker)) {
-      return {
-        target: options.target,
-        checkpoint: evidence.checkpoint,
-        checkpointVisibleAtNs: evidence.checkpointVisibleAtNs,
-        replicationReleasedAtNs: options.releasedAtNs,
-        evidence: evidence.evidence,
-        snapshotDone: evidence.snapshotDone,
-        bucketCount: evidence.bucketCount,
-        keepalives: 0,
-        retries: 0,
-        restarts: 0
-      };
-    }
-    await delay();
-  }
-}
 
 export class ControlledReplicationIterationResource implements ReplicationBenchmarkIterationResource {
   private disposed = false;
@@ -72,15 +36,49 @@ export class ControlledReplicationIterationResource implements ReplicationBenchm
     return await this.source.keepalive();
   }
 
-  async observeCheckpoint(options: {
+  async collectEvidence(): Promise<ReplicationBenchmarkEvidence> {
+    return await this.controller.request('collect_evidence', {}, this.setup.iterationId);
+  }
+
+  async waitForCheckpoint(options: {
     target: ReplicationBenchmarkTarget;
     releasedAtNs?: string;
+    signal: AbortSignal;
   }): Promise<ReplicationBenchmarkObservation> {
-    return await waitForTargetEvidence({
-      ...options,
-      collectEvidence: () => this.controller.request('collect_evidence', {}, this.setup.iterationId),
-      comparePosition: (checkpoint, target) => this.source.comparePosition(checkpoint, target)
-    });
+    const { signal, target } = options;
+    signal.throwIfAborted();
+    let cancellation: Promise<unknown> | undefined;
+    const cancel = () => {
+      cancellation = Promise.resolve().then(() =>
+        this.controller.request('cancel_checkpoint_wait', {}, this.setup.iterationId)
+      );
+      // The pending wait also fails if the child exits.
+      void cancellation.catch(() => {});
+    };
+    signal.addEventListener('abort', cancel, { once: true });
+    try {
+      let after: string | undefined;
+      while (true) {
+        const checkpoint = await this.controller.request('wait_checkpoint', { after }, this.setup.iterationId);
+        signal.throwIfAborted();
+        if (checkpoint == null) throw new Error('Checkpoint watcher ended before reaching the target');
+        if (this.source.comparePosition(checkpoint.position, target).reached) {
+          return {
+            target,
+            checkpoint: checkpoint.position,
+            checkpointVisibleAtNs: checkpoint.visibleAtNs,
+            replicationReleasedAtNs: options.releasedAtNs,
+            keepalives: 0,
+            retries: 0,
+            restarts: 0
+          };
+        }
+        after = checkpoint.position;
+      }
+    } finally {
+      signal.removeEventListener('abort', cancel);
+      await cancellation;
+    }
   }
 
   comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison {
@@ -110,14 +108,5 @@ export class ControlledReplicationIterationResource implements ReplicationBenchm
       this.onDispose();
     }
     if (errors.length > 0) throw new AggregateError(errors, 'Controlled replication iteration cleanup failed');
-  }
-}
-
-function markerContainsTarget(operation: { op: string; data?: unknown } | undefined): boolean {
-  if (operation?.op !== 'PUT' || typeof operation.data !== 'string') return false;
-  try {
-    return (JSON.parse(operation.data) as { is_target?: number }).is_target === 1;
-  } catch {
-    return false;
   }
 }

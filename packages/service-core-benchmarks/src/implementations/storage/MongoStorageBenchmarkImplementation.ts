@@ -1,4 +1,5 @@
-import { MongoBucketStorage, test_utils as mongoTestUtils } from '@powersync/service-module-mongodb-storage';
+import { mongo, MONGO_SOCKET_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
+import { MongoBucketStorage, PowerSyncMongo } from '@powersync/service-module-mongodb-storage';
 import {
   MongoStorageBenchmarkImplementationOptions,
   StorageBenchmarkImplementation,
@@ -12,7 +13,15 @@ export class MongoStorageBenchmarkImplementation implements StorageBenchmarkImpl
 
   async open(signal: AbortSignal): Promise<StorageBenchmarkRunResource> {
     signal.throwIfAborted();
-    const database = mongoTestUtils.connectMongoForTests(this.options.url, this.options.isCI);
+    // Checkpoint watchers await events for up to 10 seconds. The test helper's
+    // 5-second socket timeout can expire on a healthy, idle watcher.
+    const database = new PowerSyncMongo(
+      new mongo.MongoClient(this.options.url, {
+        connectTimeoutMS: this.options.isCI ? 15_000 : 5_000,
+        socketTimeoutMS: MONGO_SOCKET_TIMEOUT_MS,
+        serverSelectionTimeoutMS: this.options.isCI ? 15_000 : 2_500
+      })
+    );
     let factory: MongoBucketStorage | undefined;
 
     try {

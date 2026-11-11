@@ -15,6 +15,7 @@ import { OperationAccumulator, readBucketEvidence } from '../utils/operation-evi
 import { createBenchmarkServiceContext } from './BenchmarkServiceContext.js';
 import { constructReplicationChildImplementation } from './ReplicationChildClassLoader.js';
 import { ReplicationChildSourceImplementation } from './ReplicationChildSourceImplementation.js';
+import { waitForCheckpointChange } from './checkpoint-watcher.js';
 import {
   ReplicationChildCommand,
   ReplicationChildEvidencePayload,
@@ -38,6 +39,7 @@ interface ReplicationChildRuntimeState {
 }
 
 export class ReplicationChildRuntime {
+  private checkpointWait?: AbortController;
   private readonly state: ReplicationChildRuntimeState = { lifecycleStarted: false };
 
   async execute(command: ReplicationChildCommand): Promise<unknown> {
@@ -54,6 +56,23 @@ export class ReplicationChildRuntime {
         const waitForSnapshot = command.payload.waitForSnapshot === true;
         return { releasedAtNs, snapshot: waitForSnapshot ? await this.waitForSnapshotCompletion() : undefined };
       }
+      case 'wait_checkpoint': {
+        if (this.checkpointWait != null) throw new Error('A checkpoint wait is already running');
+        const controller = new AbortController();
+        this.checkpointWait = controller;
+        try {
+          return await waitForCheckpointChange(
+            required(this.state.bucketStorage, 'bucket storage'),
+            command.payload.after,
+            controller.signal
+          );
+        } finally {
+          this.checkpointWait = undefined;
+        }
+      }
+      case 'cancel_checkpoint_wait':
+        this.checkpointWait?.abort();
+        return {};
       case 'collect_evidence':
         return await this.collectEvidence();
       case 'cleanup_iteration':
@@ -199,6 +218,7 @@ export class ReplicationChildRuntime {
   }
 
   private async cleanupIteration(): Promise<void> {
+    this.checkpointWait?.abort();
     const errors: unknown[] = [];
     if (this.state.lifecycleStarted && this.state.context != null) {
       try {

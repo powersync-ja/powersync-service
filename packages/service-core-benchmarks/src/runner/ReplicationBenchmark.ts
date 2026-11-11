@@ -66,7 +66,8 @@ export class ReplicationBenchmark extends Benchmark<
     if (this.scenario.phase === 'streaming') {
       try {
         const release = await resource.releaseReplication(true);
-        const initial = await resource.observeCheckpoint({ target: release.target! });
+        await resource.waitForCheckpoint({ target: release.target!, signal: runtime.signal });
+        const initial = await resource.collectEvidence();
         if (
           !verifyBenchmarkEvidence(this.scenario.data, this.scenario.sync, initial.evidence, ['snapshot']).every(
             (check) => check.passed
@@ -112,7 +113,7 @@ export class ReplicationBenchmark extends Benchmark<
       startEvent = 'source_committed';
     }
 
-    const observation = await resource.observeCheckpoint({ target, releasedAtNs });
+    const observation = await resource.waitForCheckpoint({ target, releasedAtNs, signal: runtime.signal });
     runtime.metrics.recordBoundary(
       this.scenario.phase === 'snapshot' ? 'replication_snapshot' : 'replication_streaming',
       startEvent,
@@ -121,32 +122,6 @@ export class ReplicationBenchmark extends Benchmark<
       monotonicMilliseconds(observation.checkpointVisibleAtNs)
     );
 
-    const workCounters = replicationWorkCounters(this.scenario.phase, manifest, observation.evidence);
-    Object.entries(workCounters).forEach((counter) => {
-      const [name, value] = counter;
-      runtime.metrics.setCounter(name, value);
-    });
-
-    runtime.metrics.setCounter(
-      'source_transactions',
-      this.scenario.phase === 'snapshot' ? 0 : manifest.transactions.length
-    );
-    runtime.metrics.setCounter('source_logical_bytes', manifest.sourceLogicalBytes);
-    runtime.metrics.setCounter('payload_bytes', manifest.payloadBytes);
-    runtime.metrics.setCounter(
-      'bucket_data_bytes',
-      observation.evidence.phaseDataBytes[this.scenario.phase === 'snapshot' ? 'snapshot' : 'streaming'] ?? 0
-    );
-    runtime.metrics.setCounter('parameter_operations', 0);
-    runtime.metrics.setCounter('distinct_buckets', observation.bucketCount);
-    runtime.metrics.setCounter(
-      'visible_checkpoints',
-      this.scenario.phase === 'snapshot' ? 1 : manifest.transactions.length + 1
-    );
-    runtime.metrics.setCounter('target_markers', this.scenario.phase === 'snapshot' ? 1 : manifest.transactions.length);
-    runtime.metrics.setCounter('keepalives', observation.keepalives + context.keepalives);
-    runtime.metrics.setCounter('retries', observation.retries);
-    runtime.metrics.setCounter('restarts', observation.restarts);
     return observation;
   }
 
@@ -154,18 +129,48 @@ export class ReplicationBenchmark extends Benchmark<
     observation: ReplicationBenchmarkObservation,
     context: IterationState
   ): Promise<BenchmarkCorrectnessResult> {
+    const evidence = await context.resource.collectEvidence();
+    const workCounters = replicationWorkCounters(this.scenario.phase, context.manifest, evidence.evidence);
+    Object.entries(workCounters).forEach((counter) => {
+      const [name, value] = counter;
+      context.runtime.metrics.setCounter(name, value);
+    });
+
+    context.runtime.metrics.setCounter(
+      'source_transactions',
+      this.scenario.phase === 'snapshot' ? 0 : context.manifest.transactions.length
+    );
+    context.runtime.metrics.setCounter('source_logical_bytes', context.manifest.sourceLogicalBytes);
+    context.runtime.metrics.setCounter('payload_bytes', context.manifest.payloadBytes);
+    context.runtime.metrics.setCounter(
+      'bucket_data_bytes',
+      evidence.evidence.phaseDataBytes[this.scenario.phase === 'snapshot' ? 'snapshot' : 'streaming'] ?? 0
+    );
+    context.runtime.metrics.setCounter('parameter_operations', 0);
+    context.runtime.metrics.setCounter('distinct_buckets', evidence.bucketCount);
+    context.runtime.metrics.setCounter(
+      'visible_checkpoints',
+      this.scenario.phase === 'snapshot' ? 1 : context.manifest.transactions.length + 1
+    );
+    context.runtime.metrics.setCounter(
+      'target_markers',
+      this.scenario.phase === 'snapshot' ? 1 : context.manifest.transactions.length
+    );
+    context.runtime.metrics.setCounter('keepalives', observation.keepalives + context.keepalives);
+    context.runtime.metrics.setCounter('retries', observation.retries);
+    context.runtime.metrics.setCounter('restarts', observation.restarts);
     const comparison = context.resource.comparePosition(observation.checkpoint, observation.target);
     const checks: BenchmarkCorrectnessCheck[] = [
-      check('snapshot_complete', observation.snapshotDone, { actual: observation.snapshotDone }),
+      check('snapshot_complete', evidence.snapshotDone, { actual: evidence.snapshotDone }),
       check('checkpoint_position', comparison.reached, comparison),
-      check('bucket_count', observation.bucketCount === this.scenario.expected_bucket_count, {
+      check('bucket_count', evidence.bucketCount === this.scenario.expected_bucket_count, {
         expected: this.scenario.expected_bucket_count,
-        actual: observation.bucketCount
+        actual: evidence.bucketCount
       }),
       ...verifyBenchmarkEvidence(
         this.scenario.data,
         this.scenario.sync,
-        observation.evidence,
+        evidence.evidence,
         this.scenario.phase === 'snapshot' ? ['snapshot'] : ['snapshot', 'streaming']
       )
     ];

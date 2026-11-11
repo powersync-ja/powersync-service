@@ -77,12 +77,15 @@ export interface ReplicationBenchmarkObservation {
   readonly checkpoint: string;
   readonly checkpointVisibleAtNs: string;
   readonly replicationReleasedAtNs?: string;
-  readonly evidence: OperationEvidence;
-  readonly snapshotDone: boolean;
-  readonly bucketCount: number;
   readonly keepalives: number;
   readonly retries: number;
   readonly restarts: number;
+}
+
+export interface ReplicationBenchmarkEvidence {
+  readonly evidence: OperationEvidence;
+  readonly snapshotDone: boolean;
+  readonly bucketCount: number;
 }
 
 export interface ReplicationBenchmarkIterationSetup {
@@ -101,9 +104,13 @@ export interface ReplicationBenchmarkIterationResource {
   releaseReplication(waitForSnapshot?: boolean): Promise<ReplicationReleaseObservation>;
   commitTransaction(transactionId: string): Promise<ReplicationBenchmarkTarget>;
   keepalive(): Promise<ReplicationBenchmarkTarget>;
-  observeCheckpoint(options: {
+  /** Read bucket contents during setup or verification, outside measured execution. */
+  collectEvidence(): Promise<ReplicationBenchmarkEvidence>;
+  /** Observe source progress without reading bucket contents. */
+  waitForCheckpoint(options: {
     target: ReplicationBenchmarkTarget;
     releasedAtNs?: string;
+    signal: AbortSignal;
   }): Promise<ReplicationBenchmarkObservation>;
   comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison;
   dispose(): Promise<void>;
