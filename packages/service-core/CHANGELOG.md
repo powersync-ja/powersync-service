@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.28.3
+
+### Patch Changes
+
+- 05167d9: Bump Node.js to 24.22.3
+
 ## 1.28.2
 
 ## 1.28.1
