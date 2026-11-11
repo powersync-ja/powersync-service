@@ -1,5 +1,6 @@
 import { BenchmarkError } from '../types/BenchmarkError.js';
 import {
+  BenchmarkResourceComponent,
   IntervalScheduler,
   NodeProcessResourceMonitorOptions,
   NodeProcessSample,
@@ -12,7 +13,7 @@ import { toBenchmarkError } from '../utils/benchmark-errors.js';
 import { systemIntervalScheduler } from '../utils/interval-scheduler.js';
 
 export class NodeProcessResourceMonitor implements ResourceMonitor {
-  readonly component = 'load_generator';
+  readonly component: BenchmarkResourceComponent;
 
   private readonly sampleIntervalMs: number;
   private readonly sampler: NodeProcessSampler;
@@ -22,6 +23,7 @@ export class NodeProcessResourceMonitor implements ResourceMonitor {
   private interval: object | null = null;
 
   constructor(options: NodeProcessResourceMonitorOptions = {}) {
+    this.component = options.component ?? 'load_generator';
     this.sampleIntervalMs = options.sampleIntervalMs ?? 100;
     this.sampler = options.sampler ?? systemNodeProcessSampler;
     this.scheduler = options.scheduler ?? systemIntervalScheduler;

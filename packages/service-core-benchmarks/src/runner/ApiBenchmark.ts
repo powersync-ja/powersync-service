@@ -1,7 +1,7 @@
 import { storage, system, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { BATCH_OPTIONS } from '@powersync/service-core-tests';
 import { CoreModule } from '@powersync/service-module-core';
-import { randomUUID } from 'node:crypto';
+import { ForkedApiClient } from '../api/ForkedApiClient.js';
 import { createDataManifest, rowBatches } from '../generators/benchmark-data.js';
 import { createBenchmarkServiceContext } from '../replication/BenchmarkServiceContext.js';
 import { ApiBenchmarkScenario } from '../types/ApiBenchmark.js';
@@ -24,13 +24,7 @@ import {
   verifyBenchmarkEvidence
 } from '../utils/benchmark-sync.js';
 import { resolveBenchmarkTables } from '../utils/benchmark-tables.js';
-import {
-  createNdjsonStreamReader,
-  drainNdjsonResponse,
-  drainNdjsonUntilCheckpoint,
-  NdjsonDrainObservation,
-  NdjsonStreamReader
-} from '../utils/ndjson-drain.js';
+import { NdjsonDrainObservation } from '../utils/ndjson-drain.js';
 import { Benchmark } from './Benchmark.js';
 
 const TARGET_POSITION = '1/1';
@@ -47,9 +41,7 @@ interface ApiBenchmarkIterationContext {
   readonly writer: storage.BucketStorageBatch;
   readonly sourceTables: ReadonlyMap<string, storage.SourceTable>;
   readonly serviceContext: system.ServiceContextContainer;
-  readonly endpoint: string;
-  readonly token: string;
-  readonly streamReader?: NdjsonStreamReader;
+  readonly client: ForkedApiClient;
   readonly initialCheckpoint?: string;
 }
 
@@ -84,7 +76,7 @@ export class ApiBenchmark extends Benchmark<
     let bucketStorage: storage.SyncRulesBucketStorage | undefined;
     let writer: storage.BucketStorageBatch | undefined;
     let serviceContext: system.ServiceContextContainer | undefined;
-    let streamReader: NdjsonStreamReader | undefined;
+    let client: ForkedApiClient | undefined;
 
     const manifest = createDataManifest(this.scenario.data, 'snapshot');
 
@@ -138,11 +130,17 @@ export class ApiBenchmark extends Benchmark<
 
       const endpoint = `http://127.0.0.1:${port}`;
       const token = await createToken(key.signingKey);
+      client = new ForkedApiClient(runtime.signal);
+      await client.initialize({
+        endpoint,
+        token,
+        parameters: this.scenario.sync_parameters,
+        streams: { include_defaults: true, subscriptions: benchmarkClientStreams(this.scenario.sync) },
+        markerIds: benchmarkMarkerIds(this.scenario.data)
+      });
       let initialCheckpoint: string | undefined;
       if (this.scenario.mode === 'streaming') {
-        const response = await this.openSyncStream(endpoint, token, runtime.signal);
-        streamReader = createNdjsonStreamReader(response, benchmarkMarkerIds(this.scenario.data));
-        const initial = await streamReader.nextCheckpoint();
+        const initial = await client.open();
         if (
           initial.status !== 200 ||
           !verifyBenchmarkEvidence(this.scenario.data, this.scenario.sync, initial.evidence, ['snapshot']).every(
@@ -163,14 +161,15 @@ export class ApiBenchmark extends Benchmark<
         writer,
         sourceTables,
         serviceContext,
-        endpoint,
-        token,
-        streamReader,
+        client,
         initialCheckpoint
       };
     } catch (error) {
-      await streamReader?.close();
-      await cleanup(serviceContext, writer, replicationLock, bucketStorage, error);
+      try {
+        await client?.dispose();
+      } finally {
+        await cleanup(serviceContext, writer, replicationLock, bucketStorage, error);
+      }
       throw error;
     }
   }
@@ -180,8 +179,6 @@ export class ApiBenchmark extends Benchmark<
     runtime: BenchmarkIterationRuntime
   ): Promise<NdjsonDrainObservation> {
     if (this.scenario.mode === 'streaming') {
-      const reader = context.streamReader;
-      if (reader == null) throw new Error('Streaming API client was not initialized');
       const manifest = createDataManifest(this.scenario.data, 'streaming');
       runtime.metrics.startBoundary('end_to_end_streaming', 'storage_write_start');
       try {
@@ -205,9 +202,13 @@ export class ApiBenchmark extends Benchmark<
           }
         }
         runtime.metrics.startBoundary('http_read', 'storage_committed');
-        const checkpoint = await context.bucketStorage.getCheckpoint();
-        const observation = await drainNdjsonUntilCheckpoint(reader, checkpoint.checkpoint.toString());
-        runtime.metrics.endBoundary('http_read', 'client_checkpoint_complete');
+        let observation: NdjsonDrainObservation;
+        try {
+          const checkpoint = await context.bucketStorage.getCheckpoint();
+          observation = await context.client.drain(checkpoint.checkpoint.toString());
+        } finally {
+          runtime.metrics.endBoundary('http_read', 'client_checkpoint_complete');
+        }
         this.recordClientCounters(observation, runtime);
         return observation;
       } finally {
@@ -217,8 +218,7 @@ export class ApiBenchmark extends Benchmark<
     runtime.metrics.startBoundary('http_read', 'request_start');
     let observation: NdjsonDrainObservation;
     try {
-      const response = await this.openSyncStream(context.endpoint, context.token, runtime.signal);
-      observation = await drainNdjsonResponse(response, benchmarkMarkerIds(this.scenario.data));
+      observation = await context.client.open();
     } finally {
       runtime.metrics.endBoundary('http_read', 'stream_complete');
     }
@@ -273,8 +273,11 @@ export class ApiBenchmark extends Benchmark<
   }
 
   protected async cleanupIteration(context: ApiBenchmarkIterationContext): Promise<void> {
-    await context.streamReader?.close();
-    await cleanup(context.serviceContext, context.writer, context.replicationLock, context.bucketStorage);
+    try {
+      await context.client.dispose();
+    } finally {
+      await cleanup(context.serviceContext, context.writer, context.replicationLock, context.bucketStorage);
+    }
   }
 
   protected async collectRunMetadata(run: ApiBenchmarkRunContext): Promise<object> {
@@ -282,27 +285,13 @@ export class ApiBenchmark extends Benchmark<
       ...run.resource.environment,
       storage_version: this.scenario.storage.version,
       mode: this.scenario.mode,
-      transport: this.scenario.transport.encoding
+      transport: this.scenario.transport.encoding,
+      client_process: 'forked'
     };
   }
 
   protected async cleanupRun(run: ApiBenchmarkRunContext): Promise<void> {
     await run.resource.dispose();
-  }
-
-  private async openSyncStream(endpoint: string, token: string, signal: AbortSignal): Promise<Response> {
-    return await fetch(`${endpoint}/sync/stream`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'accept-encoding': 'identity' },
-      body: JSON.stringify({
-        raw_data: true,
-        client_id: randomUUID(),
-        buckets: [],
-        parameters: this.scenario.sync_parameters,
-        streams: { include_defaults: true, subscriptions: benchmarkClientStreams(this.scenario.sync) }
-      }),
-      signal
-    });
   }
 
   private recordClientCounters(observation: NdjsonDrainObservation, runtime: BenchmarkIterationRuntime): void {

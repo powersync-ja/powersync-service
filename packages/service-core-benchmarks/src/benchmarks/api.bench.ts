@@ -15,7 +15,7 @@ describe.each(apiBenchmarkCases)('$scenario.id', ({ scenario, implementation }) 
   test('runs', { timeout: scenario.timeout_ms, sequential: true, tags: scenario.tags }, async () => {
     const benchmark = new ApiBenchmark(scenario, implementation, {
       runId: randomUUID(),
-      monitors: [new NodeProcessResourceMonitor(), ...createDatabaseResourceMonitors(scenario)],
+      monitors: [new NodeProcessResourceMonitor({ component: 'service' }), ...createDatabaseResourceMonitors(scenario)],
       signal: AbortSignal.timeout(scenario.timeout_ms - 10_000)
     });
 

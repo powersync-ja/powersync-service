@@ -45,6 +45,7 @@ export interface NodeProcessSampler {
 }
 
 export interface NodeProcessResourceMonitorOptions {
+  readonly component?: BenchmarkResourceComponent;
   readonly sampleIntervalMs?: number;
   readonly sampler?: NodeProcessSampler;
   readonly scheduler?: IntervalScheduler;
