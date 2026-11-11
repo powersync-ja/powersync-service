@@ -14,6 +14,7 @@ export interface NdjsonDrainObservation {
   readonly lineCount: number;
   readonly wireBytes: number;
   readonly firstByteAtNs: string | null;
+  readonly writeCheckpoint: string | null;
   readonly completedCheckpoint: string | null;
   readonly checkpointLastOpId: string | null;
   readonly evidence: OperationEvidence;
@@ -32,6 +33,7 @@ interface NdjsonDrainState {
   readonly dataBucketNames: Set<string>;
   completedCheckpoint: string | null;
   checkpointLastOpId: string | null;
+  writeCheckpoint: string | null;
   checkpointLineIndex: number | null;
   firstDataLineIndex: number | null;
   completionLineIndex: number | null;
@@ -58,6 +60,29 @@ export async function drainNdjsonUntilCheckpoint(
   reader: NdjsonStreamReader,
   targetCheckpoint: string
 ): Promise<NdjsonDrainObservation> {
+  return await drainNdjsonUntil(
+    reader,
+    (observation) =>
+      observation.completedCheckpoint != null && BigInt(observation.completedCheckpoint) >= BigInt(targetCheckpoint)
+  );
+}
+
+/** Drain immediately, including while the source workload and checkpoint request are in flight. */
+export async function drainNdjsonUntilWriteCheckpoint(
+  reader: NdjsonStreamReader,
+  checkpointRequestId: string
+): Promise<NdjsonDrainObservation> {
+  return await drainNdjsonUntil(
+    reader,
+    (observation) =>
+      observation.writeCheckpoint != null && BigInt(observation.writeCheckpoint) >= BigInt(checkpointRequestId)
+  );
+}
+
+async function drainNdjsonUntil(
+  reader: NdjsonStreamReader,
+  reached: (observation: NdjsonDrainObservation) => boolean
+): Promise<NdjsonDrainObservation> {
   let lineCount = 0;
   const accumulator = new OperationAccumulator();
   const bucketNames = new Set<string>();
@@ -78,7 +103,7 @@ export async function drainNdjsonUntilCheckpoint(
     firstByteAtNs ??= latest.firstByteAtNs;
     checkpointLineIndex ??= latest.checkpointLineIndex == null ? null : offset + latest.checkpointLineIndex;
     firstDataLineIndex ??= latest.firstDataLineIndex == null ? null : offset + latest.firstDataLineIndex;
-  } while (latest.completedCheckpoint == null || BigInt(latest.completedCheckpoint) < BigInt(targetCheckpoint));
+  } while (!reached(latest));
   return {
     ...latest,
     lineCount,
@@ -103,10 +128,12 @@ export function createNdjsonStreamReader(response: Response, markerIds: readonly
   let pending = '';
   let closed = false;
   const bucketNames = new Set<string>();
+  let writeCheckpoint: string | null = null;
   return {
     async nextCheckpoint() {
       if (closed) throw new Error('NDJSON stream reader is closed');
       const state = createDrainState(markerIds, bucketNames);
+      state.writeCheckpoint = writeCheckpoint;
       let wireBytes = 0;
       let firstByteAtNs: string | null = null;
       while (state.completedCheckpoint == null) {
@@ -119,6 +146,7 @@ export function createNdjsonStreamReader(response: Response, markerIds: readonly
           continue;
         }
         const chunk = await reader.read();
+        if (closed) throw new Error('NDJSON stream reader is closed');
         if (chunk.done) {
           pending += decoder.decode();
           if (pending.length > 0) throw new Error('API response ended with an incomplete NDJSON line');
@@ -127,7 +155,9 @@ export function createNdjsonStreamReader(response: Response, markerIds: readonly
         firstByteAtNs ??= process.hrtime.bigint().toString();
         pending += decoder.decode(chunk.value, { stream: true });
       }
+      writeCheckpoint = state.writeCheckpoint;
       return {
+        writeCheckpoint,
         status: response.status,
         headers: Object.fromEntries(response.headers.entries()),
         lineCount: state.lineCount,
@@ -164,6 +194,7 @@ function createDrainState(markerIds: readonly string[], bucketNames: Set<string>
     accumulator: new OperationAccumulator(markerIds),
     bucketNames,
     dataBucketNames: new Set(),
+    writeCheckpoint: null,
     completedCheckpoint: null,
     checkpointLastOpId: null,
     checkpointLineIndex: null,
@@ -184,6 +215,14 @@ function consumeLines(input: string, state: NdjsonDrainState): string {
     const checkpointLastOpId = readCheckpointLastOpId(value);
     if (checkpointLastOpId != null) {
       state.checkpointLastOpId = checkpointLastOpId;
+      const checkpoint =
+        (value as Record<string, Record<string, unknown>>).checkpoint ??
+        (value as Record<string, Record<string, unknown>>).checkpoint_diff;
+      const acknowledged = checkpoint.write_checkpoint;
+      if (acknowledged != null && typeof acknowledged !== 'string') {
+        throw new Error('API response included a malformed NDJSON write_checkpoint');
+      }
+      state.writeCheckpoint = acknowledged ?? state.writeCheckpoint;
       state.checkpointLineIndex ??= lineIndex;
     }
 
@@ -198,6 +237,9 @@ function consumeLines(input: string, state: NdjsonDrainState): string {
 
     const completedCheckpoint = readCompletedCheckpoint(value);
     if (completedCheckpoint != null) {
+      if (completedCheckpoint !== state.checkpointLastOpId) {
+        throw new Error('API checkpoint_complete does not match the latest checkpoint');
+      }
       state.completedCheckpoint = completedCheckpoint;
       state.completionLineIndex = lineIndex;
       break;

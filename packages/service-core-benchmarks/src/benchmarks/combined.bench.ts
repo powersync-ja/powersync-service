@@ -33,7 +33,6 @@ describe.each(combinedBenchmarkCases)('$scenario.id', ({ scenario, implementatio
       boundaries:
         scenario.mode === 'streaming'
           ? {
-              replication_streaming: { sample_count: scenario.measured_iterations },
               http_read: { sample_count: scenario.measured_iterations },
               end_to_end_streaming: { sample_count: scenario.measured_iterations }
             }

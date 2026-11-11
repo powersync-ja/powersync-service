@@ -16,7 +16,7 @@ import { benchmarkClientStreams, benchmarkMarkerIds, verifyBenchmarkEvidence } f
 import {
   createNdjsonStreamReader,
   drainNdjsonResponse,
-  drainNdjsonUntilCheckpoint,
+  drainNdjsonUntilWriteCheckpoint,
   NdjsonDrainObservation,
   NdjsonStreamReader
 } from '../utils/ndjson-drain.js';
@@ -30,6 +30,7 @@ interface CombinedExecutionObservation {
 interface CombinedIterationState extends CombinedBenchmarkIterationContext {
   readonly streamReader?: NdjsonStreamReader;
   readonly initialCheckpoint?: string;
+  readonly clientId?: string;
 }
 
 export class CombinedBenchmark extends Benchmark<
@@ -72,7 +73,8 @@ export class CombinedBenchmark extends Benchmark<
     try {
       await resource.releaseReplication(false);
       const initialStorage = await resource.observeCheckpoint();
-      const response = await this.openSyncStream(resource.endpoint, resource.token, runtime.signal);
+      const clientId = randomUUID();
+      const response = await this.openSyncStream(resource.endpoint, resource.token, runtime.signal, clientId);
       streamReader = createNdjsonStreamReader(response, benchmarkMarkerIds(this.scenario.data));
       const initial = await streamReader.nextCheckpoint();
       if (
@@ -85,7 +87,7 @@ export class CombinedBenchmark extends Benchmark<
         throw new Error('Combined streaming benchmark initial client sync did not complete');
       }
 
-      return { runtime, resource, manifest, streamReader, initialCheckpoint: initial.completedCheckpoint };
+      return { runtime, resource, manifest, streamReader, clientId, initialCheckpoint: initial.completedCheckpoint };
     } catch (error) {
       await streamReader?.close();
       await resource.dispose();
@@ -127,40 +129,62 @@ export class CombinedBenchmark extends Benchmark<
   }
 
   private async executeStreamingIteration(context: CombinedIterationState): Promise<CombinedExecutionObservation> {
-    const { runtime, resource, manifest, streamReader } = context;
-    if (streamReader == null) throw new Error('Combined streaming client was not initialized');
+    const { runtime, resource, manifest, streamReader, clientId } = context;
+    if (streamReader == null || clientId == null) throw new Error('Combined streaming client was not initialized');
+    // Each iteration uses a fresh client id, so its first request id is always 1.
+    const checkpointRequestId = '1';
+    const completion = drainNdjsonUntilWriteCheckpoint(streamReader, checkpointRequestId);
+    // A stream failure may precede completion of the source commits or HTTP request.
+    void completion.catch(() => {});
     runtime.metrics.startBoundary('end_to_end_streaming', 'source_commit_start');
+    let target: ReplicationBenchmarkTarget | undefined;
+    let clientObservation: NdjsonDrainObservation;
     try {
-      let firstCommittedAtNs: string | undefined;
-      let target: ReplicationBenchmarkTarget | undefined;
       for (const transaction of manifest.transactions) {
         const committed = await resource.commitTransaction(transaction.id);
-        firstCommittedAtNs ??= committed.committedAtNs;
         target = committed;
       }
-      if (firstCommittedAtNs == null || target == null)
-        throw new Error('Streaming workload produced no committed target');
+      if (target == null) throw new Error('Streaming workload produced no committed target');
       runtime.metrics.startBoundary('http_read', 'source_committed');
-      let storageObservation: CombinedBenchmarkObservation;
-      let clientObservation: NdjsonDrainObservation;
       try {
-        storageObservation = await resource.observeCheckpoint(target);
-        clientObservation = await drainNdjsonUntilCheckpoint(streamReader, storageObservation.storageCheckpoint);
+        const response = await fetch(`${resource.endpoint}/sync/checkpoint-request`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${resource.token}`,
+            'content-type': 'application/json',
+            // This one-off request must not leave an idle connection blocking service teardown.
+            connection: 'close'
+          },
+          body: JSON.stringify({ client_id: clientId, checkpoint_request_id: checkpointRequestId }),
+          signal: runtime.signal
+        });
+        if (!response.ok) throw new Error(`Checkpoint request failed: HTTP ${response.status}`);
+        const payload = await response.json();
+        const acknowledgement =
+          payload != null && typeof payload === 'object' && 'data' in payload ? payload.data : null;
+        if (
+          acknowledgement == null ||
+          typeof acknowledgement !== 'object' ||
+          !('checkpoint_request_id' in acknowledgement) ||
+          acknowledgement.checkpoint_request_id !== checkpointRequestId
+        ) {
+          throw new Error(
+            `Unexpected checkpoint request response for fresh benchmark client: ${JSON.stringify(acknowledgement)}`
+          );
+        }
+        clientObservation = await completion;
       } finally {
         runtime.metrics.endBoundary('http_read', 'client_checkpoint_complete');
       }
-      runtime.metrics.recordBoundary(
-        'replication_streaming',
-        'source_committed',
-        'checkpoint_visible',
-        monotonicMilliseconds(firstCommittedAtNs),
-        monotonicMilliseconds(storageObservation.checkpointVisibleAtNs)
-      );
-      this.recordCounters(context, storageObservation, clientObservation);
-      return { storage: storageObservation, client: clientObservation };
     } finally {
       runtime.metrics.endBoundary('end_to_end_streaming', 'client_checkpoint_complete');
+      await streamReader.close();
     }
+
+    // Verification reads must not delay the client-visible completion boundary.
+    const storageObservation = await resource.observeCheckpoint(target);
+    this.recordCounters(context, storageObservation, clientObservation);
+    return { storage: storageObservation, client: clientObservation };
   }
 
   protected async verifyIteration(
@@ -226,8 +250,13 @@ export class CombinedBenchmark extends Benchmark<
         }
       ),
       check(
-        'checkpoint_complete_matches_storage_checkpoint',
-        client.completedCheckpoint != null && client.completedCheckpoint === storage.storageCheckpoint,
+        this.scenario.mode === 'streaming'
+          ? 'storage_checkpoint_covers_client_checkpoint'
+          : 'checkpoint_complete_matches_storage_checkpoint',
+        client.completedCheckpoint != null &&
+          (this.scenario.mode === 'streaming'
+            ? BigInt(storage.storageCheckpoint) >= BigInt(client.completedCheckpoint)
+            : client.completedCheckpoint === storage.storageCheckpoint),
         {
           storage_checkpoint: storage.storageCheckpoint,
           checkpoint_complete: client.completedCheckpoint
@@ -236,6 +265,7 @@ export class CombinedBenchmark extends Benchmark<
     ];
     if (this.scenario.mode === 'streaming') {
       checks.push(
+        check('checkpoint_request_acknowledged', client.writeCheckpoint === '1', { actual: client.writeCheckpoint }),
         check('checkpoint_advanced', client.completedCheckpoint !== context.initialCheckpoint, {
           initial: context.initialCheckpoint,
           actual: client.completedCheckpoint
@@ -329,7 +359,12 @@ export class CombinedBenchmark extends Benchmark<
     metrics.setCounter('response_lines', client.lineCount);
   }
 
-  private async openSyncStream(endpoint: string, token: string, signal: AbortSignal): Promise<Response> {
+  private async openSyncStream(
+    endpoint: string,
+    token: string,
+    signal: AbortSignal,
+    clientId = randomUUID()
+  ): Promise<Response> {
     return await fetch(`${endpoint}/sync/stream`, {
       method: 'POST',
       headers: {
@@ -340,7 +375,7 @@ export class CombinedBenchmark extends Benchmark<
       },
       body: JSON.stringify({
         raw_data: true,
-        client_id: randomUUID(),
+        client_id: clientId,
         buckets: [],
         parameters: this.scenario.sync_parameters,
         streams: { include_defaults: true, subscriptions: benchmarkClientStreams(this.scenario.sync) }
