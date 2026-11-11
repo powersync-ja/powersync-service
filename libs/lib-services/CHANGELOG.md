@@ -1,5 +1,18 @@
 # @powersync/lib-services-framework
 
+## 0.10.5
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+- Updated dependencies [7cf585d]
+- Updated dependencies [574ddbd]
+- Updated dependencies [070ef34]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/service-errors@0.6.1
+
 ## 0.10.4
 
 ### Patch Changes

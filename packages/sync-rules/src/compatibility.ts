@@ -44,7 +44,7 @@ export class CompatibilityOption {
 
   static versionedBucketIds = new CompatibilityOption(
     'versioned_bucket_ids',
-    'Encode the version of sync rules in generated bucket ids, which avoids clients downloading data twice and improves client-side progress estimates.',
+    'Encode the version of the sync config in generated bucket ids, which avoids clients downloading data twice and improves client-side progress estimates.',
     CompatibilityEdition.SYNC_STREAMS
   );
 
@@ -92,8 +92,8 @@ export class CompatibilityContext {
   /**
    * The general compatibility level we're operating under.
    *
-   * This is {@link CompatibilityEdition.LEGACY} by default, but can be changed when defining sync rules to allow newer
-   * features.
+   * This is {@link CompatibilityEdition.LEGACY} by default, but can be changed when defining a sync config to allow
+   * newer features.
    */
   readonly edition: CompatibilityEdition;
 

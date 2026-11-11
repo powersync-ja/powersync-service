@@ -3,6 +3,7 @@ export * from './register-compacting-tests.js';
 export * from './register-data-storage-checkpoint-tests.js';
 export * from './register-data-storage-data-tests.js';
 export * from './register-data-storage-parameter-tests.js';
+export * from './register-invalid-sync-config-tests.js';
 export * from './register-migration-tests.js';
 export * from './register-parameter-compacting-tests.js';
 export * from './register-report-tests.js';

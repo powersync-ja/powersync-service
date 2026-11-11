@@ -1,8 +1,8 @@
 {
   "name": "@powersync/lib-service-postgres",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.5.7",
-  "license": "FSL-1.1-ALv2",
+  "version": "0.5.8",
+  "license": "Apache-2.0",
   "type": "module",
   "publishConfig": {
     "access": "public"

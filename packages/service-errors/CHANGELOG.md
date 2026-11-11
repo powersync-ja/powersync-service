@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.6.1
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+
 ## 0.6.0
 
 ### Minor Changes

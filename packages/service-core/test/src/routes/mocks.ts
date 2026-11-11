@@ -11,9 +11,13 @@ import {
   SyncContext,
   SyncRulesBucketStorage
 } from '@/index.js';
+import { SyncConfigEngine } from '@/system/SyncConfigEngine.js';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 
-export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | null) {
+export function mockServiceContext(
+  storage: Partial<SyncRulesBucketStorage> | null,
+  overrideMetricsEngine?: MetricsEngine
+) {
   // This is very incomplete - just enough to get the current tests passing.
 
   const storageEngine: StorageEngine = {
@@ -28,21 +32,28 @@ export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | nu
     } as Partial<BucketStorageFactory>
   } as any;
 
-  const meterProvider = new MeterProvider({
-    readers: []
-  });
-  const meter = meterProvider.getMeter('powersync-tests');
-  const metricsEngine = new MetricsEngine({
-    disable_telemetry_sharing: true,
-    factory: new OpenTelemetryMetricsFactory(meter)
-  });
-  createCoreAPIMetrics(metricsEngine);
+  let metricsEngine = overrideMetricsEngine;
+  if (metricsEngine == null) {
+    const meterProvider = new MeterProvider({
+      readers: []
+    });
+    const meter = meterProvider.getMeter('powersync-tests');
+    metricsEngine = new MetricsEngine({
+      disable_telemetry_sharing: true,
+      factory: new OpenTelemetryMetricsFactory(meter)
+    });
+    createCoreAPIMetrics(metricsEngine);
+  }
+  let routeAPI: RouteAPI | undefined;
   const service_context: Partial<ServiceContext> = {
+    configuration: {
+      sync_rules: { present: false, exit_on_error: true }
+    } as ServiceContext['configuration'],
     syncContext: new SyncContext({ maxBuckets: 1, maxDataFetchConcurrency: 1, maxParameterQueryResults: 1 }),
     eventsEngine: new EventsEngine(),
     routerEngine: {
       getAPI() {
-        return {
+        return (routeAPI ??= {
           getParseSyncRulesOptions() {
             return { defaultSchema: 'public' };
           },
@@ -67,7 +78,7 @@ export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | nu
           async getDebugTablesInfo() {
             return [];
           }
-        } satisfies Partial<RouteAPI> as unknown as RouteAPI;
+        } satisfies Partial<RouteAPI> as unknown as RouteAPI);
       },
       addStopHandler() {
         return () => {};
@@ -76,11 +87,13 @@ export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | nu
     storageEngine,
     metricsEngine: metricsEngine,
     // Not used
-    configuration: null as any,
     lifeCycleEngine: null as any,
     migrations: null as any,
     replicationEngine: null as any,
     serviceMode: null as any
   };
+  service_context.syncConfigEngine = new SyncConfigEngine(service_context.configuration!.sync_rules, () =>
+    service_context.routerEngine!.getAPI()
+  );
   return service_context as ServiceContext;
 }

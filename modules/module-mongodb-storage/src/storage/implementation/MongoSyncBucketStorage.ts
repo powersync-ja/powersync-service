@@ -34,7 +34,6 @@ import {
   MongoGetCheckpointChangesOptions,
   MongoSyncBucketStorageCheckpoint
 } from './common/MongoSyncBucketStorageCheckpoint.js';
-import { DEFAULT_INLINE_THRESHOLD_BYTES } from './common/PersistedBatch.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
@@ -46,6 +45,7 @@ import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStre
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { MongoCheckpointAPIOptions, MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
+import { DEFAULT_INLINE_THRESHOLD_BYTES } from './v3/PersistedBatchV3.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
@@ -278,7 +278,6 @@ export abstract class MongoSyncBucketStorage
     const replicationLock = this.requireReplicationLock();
     return {
       logger: options.logger ?? this.logger,
-      db: this.db,
       parsedSyncConfig: this.getParsedSyncConfigSet(options),
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,
@@ -406,11 +405,18 @@ export abstract class MongoSyncBucketStorage
     this.factory.discardOpIdAllocator(this.replicationStreamId);
     await this.clearSyncRuleState();
 
-    await this.clearBucketData(signal);
-    await this.clearParameterIndexes(signal);
-    await this.clearSourceRecords(signal);
-    await this.clearBucketState(signal);
-    await this.clearSourceTables(signal);
+    // Only stopped-stream cleanup may remove shared collections. Clearing an
+    // active or processing stream for a snapshot must not change shared storage.
+    const droppedV1Collections =
+      this.replicationStream.state == storage.SyncRuleState.STOP &&
+      (await this.factory.dropUnusedV1StorageCollections(signal));
+    if (this.storageConfig.version >= storage.STORAGE_VERSION_3 || !droppedV1Collections) {
+      await this.clearBucketData(signal);
+      await this.clearParameterIndexes(signal);
+      await this.clearSourceRecords(signal);
+      await this.clearBucketState(signal);
+      await this.clearSourceTables(signal);
+    }
     await this.clearCustomCheckpointRequests(signal);
 
     this.#storageInitialized = false;
@@ -464,7 +470,7 @@ export abstract class MongoSyncBucketStorage
     }
 
     const stream = mergeAsyncIterables(
-      [this.checkpointChangesStream(signal), this.checkpointTimeoutStream(signal)],
+      [(signal) => this.checkpointChangesStream(signal), (signal) => this.checkpointTimeoutStream(signal)],
       signal
     );
 

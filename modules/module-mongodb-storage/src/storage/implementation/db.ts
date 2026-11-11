@@ -178,6 +178,21 @@ export class PowerSyncMongo {
     return collections.map((c) => this.db.collection<CommonSourceTableDocument>(c.name));
   }
 
+  get v1DataCollections() {
+    return [this.current_data, this.bucket_data, this.bucket_parameters, this.bucket_state, this.source_tables];
+  }
+
+  async initializeV1StorageCollections(): Promise<void> {
+    for (const collection of this.v1DataCollections) {
+      await this.db.createCollection(collection.collectionName).catch((error) => {
+        if (!lib_mongo.isMongoServerError(error) || error.codeName !== 'NamespaceExists') throw error;
+      });
+    }
+    await this.bucket_parameters.createIndex({ 'key.g': 1, lookup: 1, _id: 1 }, { name: 'lookup1' });
+    await this.createBucketStateIndex();
+    await this.createBucketStateIndex2();
+  }
+
   /**
    * Clear all collections.
    */

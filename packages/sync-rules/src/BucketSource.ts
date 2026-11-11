@@ -1,5 +1,6 @@
 import {
   BucketParameterQuerier,
+  GetQuerierOptions,
   PendingQueriers,
   ScopedParameterLookup,
   UnscopedParameterLookup
@@ -7,7 +8,6 @@ import {
 import { ColumnDefinition } from './ExpressionType.js';
 import { HydrationState, ParameterLookupDefinitionId } from './HydrationState.js';
 import { SourceTableRef } from './SourceTableRef.js';
-import { GetQuerierOptions } from './SqlSyncRules.js';
 import { ScalarExpressionEngine } from './sync_plan/engine/scalar_expression_engine.js';
 import { SQLite } from './sync_plan/engine/sqlite.js';
 import { TablePattern } from './TablePattern.js';
@@ -96,7 +96,8 @@ export type ScopedEvaluateRow = (options: EvaluateRowOptions) => EvaluationResul
 export type ScopedEvaluateParameterRow = (sourceTable: SourceTableRef, row: SqliteRow) => EvaluatedParametersResult[];
 
 /**
- * Encodes a static definition of a bucket source, as parsed from sync rules or stream definitions.
+ * Encodes a static definition of a bucket source, as parsed from legacy Sync Rules bucket definitions or Sync Stream
+ * definitions.
  *
  * This does not require any "hydration" itself: All results are independent of bucket names.
  * The higher-level HydratedSyncConfig will use a HydrationState to generate bucket names.

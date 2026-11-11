@@ -1,5 +1,11 @@
 # @powersync/service-jsonbig
 
+## 0.17.14
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+
 ## 0.17.13
 
 ### Patch Changes

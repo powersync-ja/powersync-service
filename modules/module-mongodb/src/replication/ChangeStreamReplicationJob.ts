@@ -35,7 +35,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     try {
       await this.replicateOnce();
     } catch (e) {
-      if (!this.abortController.signal.aborted) {
+      if (this.shouldReportReplicationError(e)) {
         container.reporter.captureException(e, {
           metadata: {}
         });

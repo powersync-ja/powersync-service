@@ -19,10 +19,6 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
     this.createReplicationQueryProvider = options.createReplicationQueryProvider;
   }
 
-  protected get defaultSchema(): string {
-    return this.connectionFactory.dbConnectionConfig.database;
-  }
-
   createJob(options: replication.CreateJobOptions): ChangeStreamReplicationJob {
     return new ChangeStreamReplicationJob({
       id: this.createJobId(options.storage.replicationStreamId),

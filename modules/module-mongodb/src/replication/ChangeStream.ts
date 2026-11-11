@@ -373,12 +373,19 @@ export class ChangeStream {
     });
     this.relationCache.updateAll(descriptor, result.tables);
 
-    // Drop conflicting collections.
-    // This is generally not expected for MongoDB source dbs, so we log an error.
     if (result.dropTables.length > 0) {
-      this.logger.error(
-        `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
-      );
+      if (result.tables.length == 0) {
+        // The collection isn't used by the sync config. Dropping old mappings here is expected,
+        // for example when a previously-synced collection is renamed out of scope.
+        this.logger.info(
+          `${JSON.stringify(descriptor)} is not used by the sync config. Removing previously replicated data: ${result.dropTables.map((t) => t.id).join(', ')}`
+        );
+      } else {
+        // Conflicting collections are generally not expected for MongoDB source dbs, so we log an error.
+        this.logger.error(
+          `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
+        );
+      }
       await batch.drop(result.dropTables);
     }
 

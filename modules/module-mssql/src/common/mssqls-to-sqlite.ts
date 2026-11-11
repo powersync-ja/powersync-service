@@ -8,7 +8,7 @@ import {
   SqliteInputRow,
   TimeValue,
   TimeValuePrecision,
-  toSyncRulesRow
+  toSyncConfigRow
 } from '@powersync/service-sync-rules';
 import sql from 'mssql';
 import { MSSQLUserDefinedType } from '../types/mssql-data-types.js';
@@ -82,7 +82,7 @@ export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): Sqlite
       result[key] = null;
     }
   }
-  return toSyncRulesRow(result);
+  return toSyncConfigRow(result);
 }
 
 function toISODateString(date: Date): string | null {

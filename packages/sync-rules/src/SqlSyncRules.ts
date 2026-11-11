@@ -1,104 +1,32 @@
-import { BucketPriority } from './BucketDescription.js';
+import { YamlError } from './errors.js';
+import { parseSyncConfig, validateSyncConfig } from './from_yaml.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
-import { SyncRulesErrors, YamlError } from './errors.js';
-import { SyncConfigFromYaml } from './from_yaml.js';
-import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
+import { SyncConfigParseOptions } from './types.js';
 
 /**
- * Source connection types keyed by connection tag for sync config validation.
+ * @deprecated Use {@link SyncConfigParseOptions} instead.
  */
-export type SourceConnectionMap = Record<string, { type: string }>;
+export type SyncRulesOptions = SyncConfigParseOptions;
 
-export interface SyncRulesOptions {
-  /**
-   * Source database schema.
-   */
-  schema?: SourceSchema;
-
-  /**
-   * The default schema to use when only a table name is specified.
-   *
-   * 'public' for Postgres, default database for MongoDB/MySQL.
-   */
-  defaultSchema: string;
-
-  /**
-   * Source connection types keyed by connection tag. When omitted, source-specific options report warnings
-   * if their connection type cannot be checked.
-   */
-  connections?: SourceConnectionMap;
-
-  throwOnError?: boolean;
-}
-
-export interface RequestedStream {
-  /**
-   * Sync Streams can be requested with a different priority than the one originally used to define the stream.
-   *
-   * When set, buckets queried for this stream should use this override priority instead of the default one.
-   */
-  priorityOverride: BucketPriority | null;
-
-  /**
-   * The parameters for the explicit stream subscription.
-   *
-   * Unlike {@link GetQuerierOptions.globalParameters}, these parameters are only applied to the particular stream.
-   */
-  parameters: SqliteJsonRow | null;
-
-  /**
-   * An opaque id of the stream subscription, used to associate buckets with the stream subscriptions that have caused
-   * them to be included.
-   */
-  opaque_id: number;
-}
-
-export interface GetQuerierOptions {
-  globalParameters: RequestParameters;
-  /**
-   * Whether the client is subscribing to default query streams.
-   *
-   * Client do this by default, but can disable the behavior if needed.
-   */
-  hasDefaultStreams: boolean;
-  /**
-   *
-   * For streams, this is invoked to check whether the client has opened the relevant stream.
-   *
-   * @param name The name of the stream as it appears in the sync config definitions.
-   * @returns If the strema has been opened by the client, the stream parameters for that particular stream. Otherwise
-   * null.
-   */
-  streams: Record<string, RequestedStream[]>;
-}
-
+/**
+ * The {@link SyncConfig} implementation for legacy Sync Rules (`bucket_definitions`) and the Sync Streams alpha
+ * (`config: edition: 2`).
+ *
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next
+ * major version. To parse or validate a sync config, use {@link parseSyncConfig} or {@link validateSyncConfig}.
+ */
 export class SqlSyncRules extends SyncConfig {
-  static validate(yaml: string, options: SyncRulesOptions): YamlError[] {
-    try {
-      const rules = this.fromYaml(yaml, options);
-      return rules.errors;
-    } catch (e) {
-      if (e instanceof SyncRulesErrors) {
-        return e.errors;
-      } else if (e instanceof YamlError) {
-        return [e];
-      } else {
-        return [new YamlError(e)];
-      }
-    }
+  /**
+   * @deprecated Use {@link validateSyncConfig} instead.
+   */
+  static validate(yaml: string, options: SyncConfigParseOptions): YamlError[] {
+    return validateSyncConfig(yaml, options);
   }
 
-  static fromYaml(yaml: string, options: SyncRulesOptions): SyncConfigWithErrors {
-    const parser = new SyncConfigFromYaml(
-      {
-        throwOnError: options.throwOnError ?? true,
-        schema: options.schema,
-        defaultSchema: options.defaultSchema,
-        connections: options.connections
-      },
-      yaml
-    );
-
-    return parser.read();
+  /**
+   * @deprecated Use {@link parseSyncConfig} instead.
+   */
+  static fromYaml(yaml: string, options: SyncConfigParseOptions): SyncConfigWithErrors {
+    return parseSyncConfig(yaml, options);
   }
 }
