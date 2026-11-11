@@ -1,6 +1,6 @@
 {
   "name": "@powersync/service-schema",
-  "version": "1.28.2",
+  "version": "1.28.3",
   "license": "Apache-2.0",
   "type": "module",
   "publishConfig": {

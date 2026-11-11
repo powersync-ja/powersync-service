@@ -1,5 +1,16 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.25.0
+
+### Minor Changes
+
+- 58f3e22: Drop unused MongoDB storage v1/v2 collections during stopped-stream cleanup instead of deleting their records individually when no other streams need them. A migration similarly removes existing unused collections. Initialize these collections only when a v1/v2 stream starts, so new v4 instances do not create them.
+
+### Patch Changes
+
+- Updated dependencies [05167d9]
+  - @powersync/service-core@1.28.3
+
 ## 0.24.2
 
 ### Patch Changes

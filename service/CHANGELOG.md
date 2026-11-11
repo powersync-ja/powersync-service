@@ -1,5 +1,22 @@
 # @powersync/service-image
 
+## 1.28.3
+
+### Patch Changes
+
+- 05167d9: Bump Node.js to 24.22.3
+- Updated dependencies [58f3e22]
+- Updated dependencies [05167d9]
+  - @powersync/service-module-mongodb-storage@0.25.0
+  - @powersync/service-core@1.28.3
+  - @powersync/service-module-convex@0.4.8
+  - @powersync/service-module-mongodb@0.22.5
+  - @powersync/service-module-mssql@0.10.9
+  - @powersync/service-module-mysql@0.16.9
+  - @powersync/service-module-postgres@0.23.8
+  - @powersync/service-module-core@0.3.3
+  - @powersync/service-module-postgres-storage@0.19.8
+
 ## 1.28.2
 
 ### Patch Changes
