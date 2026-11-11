@@ -23,12 +23,14 @@ runs:
 
         docker rm -f "$container_name" >/dev/null 2>&1 || true
 
+        # Start mongod directly: the image's wrapper adds --bind_ip_all itself
+        # and runs credential initialization that these tests do not need.
         docker run \
           --name "$container_name" \
           --publish 27017:27017 \
           --detach \
+          --entrypoint mongod \
           "$image" \
-          mongod \
           --port 27017 \
           --replSet test-rs \
           --bind_ip_all \
