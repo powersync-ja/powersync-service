@@ -231,7 +231,7 @@ importers:
     devDependencies:
       '@convex-dev/auth':
         specifier: ^0.0.92
-        version: 0.0.92(@auth/core@0.37.4)(convex@1.42.0)
+        version: 0.0.92(@auth/core@0.37.4)(convex@1.49.0)
       '@powersync/service-core-tests':
         specifier: workspace:*
         version: link:../../packages/service-core-tests
@@ -242,8 +242,8 @@ importers:
         specifier: workspace:*
         version: link:../module-postgres-storage
       convex:
-        specifier: ^1.42.0
-        version: 1.42.0
+        specifier: ^1.49.0
+        version: 1.49.0
       dotenv:
         specifier: ^16.4.5
         version: 16.4.5
@@ -2612,9 +2612,9 @@ packages:
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
 
-  convex@1.42.0:
-    resolution: {integrity: sha512-KS1U+YkE7N7jDfucPW28iNehnb9/N5n9RJmdAFNdPIHTeNpbLKNqk1pJHp4ajHyMBAhGmri8Z4S1lc1LjliZWQ==}
-    engines: {node: '>=18.0.0', npm: '>=7.0.0'}
+  convex@1.49.0:
+    resolution: {integrity: sha512-mkr9oXF8/arkCI1kvYyGytWd62oVXNABh4uwLeI4UQVN6Zuudm4DlmSzNUJKF63djk6f/uUXC+6ffuVSkPLvzA==}
+    engines: {node: '>=22.0.0', npm: '>=7.0.0'}
     hasBin: true
     peerDependencies:
       '@auth0/auth0-react': ^2.0.1
@@ -4962,12 +4962,12 @@ snapshots:
 
   '@colors/colors@1.6.0': {}
 
-  '@convex-dev/auth@0.0.92(@auth/core@0.37.4)(convex@1.42.0)':
+  '@convex-dev/auth@0.0.92(@auth/core@0.37.4)(convex@1.49.0)':
     dependencies:
       '@auth/core': 0.37.4
       '@oslojs/crypto': 1.0.1
       '@oslojs/encoding': 1.1.0
-      convex: 1.42.0
+      convex: 1.49.0
       cookie: 1.0.2
       is-network-error: 1.3.1
       jose: 5.10.0
@@ -6256,7 +6256,7 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex@1.42.0:
+  convex@1.49.0:
     dependencies:
       esbuild: 0.27.0
       prettier: 3.9.9

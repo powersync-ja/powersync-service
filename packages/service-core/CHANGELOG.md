@@ -1,5 +1,13 @@
 # @powersync/service-core
 
+## 1.28.2
+
+## 1.28.1
+
+### Patch Changes
+
+- a564bf5: [MongoDB storage] Sequential/batched metric calculations to reduce connection pool usage. Tweak idle timeout and metric cache durations.
+
 ## 1.28.0
 
 ### Minor Changes

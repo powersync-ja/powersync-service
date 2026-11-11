@@ -15,7 +15,7 @@ inputs:
   mongodb-container-name:
     description: The Docker container name to use (defaults to mongodb-<port>)
     required: false
-    default: ''
+    default: 'mongodb'
 
 runs:
   using: composite
@@ -31,16 +31,18 @@ runs:
         port="${{ inputs.mongodb-port }}"
         container_name="${{ inputs.mongodb-container-name }}"
         container_name="${container_name:-mongodb-${port}}"
-        image="mongo:${{ inputs.mongodb-version }}"
+        image="mongodb/mongodb-community-server:${{ inputs.mongodb-version }}-ubi9-slim"
 
         docker rm -f "$container_name" >/dev/null 2>&1 || true
 
+        # Start mongod directly: the image's wrapper adds --bind_ip_all itself
+        # and runs credential initialization that these tests do not need.
         docker run \
           --name "$container_name" \
           --publish "$port:$port" \
           --detach \
+          --entrypoint mongod \
           "$image" \
-          mongod \
           --port "$port" \
           --replSet test-rs \
           --bind_ip_all \
