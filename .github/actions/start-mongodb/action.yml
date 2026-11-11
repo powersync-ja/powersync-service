@@ -5,9 +5,7 @@ inputs:
   mongodb-version:
     description: MongoDB version to start
     required: false
-    # Temporary: newer 8.0 releases incorrectly reject patched Ubuntu Azure kernels.
-    # Restore 8.0 once the fix in https://jira.mongodb.org/browse/SERVER-131779 is available.
-    default: '8.0.20'
+    default: '8.0'
 
 runs:
   using: composite
@@ -21,7 +19,7 @@ runs:
         set -euo pipefail
 
         container_name="mongodb"
-        image="mongo:${{ inputs.mongodb-version }}"
+        image="mongodb/mongodb-community-server:${{ inputs.mongodb-version }}-ubi9-slim"
 
         docker rm -f "$container_name" >/dev/null 2>&1 || true
 
