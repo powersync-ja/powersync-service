@@ -34,6 +34,16 @@ import {
   SourceTableReconciliationContext
 } from './source-table-utils.js';
 
+interface PreparedRows {
+  publications: PreparedPublication[];
+  repairs: storage.SaveUpdate[];
+  resumeBatch: OperationBatch | null;
+  lastOp: InternalOpId;
+  hasWrites: boolean;
+  changes: Map<string, LoadedSourceRecord>;
+  retainedBytes: number;
+}
+
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV3;
 
@@ -176,7 +186,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
     await this.pipeline.capacity();
     const overlay = this.pipeline.beginRead();
-    let prepared: Awaited<ReturnType<MongoBucketBatchV3['prepareRows']>>;
+    let prepared: PreparedRows;
     try {
       prepared = await this.prepareRows(this.session, input, overlay);
     } finally {
@@ -377,7 +387,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     session: lib_mongo.mongo.ClientSession,
     input: OperationBatch | null,
     overlay: ReadonlyMap<string, LoadedSourceRecord>
-  ) {
+  ): Promise<PreparedRows> {
     const publications: PreparedPublication[] = [];
     const repairs: storage.SaveUpdate[] = [];
     let resumeBatch: OperationBatch | null = null;
