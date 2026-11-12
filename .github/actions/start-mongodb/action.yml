@@ -5,9 +5,7 @@ inputs:
   mongodb-version:
     description: MongoDB version to start
     required: false
-    # Temporary: newer 8.0 releases incorrectly reject patched Ubuntu Azure kernels.
-    # Restore 8.0 once the fix in https://jira.mongodb.org/browse/SERVER-131779 is available.
-    default: '8.0.20'
+    default: '8.0'
 
 runs:
   using: composite
@@ -21,16 +19,18 @@ runs:
         set -euo pipefail
 
         container_name="mongodb"
-        image="mongo:${{ inputs.mongodb-version }}"
+        image="mongodb/mongodb-community-server:${{ inputs.mongodb-version }}-ubi9-slim"
 
         docker rm -f "$container_name" >/dev/null 2>&1 || true
 
+        # Start mongod directly: the image's wrapper adds --bind_ip_all itself
+        # and runs credential initialization that these tests do not need.
         docker run \
           --name "$container_name" \
           --publish 27017:27017 \
           --detach \
+          --entrypoint mongod \
           "$image" \
-          mongod \
           --port 27017 \
           --replSet test-rs \
           --bind_ip_all \

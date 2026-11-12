@@ -1,5 +1,26 @@
 # @powersync/service-core-tests
 
+## 0.18.5
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+- 071507a: Add shared storage regression tests for rejected configured sync configs, including pending deployment cancellation, active config recovery, and diagnostics preservation.
+- Updated dependencies [17a026d]
+- Updated dependencies [ebba2a3]
+- Updated dependencies [7cf585d]
+- Updated dependencies [574ddbd]
+- Updated dependencies [071507a]
+- Updated dependencies [b64957d]
+- Updated dependencies [070ef34]
+- Updated dependencies [85c5e12]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-core@1.28.0
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/service-jsonbig@0.17.14
+
 ## 0.18.4
 
 ### Patch Changes

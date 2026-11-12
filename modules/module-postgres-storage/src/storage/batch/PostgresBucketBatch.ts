@@ -202,6 +202,19 @@ export class PostgresBucketBatch
       const resolution = await reconcile({ source, candidates });
       storage.validateSourceTableCandidateResolution(candidates, resolution);
 
+      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
+      const compatibleTables = materializedResolution.compatibleTables;
+
+      if (!syncRules.tableSyncsAny(source)) {
+        // Still reconcile old mappings so renames out of scope remove previously replicated data.
+        // Skip updating source_metadata below: these records are dropped by the caller in this
+        // same transaction, so persisting new metadata into them first is wasted work.
+        return {
+          tables: [],
+          dropTables: [...materializedResolution.incompatibleTables, ...compatibleTables]
+        };
+      }
+
       for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         await db.sql`
           UPDATE source_tables
@@ -211,9 +224,6 @@ export class PostgresBucketBatch
             id = ${{ type: 'varchar', value: id.toString() }}
         `.execute();
       }
-
-      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
-      const compatibleTables = materializedResolution.compatibleTables;
 
       // Keep one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((candidate) => candidate.snapshotComplete) ?? compatibleTables[0] ?? null;
@@ -396,42 +406,44 @@ export class PostgresBucketBatch
         const persistedBatch = new PostgresPersistedBatch({
           group_id: this.group_id,
           storageConfig: this.storageConfig,
+          db,
           ...this.options.batch_limits
         });
 
-        for await (const rows of this.currentDataStore.streamTruncateRows(db, {
+        // Read in full rather than streamed, since the batch may write on this connection while
+        // the rows are processed (see PostgresPersistedBatch). BATCH_LIMIT bounds the rows in memory.
+        const rows = await this.currentDataStore.queryTruncateRows(db, {
           groupId: this.group_id,
           sourceTableId: postgresTableId(sourceTable.id),
           limit: BATCH_LIMIT
-        })) {
-          lastBatchCount += rows.length;
-          processedCount += rows.length;
+        });
+        lastBatchCount = rows.length;
+        processedCount += rows.length;
 
-          const decodedRows = rows.map((row) => this.currentDataStore.decodeTruncateRow(row));
-          for (const value of decodedRows) {
-            const source_key = deserializeReplicaId(value.source_key);
-            persistedBatch.saveBucketData({
-              before_buckets: value.buckets,
-              evaluated: [],
-              table: sourceTable,
-              source_key
-            });
-            persistedBatch.saveParameterData({
-              existing_lookups: value.lookups,
-              evaluated: [],
-              table: sourceTable,
-              source_key
-            });
-            persistedBatch.deleteCurrentData({
-              // This is serialized since we got it from a DB query
-              serialized_source_key: value.source_key,
-              source_table_id: postgresTableId(sourceTable.id),
-              // No need for soft delete, since this is not streaming replication
-              soft: false
-            });
-          }
+        for (const row of rows) {
+          const value = this.currentDataStore.decodeTruncateRow(row);
+          const source_key = deserializeReplicaId(value.source_key);
+          await persistedBatch.saveBucketData({
+            before_buckets: value.buckets,
+            evaluated: [],
+            table: sourceTable,
+            source_key
+          });
+          await persistedBatch.saveParameterData({
+            existing_lookups: value.lookups,
+            evaluated: [],
+            table: sourceTable,
+            source_key
+          });
+          persistedBatch.deleteCurrentData({
+            // This is serialized since we got it from a DB query
+            serialized_source_key: value.source_key,
+            source_table_id: postgresTableId(sourceTable.id),
+            // No need for soft delete, since this is not streaming replication
+            soft: false
+          });
         }
-        const { flushedAny } = await persistedBatch.flush(db);
+        const { flushedAny } = await persistedBatch.flush();
         clearedError = flushedAny && !this.clearedError;
       });
       if (clearedError) {
@@ -968,6 +980,7 @@ export class PostgresBucketBatch
       let persistedBatch: PostgresPersistedBatch | null = new PostgresPersistedBatch({
         group_id: this.group_id,
         storageConfig: this.storageConfig,
+        db,
         ...this.options.batch_limits
       });
 
@@ -991,7 +1004,7 @@ export class PostgresBucketBatch
         }
 
         if (persistedBatch!.shouldFlushTransaction()) {
-          const { flushedAny } = await persistedBatch!.flush(db);
+          const { flushedAny } = await persistedBatch!.flush();
           didFlush ||= flushedAny;
           // The operations stored in this batch will be processed in the `resumeBatch`
           persistedBatch = null;
@@ -1005,7 +1018,7 @@ export class PostgresBucketBatch
          * The operations were less than the max size if here. Flush now.
          * `persistedBatch` will be `null` if the operations should be flushed in a new transaction.
          */
-        const { flushedAny } = await persistedBatch.flush(db);
+        const { flushedAny } = await persistedBatch.flush();
         didFlush ||= flushedAny;
       }
     }
@@ -1060,9 +1073,9 @@ export class PostgresBucketBatch
         // Not an error if we re-apply a transaction
         existingBuckets = [];
         existingLookups = [];
-        // Log to help with debugging if there was a consistency issue
-
-        if (storeCurrentData) {
+        // A complete row is evaluated and stored in current_data below, so a resnapshot is only
+        // needed when TOAST values are missing.
+        if (!utils.isCompleteRow(storeCurrentData, after!)) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
             // This is not relevant if storeCurrentData is false, since we'll get the full row
@@ -1139,7 +1152,7 @@ export class PostgresBucketBatch
       // Source ID updated
       if (sourceTable.syncData) {
         // Delete old record
-        persistedBatch.saveBucketData({
+        await persistedBatch.saveBucketData({
           source_key: beforeId,
           table: sourceTable,
           before_buckets: existingBuckets,
@@ -1151,7 +1164,7 @@ export class PostgresBucketBatch
 
       if (sourceTable.syncParameters) {
         // Delete old parameters
-        persistedBatch.saveParameterData({
+        await persistedBatch.saveParameterData({
           source_key: beforeId,
           table: sourceTable,
           evaluated: [],
@@ -1193,7 +1206,7 @@ export class PostgresBucketBatch
         }
 
         // Save new one
-        persistedBatch.saveBucketData({
+        await persistedBatch.saveBucketData({
           source_key: afterId,
           evaluated,
           table: sourceTable,
@@ -1233,7 +1246,7 @@ export class PostgresBucketBatch
           );
         }
 
-        persistedBatch.saveParameterData({
+        await persistedBatch.saveParameterData({
           source_key: afterId,
           table: sourceTable,
           evaluated: paramEvaluated,

@@ -10,6 +10,7 @@ import { MongoIdSequence, OpIdRangeExhausted } from '../MongoIdSequence.js';
 import { MongoSyncRulesLock } from '../MongoSyncRulesLock.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { OperationBatch } from '../OperationBatch.js';
+import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { SyncRuleDocumentBase } from '../models.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
@@ -445,12 +446,23 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       const resolution = await reconcile({ source, candidates });
       storage.validateSourceTableCandidateResolution(candidates, resolution);
 
+      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
+      const compatibleTables = materializedResolution.compatibleTables;
+
+      if (!syncRules.tableSyncsAny(source)) {
+        // Still reconcile old mappings so renames out of scope remove previously replicated data.
+        // Skip updating source_metadata below: these records are dropped by the caller in this
+        // same transaction, so persisting new metadata into them first is wasted work.
+        result = {
+          tables: [],
+          dropTables: [...materializedResolution.incompatibleTables, ...compatibleTables]
+        };
+        return;
+      }
+
       for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
       }
-
-      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
-      const compatibleTables = materializedResolution.compatibleTables;
 
       // V1 keeps one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((table) => table.snapshotComplete) ?? compatibleTables[0] ?? null;
@@ -842,11 +854,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
             _id: { $ne: this.replicationStreamId },
             state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
           },
-          {
-            $set: {
-              state: storage.SyncRuleState.STOP
-            }
-          },
+          stopReplicationStreamPipeline(),
           { session }
         );
         activated = true;

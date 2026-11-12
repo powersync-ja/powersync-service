@@ -46,26 +46,44 @@ export type DeleteCurrentDataOptions = {
 export type PostgresPersistedBatchOptions = RequiredOperationBatchLimits & {
   group_id: number;
   storageConfig: storage.StorageVersionConfig;
+  /**
+   * The replication transaction the batch is written on.
+   */
+  db: lib_postgres.WrappedConnection;
 };
 
 const EMPTY_DATA = Buffer.from(bson.serialize({}));
 
+/**
+ * Accumulates the operations of one replication transaction and writes them to Postgres.
+ *
+ * bucket_data and bucket_parameters rows are written while they accumulate: once the pending rows
+ * of a table would exceed `maxStatementSize`, they are inserted on the transaction before the next
+ * row is added. This bounds both the memory held for a single source row evaluated into many
+ * buckets and the size of the JSON parameter of each statement. current_data is written in `flush()`.
+ *
+ * Since `saveBucketData()` and `saveParameterData()` may write on the connection, no streamed query
+ * may be in progress on it while they are called: the connection processes responses in order, and
+ * a streamed query only completes once its rows are consumed.
+ *
+ * The transaction limits in `shouldFlushTransaction()` count everything written on the transaction,
+ * including the rows already inserted.
+ */
 export class PostgresPersistedBatch {
   group_id: number;
+  private readonly db: lib_postgres.WrappedConnection;
   private readonly storageConfig: storage.StorageVersionConfig;
   private readonly currentDataStore: PostgresCurrentDataStore;
 
-  /**
-   * Very rough estimate of current operations size in bytes
-   */
-  currentSize: number;
-
   readonly maxTransactionBatchSize: number;
   readonly maxTransactionDocCount: number;
+  /**
+   * Pending bucket_data or bucket_parameters rows are inserted before their estimated size exceeds this.
+   */
   readonly maxStatementSize: number;
 
   /**
-   * Ordered set of bucket_data insert operation parameters
+   * Ordered set of bucket_data insert operation parameters, not inserted yet.
    */
   protected bucketDataInserts: models.BucketData[];
   protected parameterDataInserts: models.BucketParameters[];
@@ -77,23 +95,49 @@ export class PostgresPersistedBatch {
   protected currentDataInserts: Map<string, models.V3CurrentData>;
   protected currentDataDeletes: Map<string, { source_key_hex: string; source_table: string }>;
 
+  /**
+   * Very rough estimates of the size in bytes of the operations not inserted yet.
+   */
+  private pendingBucketDataSize = 0;
+  private pendingParameterDataSize = 0;
+  private pendingCurrentDataSize = 0;
+
+  /**
+   * Rows and estimated size already inserted on the transaction before `flush()`.
+   */
+  private insertedBucketDataCount = 0;
+  private insertedParameterDataCount = 0;
+  private insertedSize = 0;
+  /**
+   * Statements issued while accumulating, excluding the ones issued by `flush()`.
+   */
+  private earlyStatementCount = 0;
+
   constructor(options: PostgresPersistedBatchOptions) {
     this.group_id = options.group_id;
+    this.db = options.db;
     this.storageConfig = options.storageConfig;
     this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
 
     this.maxTransactionBatchSize = options.max_estimated_size;
     this.maxTransactionDocCount = options.max_record_count;
-    this.maxStatementSize = options.max_statement_size;
+    this.maxStatementSize = Math.min(options.max_estimated_size, options.max_statement_size);
 
     this.bucketDataInserts = [];
     this.parameterDataInserts = [];
     this.currentDataInserts = new Map();
     this.currentDataDeletes = new Map();
-    this.currentSize = 0;
   }
 
-  saveBucketData(options: SaveBucketDataOptions) {
+  /**
+   * Very rough estimate of the size in bytes of all operations in this transaction,
+   * including the rows already inserted.
+   */
+  get currentSize() {
+    return this.insertedSize + this.pendingBucketDataSize + this.pendingParameterDataSize + this.pendingCurrentDataSize;
+  }
+
+  async saveBucketData(options: SaveBucketDataOptions) {
     const remaining_buckets = new Map<string, models.CurrentBucket>();
     for (const b of options.before_buckets) {
       const key = currentBucketKey(b);
@@ -112,43 +156,58 @@ export class PostgresPersistedBatch {
       const data = JSONBig.stringify(k.data);
       const checksum = utils.hashData(k.table, k.id, data);
 
-      this.bucketDataInserts.push({
-        group_id: this.group_id,
-        bucket_name: k.bucket,
-        op: models.OpType.PUT,
-        source_table: postgresTableId(options.table.id),
-        source_key: hexSourceKey,
-        table_name: k.table,
-        row_id: k.id,
-        checksum,
-        data,
-        op_id: 0, // Will use nextval of sequence
-        target_op: null
-      });
-
-      this.currentSize += k.bucket.length + data.length + hexSourceKey.length + 100;
+      await this.addBucketData(
+        {
+          group_id: this.group_id,
+          bucket_name: k.bucket,
+          op: models.OpType.PUT,
+          source_table: postgresTableId(options.table.id),
+          source_key: hexSourceKey,
+          table_name: k.table,
+          row_id: k.id,
+          checksum,
+          data,
+          op_id: 0, // Will use nextval of sequence
+          target_op: null
+        },
+        k.bucket.length + data.length + hexSourceKey.length + 100
+      );
     }
 
     for (const bd of remaining_buckets.values()) {
       // REMOVE operation
-      this.bucketDataInserts.push({
-        group_id: this.group_id,
-        bucket_name: bd.bucket,
-        op: models.OpType.REMOVE,
-        source_table: postgresTableId(options.table.id),
-        source_key: hexSourceKey,
-        table_name: bd.table,
-        row_id: bd.id,
-        checksum: dchecksum,
-        op_id: 0, // Will use nextval of sequence
-        target_op: null,
-        data: null
-      });
-      this.currentSize += bd.bucket.length + hexSourceKey.length + 100;
+      await this.addBucketData(
+        {
+          group_id: this.group_id,
+          bucket_name: bd.bucket,
+          op: models.OpType.REMOVE,
+          source_table: postgresTableId(options.table.id),
+          source_key: hexSourceKey,
+          table_name: bd.table,
+          row_id: bd.id,
+          checksum: dchecksum,
+          op_id: 0, // Will use nextval of sequence
+          target_op: null,
+          data: null
+        },
+        bd.bucket.length + hexSourceKey.length + 100
+      );
     }
   }
 
-  saveParameterData(options: SaveParameterDataOptions) {
+  /**
+   * Inserts the pending bucket_data rows first if adding this row would exceed the statement size.
+   */
+  private async addBucketData(row: models.BucketData, estimatedSize: number) {
+    if (this.bucketDataInserts.length > 0 && this.pendingBucketDataSize + estimatedSize > this.maxStatementSize) {
+      await this.flushBucketData();
+      this.earlyStatementCount += 1;
+    }
+    this.bucketDataInserts.push(row);
+    this.pendingBucketDataSize += estimatedSize;
+  }
+
+  async saveParameterData(options: SaveParameterDataOptions) {
     // This is similar to saving bucket data.
     // A key difference is that we don't need to keep the history intact.
     // We do need to keep track of recent history though - enough that we can get consistent data for any specific checkpoint.
@@ -171,30 +230,46 @@ export class PostgresPersistedBatch {
       remaining_lookups.delete(base64);
       const hexLookup = binLookup.toString('hex');
       const serializedBucketParameters = JSONBig.stringify(result.bucketParameters);
-      this.parameterDataInserts.push({
-        group_id: this.group_id,
-        source_table: postgresTableId(table.id),
-        source_key: hexSourceKey,
-        bucket_parameters: serializedBucketParameters,
-        id: 0, // auto incrementing id
-        lookup: hexLookup
-      });
-      this.currentSize += hexLookup.length + serializedBucketParameters.length + hexSourceKey.length + 100;
+      await this.addParameterData(
+        {
+          group_id: this.group_id,
+          source_table: postgresTableId(table.id),
+          source_key: hexSourceKey,
+          bucket_parameters: serializedBucketParameters,
+          id: 0, // auto incrementing id
+          lookup: hexLookup
+        },
+        hexLookup.length + serializedBucketParameters.length + hexSourceKey.length + 100
+      );
     }
 
     // 2. "REMOVE" entries for any lookup not touched.
     for (const lookup of remaining_lookups.values()) {
       const hexLookup = lookup.toString('hex');
-      this.parameterDataInserts.push({
-        group_id: this.group_id,
-        source_table: postgresTableId(table.id),
-        source_key: hexSourceKey,
-        bucket_parameters: JSON.stringify([]),
-        id: 0, // auto incrementing id
-        lookup: hexLookup
-      });
-      this.currentSize += hexLookup.length + hexSourceKey.length + 100;
+      await this.addParameterData(
+        {
+          group_id: this.group_id,
+          source_table: postgresTableId(table.id),
+          source_key: hexSourceKey,
+          bucket_parameters: JSON.stringify([]),
+          id: 0, // auto incrementing id
+          lookup: hexLookup
+        },
+        hexLookup.length + hexSourceKey.length + 100
+      );
     }
+  }
+
+  /**
+   * Inserts the pending bucket_parameters rows first if adding this row would exceed the statement size.
+   */
+  private async addParameterData(row: models.BucketParameters, estimatedSize: number) {
+    if (this.parameterDataInserts.length > 0 && this.pendingParameterDataSize + estimatedSize > this.maxStatementSize) {
+      await this.flushParameterData();
+      this.earlyStatementCount += 1;
+    }
+    this.parameterDataInserts.push(row);
+    this.pendingParameterDataSize += estimatedSize;
   }
 
   deleteCurrentData(options: DeleteCurrentDataOptions) {
@@ -221,7 +296,7 @@ export class PostgresPersistedBatch {
         source_key_hex: hexReplicaId,
         source_table: source_table
       });
-      this.currentSize += serializedReplicaId.byteLength + 100;
+      this.pendingCurrentDataSize += serializedReplicaId.byteLength + 100;
     }
   }
 
@@ -253,7 +328,7 @@ export class PostgresPersistedBatch {
       pending_delete: options.pending_delete?.toString() ?? null
     });
 
-    this.currentSize +=
+    this.pendingCurrentDataSize +=
       (options.data?.byteLength ?? 0) +
       serializedReplicaId.byteLength +
       buckets.length +
@@ -266,38 +341,47 @@ export class PostgresPersistedBatch {
   shouldFlushTransaction() {
     return (
       this.currentSize >= this.maxTransactionBatchSize ||
-      this.bucketDataInserts.length >= this.maxTransactionDocCount ||
+      this.insertedBucketDataCount + this.bucketDataInserts.length >= this.maxTransactionDocCount ||
       this.currentDataInserts.size >= this.maxTransactionDocCount ||
       this.currentDataDeletes.size >= this.maxTransactionDocCount ||
-      this.parameterDataInserts.length >= this.maxTransactionDocCount
+      this.insertedParameterDataCount + this.parameterDataInserts.length >= this.maxTransactionDocCount
     );
   }
 
-  async flush(db: lib_postgres.WrappedConnection) {
+  async flush() {
     const stats = {
-      bucketDataCount: this.bucketDataInserts.length,
-      parameterDataCount: this.parameterDataInserts.length,
+      bucketDataCount: this.insertedBucketDataCount + this.bucketDataInserts.length,
+      parameterDataCount: this.insertedParameterDataCount + this.parameterDataInserts.length,
       currentDataCount: this.currentDataInserts.size + this.currentDataDeletes.size
     };
     const flushedAny = stats.bucketDataCount > 0 || stats.parameterDataCount > 0 || stats.currentDataCount > 0;
 
     logger.info(
-      `powersync_${this.group_id} Flushed ${this.bucketDataInserts.length} + ${this.parameterDataInserts.length} + ${
+      `powersync_${this.group_id} Flushed ${stats.bucketDataCount} + ${stats.parameterDataCount} + ${
         this.currentDataInserts.size
       } updates, ${Math.round(this.currentSize / 1024)}kb.`
     );
+    if (this.earlyStatementCount > 0) {
+      logger.debug(
+        `powersync_${this.group_id} Inserted ${this.insertedBucketDataCount} + ${this.insertedParameterDataCount} rows in ${this.earlyStatementCount} statements while accumulating.`
+      );
+    }
 
-    // Flush current_data first, since this is where lock errors are most likely to occur, and we
-    // want to detect those as soon as possible.
-    await this.flushCurrentData(db);
+    // Flush current_data before the remaining rows, since this is where lock errors are most likely
+    // to occur, and we want to detect those as soon as possible. The rows inserted while accumulating
+    // are already on the transaction at this point, so a lock error on a transaction with early
+    // inserts also rolls back that work. This only affects transactions with rows of large fan-out.
+    await this.flushCurrentData();
 
-    await this.flushBucketData(db);
-    await this.flushParameterData(db);
-    this.bucketDataInserts = [];
-    this.parameterDataInserts = [];
+    await this.flushBucketData();
+    await this.flushParameterData();
     this.currentDataInserts = new Map();
     this.currentDataDeletes = new Map();
-    this.currentSize = 0;
+    this.pendingCurrentDataSize = 0;
+    this.insertedBucketDataCount = 0;
+    this.insertedParameterDataCount = 0;
+    this.insertedSize = 0;
+    this.earlyStatementCount = 0;
 
     return {
       ...stats,
@@ -305,106 +389,107 @@ export class PostgresPersistedBatch {
     };
   }
 
-  protected async flushBucketData(db: lib_postgres.WrappedConnection) {
-    if (this.bucketDataInserts.length == 0) {
+  /**
+   * Inserts the pending bucket_data rows in a single statement.
+   *
+   * Sequential statements in the same transaction preserve the order of the operations,
+   * since op_id is assigned from the sequence per row.
+   */
+  protected async flushBucketData() {
+    const rows = this.bucketDataInserts;
+    if (rows.length == 0) {
       return;
     }
 
-    const chunks = chunkRowsBySize(this.bucketDataInserts, estimateBucketDataRowSize, this.maxStatementSize);
-    if (chunks.length > 1) {
-      logger.debug(
-        `powersync_${this.group_id} Flushing ${this.bucketDataInserts.length} bucket_data rows in ${chunks.length} statements.`
-      );
-    }
-
-    // Sequential statements in the same transaction preserve the order of the operations,
-    // since op_id is assigned from the sequence per row.
-    for (const chunk of chunks) {
-      await db.sql`
-        INSERT INTO
-          bucket_data (
-            group_id,
-            bucket_name,
-            op_id,
-            op,
-            source_table,
-            source_key,
-            table_name,
-            row_id,
-            checksum,
-            data,
-            target_op
-          )
-        SELECT
+    await this.db.sql`
+      INSERT INTO
+        bucket_data (
           group_id,
           bucket_name,
-          nextval('op_id_sequence'),
+          op_id,
           op,
           source_table,
-          decode(source_key, 'hex') AS source_key,
+          source_key,
           table_name,
           row_id,
           checksum,
           data,
           target_op
-        FROM
-          json_to_recordset(${{ type: 'json', value: chunk }}::json) AS t (
-            group_id integer,
-            bucket_name text,
-            source_table text,
-            source_key text, -- Input as hex string
-            table_name text,
-            op text,
-            row_id text,
-            checksum bigint,
-            data text,
-            target_op bigint
-          );
-      `.execute();
-    }
+        )
+      SELECT
+        group_id,
+        bucket_name,
+        nextval('op_id_sequence'),
+        op,
+        source_table,
+        decode(source_key, 'hex') AS source_key,
+        table_name,
+        row_id,
+        checksum,
+        data,
+        target_op
+      FROM
+        json_to_recordset(${{ type: 'json', value: rows }}::json) AS t (
+          group_id integer,
+          bucket_name text,
+          source_table text,
+          source_key text, -- Input as hex string
+          table_name text,
+          op text,
+          row_id text,
+          checksum bigint,
+          data text,
+          target_op bigint
+        );
+    `.execute();
+
+    this.insertedBucketDataCount += rows.length;
+    this.insertedSize += this.pendingBucketDataSize;
+    this.bucketDataInserts = [];
+    this.pendingBucketDataSize = 0;
   }
 
-  protected async flushParameterData(db: lib_postgres.WrappedConnection) {
-    if (this.parameterDataInserts.length == 0) {
+  /**
+   * Inserts the pending bucket_parameters rows in a single statement.
+   */
+  protected async flushParameterData() {
+    const rows = this.parameterDataInserts;
+    if (rows.length == 0) {
       return;
     }
 
-    const chunks = chunkRowsBySize(this.parameterDataInserts, estimateParameterDataRowSize, this.maxStatementSize);
-    if (chunks.length > 1) {
-      logger.debug(
-        `powersync_${this.group_id} Flushing ${this.parameterDataInserts.length} bucket_parameters rows in ${chunks.length} statements.`
-      );
-    }
-
-    for (const chunk of chunks) {
-      await db.sql`
-        INSERT INTO
-          bucket_parameters (
-            group_id,
-            source_table,
-            source_key,
-            lookup,
-            bucket_parameters
-          )
-        SELECT
+    await this.db.sql`
+      INSERT INTO
+        bucket_parameters (
           group_id,
           source_table,
-          decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
-          decode(lookup, 'hex') AS lookup, -- Decode hex to bytea
+          source_key,
+          lookup,
           bucket_parameters
-        FROM
-          json_to_recordset(${{ type: 'json', value: chunk }}::json) AS t (
-            group_id integer,
-            source_table text,
-            source_key text, -- Input as hex string
-            lookup text, -- Input as hex string
-            bucket_parameters text -- Input as stringified JSON
-          )
-      `.execute();
-    }
+        )
+      SELECT
+        group_id,
+        source_table,
+        decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
+        decode(lookup, 'hex') AS lookup, -- Decode hex to bytea
+        bucket_parameters
+      FROM
+        json_to_recordset(${{ type: 'json', value: rows }}::json) AS t (
+          group_id integer,
+          source_table text,
+          source_key text, -- Input as hex string
+          lookup text, -- Input as hex string
+          bucket_parameters text -- Input as stringified JSON
+        )
+    `.execute();
+
+    this.insertedParameterDataCount += rows.length;
+    this.insertedSize += this.pendingParameterDataSize;
+    this.parameterDataInserts = [];
+    this.pendingParameterDataSize = 0;
   }
 
-  protected async flushCurrentData(db: lib_postgres.WrappedConnection) {
+  protected async flushCurrentData() {
     if (this.currentDataInserts.size > 0) {
       const updates = Array.from(this.currentDataInserts.values());
       // Sort by source_table, source_key to ensure consistent order.
@@ -418,7 +503,7 @@ export class PostgresPersistedBatch {
         return 0;
       });
 
-      await this.currentDataStore.flushUpserts(db, updates);
+      await this.currentDataStore.flushUpserts(this.db, updates);
     }
 
     if (this.currentDataDeletes.size > 0) {
@@ -432,7 +517,7 @@ export class PostgresPersistedBatch {
         return 0;
       });
 
-      await this.currentDataStore.flushDeletes(db, {
+      await this.currentDataStore.flushDeletes(this.db, {
         groupId: this.group_id,
         deletes
       });
@@ -442,43 +527,4 @@ export class PostgresPersistedBatch {
 
 export function currentBucketKey(b: models.CurrentBucket) {
   return `${b.bucket}/${b.table}/${b.id}`;
-}
-
-/**
- * Rough estimate of the serialized size of a bucket_data row, matching the `currentSize` accounting.
- */
-export function estimateBucketDataRowSize(row: models.BucketData) {
-  return row.bucket_name.length + (row.data?.length ?? 0) + (row.source_key?.length ?? 0) + 100;
-}
-
-/**
- * Rough estimate of the serialized size of a bucket_parameters row, matching the `currentSize` accounting.
- */
-export function estimateParameterDataRowSize(row: models.BucketParameters) {
-  return row.lookup.length + row.bucket_parameters.length + row.source_key.length + 100;
-}
-
-/**
- * Splits rows into consecutive chunks, each with a total estimated size of at most `maxSize`.
- *
- * The order of the rows is preserved. A single row larger than `maxSize` is placed in its own chunk.
- */
-export function chunkRowsBySize<T>(rows: T[], estimateSize: (row: T) => number, maxSize: number): T[][] {
-  const chunks: T[][] = [];
-  let currentChunk: T[] = [];
-  let currentChunkSize = 0;
-  for (const row of rows) {
-    const size = estimateSize(row);
-    if (currentChunk.length > 0 && currentChunkSize + size > maxSize) {
-      chunks.push(currentChunk);
-      currentChunk = [];
-      currentChunkSize = 0;
-    }
-    currentChunk.push(row);
-    currentChunkSize += size;
-  }
-  if (currentChunk.length > 0) {
-    chunks.push(currentChunk);
-  }
-  return chunks;
 }

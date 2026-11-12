@@ -161,7 +161,24 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     };
   }
 
+  async stopProcessingSyncConfigs(): Promise<void> {
+    await this.db.sql`
+      UPDATE sync_rules
+      SET
+        state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
+      WHERE
+        state = ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }}
+    `.execute();
+  }
+
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<PostgresPersistedReplicationStream> {
+    return this.db.transaction((db) => this.updateSyncRulesInTransaction(options, db));
+  }
+
+  private async updateSyncRulesInTransaction(
+    options: storage.UpdateSyncRulesOptions,
+    db: lib_postgres.WrappedConnection
+  ): Promise<PostgresPersistedReplicationStream> {
     const storageVersion =
       options.storageVersion ??
       options.config.parsed.config.storageVersion ??
@@ -174,77 +191,78 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
         `Unsupported storage version ${storageVersion} for PostgreSQL storage`
       );
     }
-    await this.initializeStorageVersion(storageConfig);
-    return this.db.transaction(async (db) => {
-      await db.sql`
-        UPDATE sync_rules
-        SET
-          state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
-        WHERE
-          state = ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }}
-      `.execute();
+    await this.initializeStorageVersion(storageConfig, db);
+    await db.sql`
+      UPDATE sync_rules
+      SET
+        state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
+      WHERE
+        state = ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }}
+    `.execute();
 
-      // Uses the legacy sequence name "sync_rules_id_sequence" for backwards-compatibility. See AGENTS.md.
-      const newSyncRulesRow = await db.sql`
-        WITH
-          next_id AS (
-            SELECT
-              nextval('sync_rules_id_sequence') AS id
-          )
-        INSERT INTO
-          sync_rules (
-            id,
-            content,
-            sync_plan,
-            state,
-            slot_name,
-            storage_version,
-            version_label
-          )
-        VALUES
+    // Uses the legacy sequence name "sync_rules_id_sequence" for backwards-compatibility. See AGENTS.md.
+    const newSyncRulesRow = await db.sql`
+      WITH
+        next_id AS (
+          SELECT
+            nextval('sync_rules_id_sequence') AS id
+        )
+      INSERT INTO
+        sync_rules (
+          id,
+          content,
+          sync_plan,
+          state,
+          slot_name,
+          storage_version,
+          version_label
+        )
+      VALUES
+        (
           (
+            SELECT
+              id
+            FROM
+              next_id
+          ),
+          ${{ type: 'varchar', value: options.config.yaml }},
+          ${{ type: 'json', value: options.config.plan }},
+          ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
+          CONCAT(
+            ${{ type: 'varchar', value: this.replicationStreamNamePrefix }},
             (
               SELECT
                 id
               FROM
                 next_id
             ),
-            ${{ type: 'varchar', value: options.config.yaml }},
-            ${{ type: 'json', value: options.config.plan }},
-            ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
-            CONCAT(
-              ${{ type: 'varchar', value: this.replicationStreamNamePrefix }},
-              (
-                SELECT
-                  id
-                FROM
-                  next_id
-              ),
-              '_',
-              ${{ type: 'varchar', value: crypto.randomBytes(2).toString('hex') }}
-            ),
-            ${{ type: 'int4', value: storageVersion }},
-            ${{ type: 'varchar', value: options.version_label ?? null }}
-          )
-        RETURNING
-          *
-      `
-        .decoded(models.SyncRules)
-        .first();
+            '_',
+            ${{ type: 'varchar', value: crypto.randomBytes(2).toString('hex') }}
+          ),
+          ${{ type: 'int4', value: storageVersion }},
+          ${{ type: 'varchar', value: options.version_label ?? null }}
+        )
+      RETURNING
+        *
+    `
+      .decoded(models.SyncRules)
+      .first();
 
-      return new PostgresPersistedReplicationStream(this.db, newSyncRulesRow!);
-    });
+    return new PostgresPersistedReplicationStream(this.db, newSyncRulesRow!);
   }
 
   /**
    * Lazy-initializes storage-version-specific structures, if needed.
    */
-  private async initializeStorageVersion(storageConfig: storage.StorageVersionConfig) {
+  private async initializeStorageVersion(
+    storageConfig: storage.StorageVersionConfig,
+    db: lib_postgres.WrappedConnection
+  ) {
     if (!storageConfig.softDeleteCurrentData) {
       return;
     }
 
-    await this.db.sql`
+    await db.sql`
       CREATE TABLE IF NOT EXISTS v3_current_data (
         group_id integer NOT NULL,
         source_table TEXT NOT NULL,
@@ -257,7 +275,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       )
     `.execute();
 
-    await this.db.sql`
+    await db.sql`
       CREATE INDEX IF NOT EXISTS v3_current_data_pending_deletes ON v3_current_data (group_id, pending_delete)
       WHERE
         pending_delete IS NOT NULL
@@ -265,50 +283,50 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async restartReplication(replicationStreamId: number): Promise<void> {
-    const next = await this.getDeployingSyncConfig();
-    const active = await this.getActiveSyncConfig();
-
-    // In both the below cases, we create a new replication stream.
-    // The current one will continue serving sync requests until the next one has finished processing.
-    if (next != null && next.content.replicationStreamId == replicationStreamId) {
-      // We need to redo the "next" replication stream
-
-      await this.updateSyncRules(next.content.asUpdateOptions());
-      // Pro-actively stop replicating
-      await this.db.sql`
-        UPDATE sync_rules
-        SET
-          state = ${{ value: storage.SyncRuleState.STOP, type: 'varchar' }}
+    await this.db.transaction(async (db) => {
+      // Protect the absence of pending work as well as existing rows. Deployments and activation
+      // take ROW EXCLUSIVE locks, so neither can change the decision before recovery commits.
+      await db.sql`LOCK TABLE sync_rules IN SHARE ROW EXCLUSIVE MODE`.execute();
+      const rows = await db.sql`
+        SELECT
+          *
+        FROM
+          sync_rules
         WHERE
-          id = ${{ value: next.content.replicationStreamId, type: 'int4' }}
-          AND state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
-      `.execute();
-    } else if (next == null && active?.content.replicationStreamId == replicationStreamId) {
-      // Slot removed for "active" replication stream, while there is no "next" one.
-      await this.updateSyncRules(active.content.asUpdateOptions());
+          state IN (
+            ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }},
+            ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }},
+            ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+          )
+        ORDER BY
+          id DESC
+      `
+        .decoded(models.SyncRules)
+        .rows();
+      const next = rows.find((row) => row.state === storage.SyncRuleState.PROCESSING);
+      const active = rows.find(
+        (row) => row.state === storage.SyncRuleState.ACTIVE || row.state === storage.SyncRuleState.ERRORED
+      );
 
-      // Pro-actively stop replicating, but still serve clients with existing data
-      await this.db.sql`
-        UPDATE sync_rules
-        SET
-          state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-        WHERE
-          id = ${{ value: active.content.replicationStreamId, type: 'int4' }}
-          AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-      `.execute();
-    } else if (next != null && active?.content.replicationStreamId == replicationStreamId) {
-      // Already have "next" replication stream - don't update any.
-
-      // Pro-actively stop replicating, but still serve clients with existing data
-      await this.db.sql`
-        UPDATE sync_rules
-        SET
-          state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-        WHERE
-          id = ${{ value: active.content.replicationStreamId, type: 'int4' }}
-          AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-      `.execute();
-    }
+      if (next?.id === replicationStreamId) {
+        // Replace the failed pending stream only while it is still the current deployment.
+        await this.updateSyncRulesInTransaction(this.resolvedSyncConfigFromRow(next).content.asUpdateOptions(), db);
+      } else if (active?.id === replicationStreamId) {
+        if (next == null) {
+          await this.updateSyncRulesInTransaction(this.resolvedSyncConfigFromRow(active).content.asUpdateOptions(), db);
+        }
+        // Keep serving the old data, but stop replication. An existing newer deployment takes
+        // precedence over recovery and must remain eligible to activate.
+        await db.sql`
+          UPDATE sync_rules
+          SET
+            state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+          WHERE
+            id = ${{ value: active.id, type: 'int4' }}
+            AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+        `.execute();
+      }
+    });
   }
 
   async getActiveSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {

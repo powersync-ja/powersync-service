@@ -1,5 +1,89 @@
 # @powersync/service-image
 
+## 1.28.3
+
+### Patch Changes
+
+- 05167d9: Bump Node.js to 24.22.3
+- Updated dependencies [58f3e22]
+- Updated dependencies [05167d9]
+  - @powersync/service-module-mongodb-storage@0.25.0
+  - @powersync/service-core@1.28.3
+  - @powersync/service-module-convex@0.4.8
+  - @powersync/service-module-mongodb@0.22.5
+  - @powersync/service-module-mssql@0.10.9
+  - @powersync/service-module-mysql@0.16.9
+  - @powersync/service-module-postgres@0.23.8
+  - @powersync/service-module-core@0.3.3
+  - @powersync/service-module-postgres-storage@0.19.8
+
+## 1.28.2
+
+### Patch Changes
+
+- Updated dependencies [2d50d1e]
+- Updated dependencies [1c953e3]
+- Updated dependencies [e104596]
+  - @powersync/service-module-mongodb-storage@0.24.2
+  - @powersync/service-module-postgres-storage@0.19.7
+  - @powersync/service-module-convex@0.4.7
+  - @powersync/service-module-mongodb@0.22.4
+  - @powersync/service-module-mssql@0.10.8
+  - @powersync/service-module-mysql@0.16.8
+  - @powersync/service-module-postgres@0.23.7
+  - @powersync/service-core@1.28.2
+  - @powersync/service-module-core@0.3.2
+
+## 1.28.1
+
+### Patch Changes
+
+- Updated dependencies [a564bf5]
+  - @powersync/service-module-mongodb-storage@0.24.1
+  - @powersync/service-core@1.28.1
+  - @powersync/service-module-convex@0.4.6
+  - @powersync/service-module-mongodb@0.22.3
+  - @powersync/service-module-mssql@0.10.7
+  - @powersync/service-module-mysql@0.16.7
+  - @powersync/service-module-postgres@0.23.6
+  - @powersync/service-module-core@0.3.1
+  - @powersync/service-module-postgres-storage@0.19.6
+
+## 1.28.0
+
+### Minor Changes
+
+- 500475b: Switch to alpine base image and Node v24.22.2
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+- Updated dependencies [ebba2a3]
+- Updated dependencies [17a026d]
+- Updated dependencies [ebba2a3]
+- Updated dependencies [574ddbd]
+- Updated dependencies [071507a]
+- Updated dependencies [b64957d]
+- Updated dependencies [071507a]
+- Updated dependencies [f75978e]
+- Updated dependencies [0c0e688]
+- Updated dependencies [070ef34]
+- Updated dependencies [cc6d30b]
+- Updated dependencies [071507a]
+- Updated dependencies [85c5e12]
+- Updated dependencies [a418960]
+  - @powersync/service-module-postgres@0.23.5
+  - @powersync/service-module-mongodb@0.22.2
+  - @powersync/service-module-convex@0.4.5
+  - @powersync/service-module-mssql@0.10.6
+  - @powersync/service-module-mysql@0.16.6
+  - @powersync/service-core@1.28.0
+  - @powersync/service-module-mongodb-storage@0.24.0
+  - @powersync/service-module-postgres-storage@0.19.5
+  - @powersync/service-rsocket-router@0.3.0
+  - @powersync/service-module-core@0.3.0
+  - @powersync/lib-services-framework@0.10.5
+
 ## 1.27.2
 
 ### Patch Changes

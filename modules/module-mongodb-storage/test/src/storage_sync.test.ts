@@ -7,7 +7,13 @@ import {
   storage,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, getTestStorage, register, test_utils } from '@powersync/service-core-tests';
+import {
+  bucketRequest,
+  getTestStorage,
+  register,
+  releaseTestStorageLease,
+  test_utils
+} from '@powersync/service-core-tests';
 import { parseSyncConfig, RequestParameters, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
@@ -938,6 +944,70 @@ event_definitions:
     expect(parameterIndexId).toBeDefined();
     const parameterEntry = await db.parameterIndex(syncRules.replicationStreamId, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
+  });
+
+  test.runIf(storageVersion >= 3)('fetches parameter sets beyond the aggregation stage limit', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        /* yaml */ `
+          # Parameter lookup batching regression fixture.
+          config:
+            edition: 3
+          streams:
+            by_owner:
+              auto_subscribe: true
+              query: |
+                SELECT * FROM test
+                WHERE id IN (SELECT owner_id FROM test WHERE id = auth.parameter('test'))
+        `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = await getTestStorage(factory, syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+
+    for (const id of ['row-first', 'row-middle', 'row-last']) {
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id, description: id, owner_id: `user-${id}` },
+        afterReplicaId: test_utils.rid(id)
+      });
+    }
+    await writer.markAllSnapshotDone('1/1');
+    await writer.commit('1/1');
+
+    const parsed = syncRules.syncConfigContent[0].parsed(test_utils.PARSE_OPTIONS);
+    const [parameterSource] = [...parsed.syncConfigs[0].config.bucketParameterLookupSources];
+    const scope = parsed.hydrationState.getParameterIndexLookupScope(parameterSource);
+
+    // MongoDB rejects aggregation pipelines with more than 1000 stages, and each
+    // lookup after the first adds a $unionWith stage (#873).
+    const lookups: ScopedParameterLookup[] = [];
+    for (let i = 0; i < 996; i++) {
+      let id = `missing-${i}`;
+      if (i == 0) {
+        id = 'row-first';
+      } else if (i == 900) {
+        id = 'row-middle';
+      } else if (i == 995) {
+        id = 'row-last';
+      }
+      lookups.push(ScopedParameterLookup.direct(scope, [id]));
+    }
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameterSets = await checkpoint.getParameterSets(lookups, 1000);
+
+    expect(parameterSets.length).toEqual(3);
+    await expect(checkpoint.getParameterSets(lookups, 2)).rejects.toThrow('Too many parameter results');
+    expect(await checkpoint.getParameterSets(lookups, 3)).toEqual(parameterSets);
+    const rowsByKey = new Map(parameterSets.map((set) => [set.lookup.indexKey[0], set.rows]));
+    expect(rowsByKey.get('row-first')).toEqual([{ '0': 'user-row-first' }]);
+    expect(rowsByKey.get('row-middle')).toEqual([{ '0': 'user-row-middle' }]);
+    expect(rowsByKey.get('row-last')).toEqual([{ '0': 'user-row-last' }]);
   });
 
   test.runIf(storageVersion >= 3)('replaces an existing deploying sync config', async () => {
@@ -1887,6 +1957,24 @@ streams:
     }
   );
 
+  test.runIf(storageVersion >= 3)('storage metrics collect sizes across union batches', async () => {
+    await using factory = await storageConfig.factory();
+    const mongoFactory = factory as MongoBucketStorage;
+    const before = await factory.getStorageMetrics();
+    let expectedSize = 0;
+    for (let index = 0; index < 101; index++) {
+      const collection = mongoFactory.db.db.collection(`bucket_data_999_metrics_${index}`);
+      await collection.insertOne({ value: 'x'.repeat(index + 1) });
+      const [stats] = await collection.aggregate([{ $collStats: { storageStats: {} } }]).toArray();
+      expectedSize += Number(stats.storageStats.size);
+    }
+
+    const after = await factory.getStorageMetrics();
+    expect(after.operations_size_bytes - before.operations_size_bytes).toBe(expectedSize);
+    expect(after.parameters_size_bytes).toBe(before.parameters_size_bytes);
+    expect(after.replication_size_bytes).toBe(before.replication_size_bytes);
+  });
+
   test.runIf(storageVersion < 3)('storage metrics include v1 current_data', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
@@ -2096,6 +2184,91 @@ streams:
 }
 
 describe('sync - mongodb', () => {
+  test.each([
+    [1, false],
+    [2, false],
+    [1, true],
+    [2, true]
+  ] as const)('v%i activation cleans up v4 streams (previously stranded: %s)', async (storageVersion, stranded) => {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    const yaml = /* yaml */ `
+      # sync config fixture.
+      config:
+        edition: 3
+      streams:
+        global:
+          query: SELECT id FROM test
+    `;
+
+    async function activate(version: number, lsn: string) {
+      const stream = await factory.updateSyncRules(updateSyncRulesFromYaml(yaml, { storageVersion: version }));
+      const bucketStorage = await getTestStorage(factory, stream);
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'item-1' },
+        afterReplicaId: test_utils.rid('item-1')
+      });
+      await writer.markAllSnapshotDone(lsn);
+      await writer.commit(lsn);
+      return stream;
+    }
+
+    const previous = await activate(storage.STORAGE_VERSION_4, '1/1');
+    await releaseTestStorageLease(factory, previous.replicationStreamId);
+    const oldCollections = await factory.db.db
+      .listCollections(
+        {
+          name: new RegExp(
+            `^(bucket_data|source_records|source_table|bucket_state|parameter_index)_${previous.replicationStreamId}(_|$)`
+          )
+        },
+        { nameOnly: true }
+      )
+      .toArray();
+    expect(oldCollections.some((collection) => collection.name.startsWith('bucket_data_'))).toBe(true);
+    expect(oldCollections.some((collection) => collection.name.startsWith('source_records_'))).toBe(true);
+
+    const replacement = await activate(storageVersion, '2/1');
+    const previousDoc = (await factory.db.sync_rules.findOne({
+      _id: previous.replicationStreamId
+    })) as ReplicationStreamDocumentV3;
+    expect(previousDoc.state).toBe(storage.SyncRuleState.STOP);
+    if (stranded) {
+      // Reproduce databases left behind by older services: only the stream was stopped.
+      await factory.db.sync_rules.updateOne(
+        { _id: previous.replicationStreamId },
+        { $set: { 'sync_configs.$[].state': storage.SyncRuleState.ACTIVE } }
+      );
+    } else {
+      expect(previousDoc.sync_configs.map((config) => config.state)).toEqual([storage.SyncRuleState.STOP]);
+    }
+
+    const stopped = await factory.getStoppedReplicationStreams();
+    expect(stopped.map((stream) => stream.replicationStreamId)).toEqual([previous.replicationStreamId]);
+    const lock = await stopped[0].lock();
+    try {
+      await factory.getInstance(stopped[0], { skipLifecycleHooks: true }).terminate({ clearStorage: true });
+    } finally {
+      await lock.release();
+    }
+
+    expect((await factory.db.sync_rules.findOne({ _id: previous.replicationStreamId }))?.state).toBe(
+      storage.SyncRuleState.TERMINATED
+    );
+    const remaining = new Set(
+      (await factory.db.db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name)
+    );
+    for (const collection of oldCollections) expect(remaining.has(collection.name)).toBe(false);
+    expect(await factory.getStoppedReplicationStreams()).toEqual([]);
+    expect((await factory.getActiveSyncConfig())?.replicationStream.replicationStreamId).toBe(
+      replacement.replicationStreamId
+    );
+    expect(await factory.db.current_data.countDocuments({ '_id.g': replacement.replicationStreamId })).toBe(1);
+  });
+
   test('v3 activation stops legacy active sync rules', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const mongoFactory = factory as MongoBucketStorage;
