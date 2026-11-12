@@ -75,8 +75,8 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
     ) {
       builder = this;
       publication = this;
-      const ready = publication.preparePayloads();
-      expect(this.preparePayloads()).toBe(ready);
+      const ready = publication.packAndUploadPayloads();
+      expect(this.packAndUploadPayloads()).toBe(ready);
       await ready;
       await originalPublish.apply(this, args);
       throw aborted;
@@ -137,7 +137,7 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
     expect(() => builder!.hardDeleteCurrentData(table.id as bson.ObjectId, test_utils.rid('C'))).toThrow('sealed');
     await db.client.withSession(async (session) => {
       let attempts = 0;
-      await publication!.preparePayloads();
+      await publication!.packAndUploadPayloads();
       await session.withTransaction(async () => {
         expect(await publication!.publish(session)).toEqual({
           bucketDataCount: 6,
@@ -305,7 +305,7 @@ streams:
       expect(indexId).toBeDefined();
       const parameters = db.parameterIndex(streamId, indexId);
       expect(await parameters.countDocuments()).toBe(0);
-      await publication!.preparePayloads();
+      await publication!.packAndUploadPayloads();
       await db.client.withSession(async (session) => {
         await session.withTransaction(() => publication!.publish(session));
       });
@@ -327,7 +327,7 @@ streams:
     }
   );
 
-  test('finishes application before the sequential upload stage', async () => {
+  test('finishes preparation before packing and uploads in the publishing stage', async () => {
     const objectStorage = new MemoryObjectStorage();
     const context = await openStream(storageVersion, objectStorage);
     await using _factory = context.factory;
@@ -547,7 +547,7 @@ streams:
     const rejected = expect(commit).rejects.toThrow(failure);
     await siblingStarted.promise;
     let readySettled = false;
-    const readiness = publication!.preparePayloads().then(
+    const readiness = publication!.packAndUploadPayloads().then(
       () => {
         readySettled = true;
       },
@@ -562,7 +562,7 @@ streams:
     await readiness;
     expect(siblingFinished).toBe(true);
     expect(uploadSpy).toHaveBeenCalledTimes(2);
-    await expect(publication!.preparePayloads()).rejects.toThrow(failure);
+    await expect(publication!.packAndUploadPayloads()).rejects.toThrow(failure);
     expect(uploadSpy).toHaveBeenCalledTimes(2);
     expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
   });

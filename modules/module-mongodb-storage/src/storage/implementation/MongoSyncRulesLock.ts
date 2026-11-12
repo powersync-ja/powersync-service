@@ -14,7 +14,7 @@ const LOCK_DURATION_MS = 60 * 1000;
  */
 export class MongoSyncRulesLock implements storage.ReplicationLock {
   /**
-   * Serializes public operations and application reads. V1/v2 also hold it
+   * Serializes public operations and preparation reads. V1/v2 also hold it
    * through publication; v3/v4 may publish on the lease pipeline's own session.
    */
   readonly writerMutex = new utils.Mutex();

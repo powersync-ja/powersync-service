@@ -16,16 +16,17 @@ interface Publication {
 }
 
 /**
- * One publishing batch and one preparing/prepared batch per stream lease.
- * Publication packs bucket operations and uploads chunks above the inline
- * threshold to configured object storage (e.g. S3), then commits MongoDB writes
- * including references to those objects. Uploads and MongoDB publication form
- * one sequential stage. Application may read and evaluate its successor
- * concurrently on lock.session under writerMutex.
+ * Two stages, with one publishing batch and one preparing/prepared batch per lease:
+ * 1. Preparation reads stored source records, evaluates changes and seals writes
+ *    on lock.session under writerMutex.
+ * 2. Publishing packs bucket operations, uploads chunks above the inline threshold
+ *    to configured object storage (e.g. S3), then commits MongoDB writes including
+ *    references to those objects. This runs concurrently with preparation of the
+ *    successor on a separate session.
  * No background task acquires that mutex.
  *
  * Each source writer separately buffers one bounded input block. Only full
- * blocks (or explicit boundaries) enter application: alternating snapshot and
+ * blocks (or explicit boundaries) enter preparation: alternating snapshot and
  * streaming saves must not turn those blocks into single-row publications.
  */
 export class ReplicationPipelineV3 {
@@ -41,7 +42,7 @@ export class ReplicationPipelineV3 {
   private reading?: Publication;
   /**
    * MongoDB operationTime from the last successful queued publication. The
-   * publisher records it here so application can copy its causal history from
+   * publisher records it here so preparation can copy its causal history from
    * publicationSession into lock.session before reading stored source records.
    */
   private publishedTime?: mongo.Timestamp;
@@ -84,7 +85,7 @@ export class ReplicationPipelineV3 {
     );
   }
 
-  /** Caller holds writerMutex. Reserve the application slot before reading another block. */
+  /** Caller holds writerMutex. Reserve the preparation slot before reading another block. */
   async capacity(bytes = 0): Promise<void> {
     this.lock.throwIfAborted();
     while (this.pending.length >= 2 || (this.pending.length > 0 && this.accountedBytes + bytes > MAX_PENDING_BYTES)) {
@@ -111,13 +112,13 @@ export class ReplicationPipelineV3 {
   }
 
   /**
-   * Caller holds writerMutex. Advance the application session's MongoDB logical
+   * Caller holds writerMutex. Advance the preparation session's MongoDB logical
    * time so subsequent majority reads include completed publications from the
    * separate publication session. Later batches can read that persisted state
    * without retaining every earlier batch's delta. A predecessor whose publication
-   * overlaps the current application still needs the pinned overlay from beginRead().
+   * overlaps the current preparation still needs the pinned overlay from beginRead().
    *
-   * Only application code advances the read session. The background publisher
+   * Only preparation code advances the read session. The background publisher
    * records publishedTime instead of mutating lock.session during an active read
    * or transaction. Advancing the clock neither waits for nor flushes queued work.
    */
@@ -129,13 +130,13 @@ export class ReplicationPipelineV3 {
 
   /**
    * Capacity guarantees at most one predecessor. Keep its immutable delta alive
-   * until application finishes, even when a read straddles its commit. Earlier
+   * until preparation finishes, even when a read straddles its commit. Earlier
    * batches are already durable and covered by the read session's causal clock.
    */
   beginRead(): ReadonlyMap<string, LoadedSourceRecord> {
     this.lock.throwIfAborted();
     if (this.pending.length > 1) {
-      throw new ReplicationAssertionError('Application requires an available pipeline slot');
+      throw new ReplicationAssertionError('Preparation requires an available pipeline slot');
     }
     this.advanceReadTime();
     this.reading = this.pending.at(-1);
@@ -146,22 +147,22 @@ export class ReplicationPipelineV3 {
     this.reading = undefined;
   }
 
-  /** Transfer the prepared batch to the publication stage; no uploads start before its turn. */
+  /** Transfer the prepared batch to the publishing stage; no uploads start before its turn. */
   enqueue(
     records: ReadonlyMap<string, LoadedSourceRecord>,
     bytes: number,
     publish: (session: mongo.ClientSession) => Promise<void>
   ): Promise<void> {
     const previous = this.pending.at(-1)?.done;
-    const applicationTime = this.lock.session.operationTime;
+    const preparationTime = this.lock.session.operationTime;
     const batch: Publication = { records, bytes, done: Promise.resolve() };
     this.pending.push(batch);
     const task = (async () => {
       try {
         await previous;
         this.lock.throwIfAborted();
-        if (applicationTime != null) {
-          this.publicationSession.advanceOperationTime(applicationTime);
+        if (preparationTime != null) {
+          this.publicationSession.advanceOperationTime(preparationTime);
         }
         await publish(this.publicationSession);
         // Hand off the confirmed publication time before removing the batch from pending.

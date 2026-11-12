@@ -146,8 +146,8 @@ describe.each([3, 4])('replication uploads v%s', (version) => {
     expect(await context.markers.countDocuments()).toBe(1);
     expect(await context.records.countDocuments()).toBe(0);
     expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
-    // An ambiguous preparation invalidates the lease attempt. Replay under a
-    // fresh lease uses a new path and leaves the abandoned marker protected.
+    // Ambiguous upload-marker registration invalidates the lease attempt. Replay
+    // under a fresh lease uses a new path and leaves the abandoned marker protected.
     await expect(writer.commit('1/2')).rejects.toThrow('restart');
     await test_utils.releaseTestStorageLease(context.factory, context.stream.replicationStreamId);
     const restarted = await getTestStorage(context.factory, context.stream);

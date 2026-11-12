@@ -21,21 +21,21 @@ The source connector is responsible for closing each writer cleanly so pending w
 ## MongoDB V3/V4 Publication Pipeline
 
 Writers on one replication lease share a two-batch pipeline. Each writer buffers
-one normal input block (up to the existing row/size thresholds). Application
+one normal input block (up to the existing row/size thresholds). Preparation
 admits complete blocks, or partial blocks at explicit boundaries. Interleaved
 snapshot and streaming `save()` calls do not flush each other's input.
 
 One batch uploads its payloads and then publishes them to MongoDB while its
 successor reads source records and evaluates changes. Uploads start only when a
-batch enters the publication stage; there is no separate upload queue. Source
+batch enters the publishing stage; there is no separate upload queue. Source
 connectors can fetch their next page while publication runs, retaining their
 existing bounded source buffering. Evaluation remains on the main thread.
 
-Application sees the predecessor's immutable source-record delta on top of
+Preparation sees the predecessor's immutable source-record delta on top of
 majority reads. The delta includes tombstones and remains alive through the
-application block even if its predecessor commits during a read. Before another
-block can enter application, that predecessor has finished publication. Confirmed
-publication clocks advance the application session, so older batches need no
+preparation block even if its predecessor commits during a read. Before another
+block can enter preparation, that predecessor has finished publication. Confirmed
+publication clocks advance the preparation session, so older batches need no
 retained overlay or cache.
 
 Explicit flushes and checkpoints wait for the admitted prefix and their writer's
@@ -48,7 +48,7 @@ from persisted source progress. Partial-row repair notifications retain their
 synchronous durability barrier.
 
 The two slots and 64 MiB accounted-work target bound pipeline admission, with
-headroom estimates for packing. These are not RSS limits: an application block or
+headroom estimates for packing. These are not RSS limits: a preparation block or
 single oversized row can exceed the byte target. Source pages and one input block
 per active writer are additional bounded allowances, so total memory also scales
 with the number of active readers and replication streams.

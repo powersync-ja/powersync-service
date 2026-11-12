@@ -62,7 +62,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   private readonly inlineThresholdBytes: number;
   private readonly signal?: AbortSignal;
   private sealed = false;
-  private preparation?: Promise<void>;
+  private payloadsTask?: Promise<void>;
   private payloadsReady = false;
 
   constructor(
@@ -144,13 +144,13 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     }
   }
 
-  /** Cache readiness, including failure; the v3 batch owns the entire lifecycle. */
-  preparePayloads(): Promise<void> {
+  /** Cache packing/upload readiness, including failure; the v3 batch owns the lifecycle. */
+  packAndUploadPayloads(): Promise<void> {
     if (!this.sealed) {
-      throw new ReplicationAssertionError('Cannot prepare an unsealed publication');
+      throw new ReplicationAssertionError('Cannot pack or upload an unsealed publication');
     }
-    return (this.preparation ??= Promise.resolve()
-      .then(() => this.preparePayloadsImpl())
+    return (this.payloadsTask ??= Promise.resolve()
+      .then(() => this.packAndUploadPayloadsImpl())
       .then(() => {
         this.payloadsReady = true;
       }));
@@ -161,10 +161,10 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     options?: storage.BucketBatchCommitOptions,
     additionalWrites?: MongoWriteBatch
   ) {
-    // Never start preparation from a transaction attempt. The eager coordinator
-    // awaits readiness for the entire bounded prefix before opening a transaction.
+    // The publishing stage packs/uploads once, outside transaction retries. The
+    // coordinator awaits the entire bounded prefix before opening a transaction.
     if (!this.payloadsReady) {
-      throw new ReplicationAssertionError('Prepare publication payloads before starting the transaction');
+      throw new ReplicationAssertionError('Pack and upload payloads before starting the transaction');
     }
     return this.write(session, options, additionalWrites);
   }
@@ -354,7 +354,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   private readonly preparedUsageDeltas = new Map<BucketDefinitionId, bigint>();
   private preparedUploads: PreparedObjectStorageUpload[] = [];
 
-  private async preparePayloadsImpl(): Promise<void> {
+  private async packAndUploadPayloadsImpl(): Promise<void> {
     const operationsByDefinition = new Map<BucketDefinitionId, BucketDataDoc[]>();
     for (const document of this.operations.bucketData) {
       const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];

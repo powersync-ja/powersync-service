@@ -78,7 +78,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     return super.withWriterLock(async () => {
       // Buffer one bounded input block while both publication slots are occupied.
-      // Automatic flushing checks capacity before application; keep the mutex here
+      // Automatic flushing checks capacity before preparation; keep the mutex here
       // because another writer's metadata barrier can flush and replace this input.
       try {
         return await this.saveInternal(record);
@@ -91,7 +91,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   /**
    * Caller holds writerMutex. Flush this writer's buffered rows/checkpoints into
-   * the pipeline, waiting for application/admission but not necessarily publication.
+   * the pipeline, waiting for preparation/admission but not necessarily publication.
    * Repairs retain their synchronous flush path. Use public flush() for durability
    * when the caller does not already hold the mutex.
    */
@@ -215,7 +215,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
     // Reservations are globally disjoint and this lease's allocator consumes IDs
     // assigned to sealed work, even if publication is abandoned. The writer mutex
-    // serializes application under this lease; the shared overlay covers pending writes;
+    // serializes preparation under this lease; the shared overlay covers pending writes;
     // the transaction fence excludes a different lease owner. Thus preparation
     // does not need to read the persisted head to allocate IDs or reuse records.
     allocator.consume(lastOp);
@@ -328,13 +328,13 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const tracer = session === this.session ? this.tracer : this.pipeline.tracer;
     // This gate covers every sealed batch in the prefix, including truncate/drop.
     // The transaction must never wait for source reads, evaluation or S3 PUTs.
-    // Uploads belong to the single publication stage, before opening a
+    // Uploads belong to the publishing stage, before opening a
     // transaction. Keep this idempotent gate for truncate/drop too.
     let attempts = 0;
     const retryDeadline = Date.now() + 90_000;
     try {
       for (const publication of publications) {
-        await publication.preparePayloads();
+        await publication.packAndUploadPayloads();
       }
       await this.withFencedTransaction(
         () => this.fence(session, projection),
@@ -373,7 +373,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         tracer
       );
     } catch (error) {
-      // Upload preparation or publication failed. Marker registration or the
+      // Packing, upload or MongoDB publication failed. Marker registration or the
       // commit may have succeeded, so leave uploaded objects and markers alone.
       // Stop every writer on this lease and recover from persisted source progress.
       this.options.replicationLock.invalidate(
@@ -425,13 +425,13 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       );
     }
     // The predecessor's immutable delta overrides durable records. Its lifetime
-    // is pinned through this application, including reads that straddle commit.
+    // is pinned through this preparation, including reads that straddle commit.
     for (const [key, record] of overlay) {
       sizes?.set(key, record.data?.length() ?? 0);
     }
     const records = new Map<string, LoadedSourceRecord | null>(overlay);
     let writtenSize = 0;
-    // Sealing is pure: only the publication stage starts uploads. This leaves
+    // Sealing is pure: only the publishing stage starts uploads. This leaves
     // one predecessor's uploads/writes overlapping this block's reads/evaluation.
     const prepareGroup = (group: PersistedBatchV3) => {
       retainedBytes += group.estimatedRetainedBytes;
