@@ -585,14 +585,15 @@ WHERE  oid = $1::regclass`,
 
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
+    // Stop reading pages on source cancellation, then persist the last complete page.
+    // The replication lease still cancels storage work if ownership is lost.
     const flushResults = await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: ZERO_LSN,
         defaultSchema: POSTGRES_DEFAULT_SCHEMA,
         storeCurrentData: true,
-        skipExistingRows: true,
-        signal: this.abort_signal
+        skipExistingRows: true
       },
       async (batch) => {
         let tablesWithStatus: SourceTable[] = [];
