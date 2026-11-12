@@ -1,13 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAbortedError, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { PerformanceTracer } from '@powersync/service-core';
+import { LoadedSourceRecord } from '../common/SourceRecordStore.js';
 import { MongoOpIdAllocator } from '../MongoOpIdAllocator.js';
 import { MongoSyncRulesLock } from '../MongoSyncRulesLock.js';
-import { LoadedSourceRecord } from '../common/SourceRecordStore.js';
+import { MAX_PIPELINE_BATCHES, MAX_PIPELINE_BYTES } from '../ReplicationBatchLimits.js';
 import type { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
-
-/** Accounted work, including packing headroom; not an RSS or single-row limit. */
-const MAX_PENDING_BYTES = 64 * 1024 * 1024;
 
 interface Publication {
   readonly records: ReadonlyMap<string, LoadedSourceRecord>;
@@ -90,7 +88,10 @@ export class ReplicationPipelineV3 {
   /** Caller holds writerMutex. Reserve the preparation slot before reading another block. */
   async capacity(bytes = 0): Promise<void> {
     this.lock.throwIfAborted();
-    while (this.pending.length >= 2 || (this.pending.length > 0 && this.accountedBytes + bytes > MAX_PENDING_BYTES)) {
+    while (
+      this.pending.length >= MAX_PIPELINE_BATCHES ||
+      (this.pending.length > 0 && this.accountedBytes + bytes > MAX_PIPELINE_BYTES)
+    ) {
       const signal = this.lock.signal;
       const aborted = Promise.withResolvers<void>();
       const onAbort = () => aborted.reject(signal.reason);

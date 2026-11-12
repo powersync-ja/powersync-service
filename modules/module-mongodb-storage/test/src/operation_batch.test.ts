@@ -5,6 +5,10 @@ import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test, vi } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { OperationBatch } from '../../src/storage/implementation/OperationBatch.js';
+import {
+  MAX_INPUT_BATCH_BYTES,
+  MAX_INPUT_BATCH_COUNT
+} from '../../src/storage/implementation/ReplicationBatchLimits.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
@@ -73,7 +77,7 @@ async function open(storageVersion: number) {
 
 test('checkpoint-only input is bounded by bytes and produces no row lookup blocks', () => {
   const input = new OperationBatch();
-  input.addCustomWriteCheckpoint({ sync_rules_id: 1, user_id: 'x'.repeat(5_000_000), checkpoint: 1n });
+  input.addCustomWriteCheckpoint({ sync_rules_id: 1, user_id: 'x'.repeat(MAX_INPUT_BATCH_BYTES), checkpoint: 1n });
   expect(input.hasData()).toBe(true);
   expect(input.shouldFlush()).toBe(true);
   expect([...input.batched(undefined)]).toEqual([]);
@@ -87,17 +91,21 @@ describe.each([1, 2, 3, 4])('input batch v%i', (storageVersion) => {
     expect(c.table.syncData).toBe(false);
     expect(c.table.syncParameters).toBe(false);
     expect(c.table.syncEvent).toBe(true);
-    for (let i = 1; i < 2000; i++) {
+    for (let i = 1; i < MAX_INPUT_BATCH_COUNT; i++) {
       await c.save(i);
     }
     expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toBeNull();
-    await c.save(2000);
+    await c.save(MAX_INPUT_BATCH_COUNT);
     await writer.flush();
-    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({ checkpoint: 2000n });
+    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({
+      checkpoint: BigInt(MAX_INPUT_BATCH_COUNT)
+    });
     // The first input has detached. A new checkpoint must create and belong to a new input.
-    await c.save(2001);
+    await c.save(MAX_INPUT_BATCH_COUNT + 1);
     await writer.commit('1/2');
-    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({ checkpoint: 2001n });
+    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({
+      checkpoint: BigInt(MAX_INPUT_BATCH_COUNT + 1)
+    });
     expect((await c.buckets.getCheckpoint()).lsn).toBe('1/2');
   });
 });
@@ -147,11 +155,11 @@ describe.each([3, 4])('checkpoint input ownership v%i', (storageVersion) => {
     using _reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
     let flushing: Promise<unknown> | undefined;
     try {
-      for (let i = 1; i <= 2000; i++) {
+      for (let i = 1; i <= MAX_INPUT_BATCH_COUNT; i++) {
         await c.save(i);
       }
       await entered.promise;
-      await c.save(2001);
+      await c.save(MAX_INPUT_BATCH_COUNT + 1);
       expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toBeNull();
       // Start the barrier while the next input is already populated.
       flushing = writer.flush();
@@ -160,8 +168,10 @@ describe.each([3, 4])('checkpoint input ownership v%i', (storageVersion) => {
       await flushing;
     }
     expect(attempts).toBe(2);
-    expect(c.observed).toEqual([2000n, 2001n]);
-    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({ checkpoint: 2001n });
+    expect(c.observed).toEqual([BigInt(MAX_INPUT_BATCH_COUNT), BigInt(MAX_INPUT_BATCH_COUNT + 1)]);
+    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({
+      checkpoint: BigInt(MAX_INPUT_BATCH_COUNT + 1)
+    });
     expect(await c.checkpoints.countDocuments()).toBe(1);
     expect(_reads).not.toHaveBeenCalled();
     expect(pipeline.pendingCount).toBe(0);

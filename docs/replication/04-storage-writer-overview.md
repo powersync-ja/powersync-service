@@ -21,15 +21,18 @@ The source connector is responsible for closing each writer cleanly so pending w
 ## MongoDB V3/V4 Publication Pipeline
 
 Writers on one replication lease share a two-batch pipeline. Each writer buffers
-one normal input block (up to the existing row/size thresholds). Preparation
+one normal input block (16,000 rows/checkpoints or 8 MiB estimated input). Preparation
 admits complete blocks, or partial blocks at explicit boundaries. Interleaved
 snapshot and streaming `save()` calls do not flush each other's input.
 
-One batch uploads its payloads and then publishes them to MongoDB while its
-successor reads source records and evaluates changes. Uploads start only when a
-batch enters the publishing stage; there is no separate upload queue. Source
-connectors can fetch their next page while publication runs, retaining their
-existing bounded source buffering. Evaluation remains on the main thread.
+Preparation reads source records, evaluates changes and seals writes. Once a
+batch owns a pipeline slot, preparation finishes by packing payloads and uploading
+offloaded chunks. The successor can upload while its predecessor is uploading or
+publishing. Publishing commits the prepared MongoDB writes in FIFO order, after
+that batch's uploads finish. There are at most two batches in flight in total;
+both can be uploading, but only one can publish to MongoDB. They share the existing
+object-storage request limiter, with no additional upload queue. Source connectors
+retain their existing bounded buffering/prefetch. Evaluation remains on the main thread.
 
 Preparation sees the predecessor's immutable source-record delta on top of
 majority reads. The delta includes tombstones and remains alive through the
@@ -47,7 +50,7 @@ Failed publication invalidates the lease and stops the successor; replay starts
 from persisted source progress. Partial-row repair notifications retain their
 synchronous durability barrier.
 
-The two slots and 64 MiB accounted-work target bound pipeline admission, with
+The two slots and 128 MiB accounted-work target bound pipeline admission, with
 headroom estimates for packing. These are not RSS limits: a preparation block or
 single oversized row can exceed the byte target. Source pages and one input block
 per active writer are additional bounded allowances, so total memory also scales

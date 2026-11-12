@@ -3,16 +3,17 @@ import * as bson from 'bson';
 
 import { storage } from '@powersync/service-core';
 import { mongoTableId } from '../../utils/util.js';
+import { MAX_INPUT_BATCH_BYTES, MAX_INPUT_BATCH_COUNT } from './ReplicationBatchLimits.js';
 
 /**
  * Maximum number of row operations or custom checkpoints in a batch.
  */
-const MAX_BATCH_COUNT = 2000;
+const MAX_BATCH_COUNT = MAX_INPUT_BATCH_COUNT;
 
 /**
  * Maximum size of operations in the batch (estimated).
  */
-const MAX_RECORD_BATCH_SIZE = 5_000_000;
+const MAX_RECORD_BATCH_SIZE = MAX_INPUT_BATCH_BYTES;
 
 /**
  * Maximum size of size of current_data documents we lookup at a time.

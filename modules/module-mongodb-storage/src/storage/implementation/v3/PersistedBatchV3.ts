@@ -17,6 +17,7 @@ import {
 import { PreparedPublication } from '../common/PreparedPublication.js';
 import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
+import { RETAINED_BYTES_FACTOR } from '../ReplicationBatchLimits.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
 import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
@@ -107,7 +108,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
    * Exclude the carried transaction size: earlier groups account for themselves.
    */
   get estimatedRetainedBytes(): number {
-    return (this.currentSize - this.initialWrittenSize) * 4;
+    return (this.currentSize - this.initialWrittenSize) * RETAINED_BYTES_FACTOR;
   }
 
   saveBucketData(options: SaveBucketDataOptions): void {

@@ -4,6 +4,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
 import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
+import { MAX_PREPARED_BATCH_BYTES, MAX_PREPARED_BATCH_COUNT } from '../ReplicationBatchLimits.js';
 import { TaggedBucketParameterDocument } from '../models.js';
 import { BucketDataDoc, BucketKey } from './BucketDataDoc.js';
 import { BucketStateUpdate, SaveBucketDataOptions } from './PersistedBatch.js';
@@ -22,14 +23,14 @@ import { SourceRecordBucketState } from './SourceRecordStore.js';
  *
  * When we reach this threshold, we commit the transaction and start a new one.
  */
-const MAX_TRANSACTION_BATCH_SIZE = 30_000_000;
+const MAX_TRANSACTION_BATCH_SIZE = MAX_PREPARED_BATCH_BYTES;
 
 /**
  * Limit number of documents to write in a single transaction.
  *
  * This has an effect on error message size in some cases.
  */
-const MAX_TRANSACTION_DOC_COUNT = 2_000;
+const MAX_TRANSACTION_DOC_COUNT = MAX_PREPARED_BATCH_COUNT;
 
 /**
  * Shared operation generation, size accounting and diagnostics. Each storage

@@ -16,6 +16,7 @@ import { OpIdRangeExhausted } from '../MongoIdSequence.js';
 import { MongoParsedSyncConfigSet } from '../MongoParsedSyncConfigSet.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { OperationBatch } from '../OperationBatch.js';
+import { RETAINED_BYTES_FACTOR } from '../ReplicationBatchLimits.js';
 import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { PreparedPublication } from '../common/PreparedPublication.js';
 import { LoadedSourceRecord } from '../common/SourceRecordStore.js';
@@ -195,7 +196,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const { publications, repairs, resumeBatch, changes, hasWrites } = prepared;
     const retainedBytes =
       prepared.retainedBytes +
-      checkpoints.reduce((bytes, checkpoint) => bytes + (bson.calculateObjectSize(checkpoint) + 256) * 4, 0);
+      checkpoints.reduce(
+        (bytes, checkpoint) => bytes + (bson.calculateObjectSize(checkpoint) + 256) * RETAINED_BYTES_FACTOR,
+        0
+      );
     const publishCheckpoint = checkpoint != null && resumeBatch == null;
     let lastOp = prepared.lastOp;
     let checkpointOp: bigint | undefined;

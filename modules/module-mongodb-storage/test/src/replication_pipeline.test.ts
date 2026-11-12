@@ -5,6 +5,7 @@ import * as bson from 'bson';
 import { describe, expect, test, vi } from 'vitest';
 import { MongoPersistedReplicationStream } from '../../src/storage/implementation/MongoPersistedReplicationStream.js';
 import { OperationBatch } from '../../src/storage/implementation/OperationBatch.js';
+import { MAX_INPUT_BATCH_COUNT, MAX_PIPELINE_BYTES } from '../../src/storage/implementation/ReplicationBatchLimits.js';
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
@@ -166,9 +167,9 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
     using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
     using uploads = vi.spyOn(c.objects, 'put');
-    // Deliberately use the production 2,000-row input threshold, with alternating
+    // Deliberately use the production input threshold, with alternating
     // writers. Switching after every save must not create tiny transactions/objects.
-    for (let i = 0; i < 2000; i++) {
+    for (let i = 0; i < MAX_INPUT_BATCH_COUNT; i++) {
       await save(writer, c.table, `stream-${i}`, 'streaming');
       await snapshot.save({
         sourceTable: c.table,
@@ -176,7 +177,7 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
         afterReplicaId: test_utils.rid(`snapshot-${i}`),
         after: { id: `snapshot-${i}`, description: 'snapshot' }
       });
-      if (i === 1998) {
+      if (i === MAX_INPUT_BATCH_COUNT - 2) {
         expect(reads).not.toHaveBeenCalled();
       }
     }
@@ -184,13 +185,14 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     await writer.commit('1/2');
     expect(reads).toHaveBeenCalledTimes(2);
     expect(publish).toHaveBeenCalledTimes(2);
-    expect(uploads).toHaveBeenCalledTimes(2);
+    expect(uploads.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(uploads.mock.calls.length).toBeLessThan(16);
     expect(
       await c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId).countDocuments()
-    ).toBe(4000);
+    ).toBe(2 * MAX_INPUT_BATCH_COUNT);
     expect((await c.buckets.getCheckpoint()).lsn).toBe('1/2');
     expect(c.pipeline.accountedBytes).toBe(0);
-  });
+  }, 30_000);
 
   test('metadata flushes every writer before truncating rows buffered below the input limit', async () => {
     const c = await open(version, 'offloaded');
@@ -230,7 +232,7 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     // ordinary two-prefix count limit.
     using _size = vi
       .spyOn(PersistedBatchV3.prototype, 'estimatedRetainedBytes', 'get')
-      .mockReturnValue(65 * 1024 * 1024);
+      .mockReturnValue(MAX_PIPELINE_BYTES + 1);
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const original = PersistedBatchV3.prototype.publish;

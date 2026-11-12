@@ -4,6 +4,7 @@ import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { writeFile } from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
 import { expect, test, vi } from 'vitest';
+import { MAX_INPUT_BATCH_COUNT } from '../../src/storage/implementation/ReplicationBatchLimits.js';
 import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { env } from './env.js';
@@ -21,8 +22,8 @@ import { PublicationCommandMonitor } from './helpers/PublicationCommandMonitor.j
 test.skipIf(!process.env.POWERSYNC_PIPELINE_BENCHMARK)(
   'measures serial versus pipelined v4 publication',
   async () => {
-    const batchRows = 2000;
-    const totalRows = 20000;
+    const batchRows = MAX_INPUT_BATCH_COUNT;
+    const totalRows = 10 * batchRows;
     const readDelayMs = 10;
     const publicationDelayMs = 20;
     const uploadDelayMs = 10;
@@ -128,5 +129,5 @@ streams:
       await writeFile(process.env.POWERSYNC_PIPELINE_BENCHMARK_OUTPUT, JSON.stringify(report, null, 2));
     }
   },
-  30_000
+  120_000
 );
