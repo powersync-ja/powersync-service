@@ -39,7 +39,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   private readonly store: SourceRecordStoreV3;
   private readonly pipeline: ReplicationPipelineV3;
-  private queueAutomaticFlush = false;
+  private enqueuePublication = false;
   private pendingPublications = 0;
   /** Avoid repeating idempotent createIndexes calls for every checkpoint flush. */
   private readonly initializedCustomCheckpointEventIds = new Set<EventDefinitionId>();
@@ -62,14 +62,14 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     this.syncConfigIds = syncConfigIds;
     this.knownEventIds = new Set(this.mapping.allEventDefinitionIds());
     this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
+    this.pipeline.registerWriter(this);
   }
 
   override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     return super.withWriterLock(async () => {
       // Buffer one bounded input block while both publication slots are occupied.
       // Automatic flushing checks capacity before application; keep the mutex here
-      // because another writer's metadata barrier can seal and replace this input.
-      this.pipeline.inputOwners.add(this);
+      // because another writer's metadata barrier can flush and replace this input.
       try {
         return await this.saveInternal(record);
       } catch (error) {
@@ -79,32 +79,40 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     });
   }
 
-  /** Submit a bounded input block, or a partial block at an explicit boundary. */
-  async sealPipelineInput(): Promise<storage.FlushedResult | null> {
+  /**
+   * Caller holds writerMutex. Flush this writer's buffered rows/checkpoints into
+   * the pipeline, waiting for application/admission but not necessarily publication.
+   * Repairs retain their synchronous flush path. Use public flush() for durability
+   * when the caller does not already hold the mutex.
+   */
+  async flushBufferedInputToPipeline(): Promise<storage.FlushedResult | null> {
     if (!this.batch?.hasData()) {
       return null;
     }
-    this.queueAutomaticFlush = true;
+    this.enqueuePublication = true;
     try {
       return await this.flushInternal();
     } finally {
-      this.queueAutomaticFlush = false;
+      this.enqueuePublication = false;
     }
   }
 
   protected override async automaticFlush(): Promise<storage.FlushedResult | null> {
-    return this.sealPipelineInput();
+    return this.flushBufferedInputToPipeline();
   }
 
-  /** Metadata, explicit flushes and checkpoints drain the admitted stream prefix. */
-  protected override async withWriterLock<T>(callback: () => Promise<T>, sealInput = true): Promise<T> {
+  /**
+   * Metadata operations flush all live writers before changing shared table state.
+   * Explicit flush/commit pass false: they drain admitted work and flush their own
+   * input in the callback, without forcing other writers' partial buffers to publish.
+   */
+  protected override async withWriterLock<T>(callback: () => Promise<T>, flushAllWriters = true): Promise<T> {
     return super.withWriterLock(async () => {
-      if (sealInput) {
-        for (const owner of this.pipeline.inputOwners) {
-          await owner.sealPipelineInput();
-        }
+      if (flushAllWriters) {
+        await this.pipeline.flushAllWriters();
+      } else {
+        await this.pipeline.drain();
       }
-      await this.pipeline.drain();
       return callback();
     });
   }
@@ -118,7 +126,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       if (pending || this.options.replicationLock.signal.aborted) {
         await this.pipeline.join();
       }
-      this.pipeline.inputOwners.delete(this);
+      this.pipeline.unregisterWriter(this);
       await super[Symbol.asyncDispose]();
     });
   }
@@ -267,7 +275,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     };
     // Repairs stay synchronous so the connector can repair rows before source
     // progress advances. Ordinary rows may pipeline even for repair-capable sources.
-    const shouldQueue = this.queueAutomaticFlush && repairs.length === 0;
+    const shouldQueue = this.enqueuePublication && repairs.length === 0;
     if (shouldQueue) {
       await this.pipeline.capacity(retainedBytes);
       this.batch = resumeBatch;

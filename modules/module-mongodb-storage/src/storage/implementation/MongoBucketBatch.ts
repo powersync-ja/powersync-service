@@ -652,8 +652,10 @@ export abstract class MongoBucketBatch
    * database operation or reacquire this mutex. All session use, including reads,
    * belongs inside this boundary so it cannot join another writer's transaction.
    * Transaction helpers still fence database ownership on every attempt.
+   * V3/v4 also flush all writers before metadata operations; flush/commit pass
+   * false so their callbacks handle their own input without flushing other writers.
    */
-  protected async withWriterLock<T>(callback: () => Promise<T>, _sealInput = true): Promise<T> {
+  protected async withWriterLock<T>(callback: () => Promise<T>, _flushAllWriters = true): Promise<T> {
     using lockSpan = this.tracer.span('storage', 'internal_lock');
     this.options.replicationLock.throwIfAborted();
     return this.options.replicationLock.writerMutex.exclusiveLock(async () => {

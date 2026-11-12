@@ -152,6 +152,30 @@ bucket_definitions:
       }
     });
 
+    test.runIf(storageVersion >= 3)('rejects custom checkpoints without an event definition id', async () => {
+      await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  global:
+    query: SELECT * FROM checkpoints
+`,
+          { storageVersion }
+        )
+      );
+      const bucketStorage = await getTestStorage(factory, syncRules);
+      const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+      // Keep rejected input in its own test: disposal invalidates the shared lease.
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      writer.addCustomWriteCheckpoint({ user_id: 'invalid', checkpoint: 1n });
+      await expect(writer.flush()).rejects.toThrow('require an event definition id');
+      await expect(db.listCustomCheckpointRequestCollections(syncRules.replicationStreamId)).resolves.toEqual([]);
+    });
+
     test.runIf(storageVersion >= 3)(
       'stores and streams checkpoints from different event definitions independently',
       async (context) => {
@@ -210,11 +234,6 @@ event_definitions:
         // Reads before the first checkpoint must behave like an empty result;
         // they must not require the lazily-created collection to exist.
         await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1' })).resolves.toBeNull();
-
-        await using invalidWriter = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-        invalidWriter.addCustomWriteCheckpoint({ user_id: 'invalid', checkpoint: 1n });
-        await expect(invalidWriter.flush()).rejects.toThrow('require an event definition id');
-        await expect(db.listCustomCheckpointRequestCollections(syncRules.replicationStreamId)).resolves.toEqual([]);
 
         await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
         await writer.markAllSnapshotDone('1/1');

@@ -103,6 +103,22 @@ describe.each([1, 2, 3, 4])('input batch v%i', (storageVersion) => {
 });
 
 describe.each([3, 4])('checkpoint input ownership v%i', (storageVersion) => {
+  test('metadata includes a checkpoint-only writer that has never called save', async () => {
+    const c = await open(storageVersion);
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await using other = await c.buckets.createWriter(test_utils.BATCH_OPTIONS);
+    const eventId = c.table.eventDefinitionIds!.values().next().value!;
+    other.addCustomWriteCheckpoint({ user_id: 'user-1', checkpoint: 5n, event_id: eventId });
+    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toBeNull();
+
+    // A metadata read must see a consistent state across every live writer, including
+    // input added directly without a preceding save() call.
+    await writer.getSourceTableStatus(c.table);
+    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({ checkpoint: 5n });
+    expect(c.stream.current_lock!.replicationPipeline!.pendingCount).toBe(0);
+  });
+
   test('keeps the admitted checkpoints stable through retry while the next input fills', async () => {
     const c = await open(storageVersion);
     await using _factory = c.factory;

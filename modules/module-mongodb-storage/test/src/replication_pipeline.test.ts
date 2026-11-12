@@ -160,7 +160,9 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
         afterReplicaId: test_utils.rid(`snapshot-${i}`),
         after: { id: `snapshot-${i}`, description: 'snapshot' }
       });
-      if (i === 1998) expect(reads).not.toHaveBeenCalled();
+      if (i === 1998) {
+        expect(reads).not.toHaveBeenCalled();
+      }
     }
     await snapshot.flush();
     await writer.commit('1/2');
@@ -171,6 +173,35 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
       await c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId).countDocuments()
     ).toBe(4000);
     expect((await c.buckets.getCheckpoint()).lsn).toBe('1/2');
+    expect(c.pipeline.accountedBytes).toBe(0);
+  });
+
+  test('metadata flushes every writer before truncating rows buffered below the input limit', async () => {
+    const c = await open(version, 'offloaded');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await using snapshot = await c.buckets.createWriter({ ...test_utils.BATCH_OPTIONS, skipExistingRows: true });
+    using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
+    await save(writer, c.table, 'A', 'streaming');
+    await snapshot.save({
+      sourceTable: c.table,
+      tag: storage.SaveOperationTag.INSERT,
+      afterReplicaId: test_utils.rid('B'),
+      after: { id: 'B', description: 'snapshot' }
+    });
+    // These are writer-local buffers, not admitted publication batches.
+    expect(reads).not.toHaveBeenCalled();
+    expect(c.pipeline.pendingCount).toBe(0);
+
+    await writer.truncate([c.table]);
+    // Later flushes must not resurrect input that was buffered before truncation.
+    await snapshot.flush();
+    await writer.commit('1/2');
+    expect(
+      await c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId).countDocuments()
+    ).toBe(0);
+    expect((await c.buckets.getCheckpoint()).lsn).toBe('1/2');
+    expect(c.pipeline.pendingCount).toBe(0);
     expect(c.pipeline.accountedBytes).toBe(0);
   });
 

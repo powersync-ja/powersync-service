@@ -4,13 +4,10 @@ import { PerformanceTracer } from '@powersync/service-core';
 import { MongoOpIdAllocator } from '../MongoOpIdAllocator.js';
 import { MongoSyncRulesLock } from '../MongoSyncRulesLock.js';
 import { LoadedSourceRecord } from '../common/SourceRecordStore.js';
+import type { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 
 /** Accounted work, including packing headroom; not an RSS or single-row limit. */
 const MAX_PENDING_BYTES = 64 * 1024 * 1024;
-
-export interface PipelineInputOwner {
-  sealPipelineInput(): Promise<unknown>;
-}
 
 interface Publication {
   readonly records: ReadonlyMap<string, LoadedSourceRecord>;
@@ -31,7 +28,12 @@ interface Publication {
 export class ReplicationPipelineV3 {
   readonly publicationSession: mongo.ClientSession;
   readonly tracer = new PerformanceTracer<'storage' | 'evaluate'>('MongoDB publication');
-  readonly inputOwners = new Set<PipelineInputOwner>();
+  /**
+   * Live writers can buffer raw rows/checkpoints that are not yet in `pending`.
+   * Metadata barriers must include all of those buffers before changing table state.
+   * Writers register at construction and unregister on disposal, not on each save.
+   */
+  private readonly writers = new Set<MongoBucketBatchV3>();
   private readonly pending: Publication[] = [];
   private reading?: Publication;
   private publishedTime?: mongo.Timestamp;
@@ -41,6 +43,26 @@ export class ReplicationPipelineV3 {
     readonly allocator: MongoOpIdAllocator
   ) {
     this.publicationSession = lock.db.client.startSession({ causalConsistency: true });
+  }
+
+  registerWriter(writer: MongoBucketBatchV3): void {
+    this.writers.add(writer);
+  }
+
+  unregisterWriter(writer: MongoBucketBatchV3): void {
+    this.writers.delete(writer);
+  }
+
+  /**
+   * Caller holds writerMutex. Flush every writer's buffered input, then wait for
+   * publication before a metadata operation can change the state those rows use.
+   * Calling a writer's public flush() here would reacquire the same mutex.
+   */
+  async flushAllWriters(): Promise<void> {
+    for (const writer of this.writers) {
+      await writer.flushBufferedInputToPipeline();
+    }
+    await this.drain();
   }
 
   get pendingCount() {
@@ -74,7 +96,9 @@ export class ReplicationPipelineV3 {
 
   get overlayEntryCount() {
     const batches = new Set(this.pending);
-    if (this.reading != null) batches.add(this.reading);
+    if (this.reading != null) {
+      batches.add(this.reading);
+    }
     return [...batches].reduce((sum, batch) => sum + batch.records.size, 0);
   }
 
@@ -154,7 +178,7 @@ export class ReplicationPipelineV3 {
 
   async dispose(): Promise<void> {
     await this.join();
-    this.inputOwners.clear();
+    this.writers.clear();
     await this.publicationSession.endSession();
   }
 }

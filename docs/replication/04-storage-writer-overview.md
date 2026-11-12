@@ -39,10 +39,13 @@ publication clocks advance the application session, so older batches need no
 retained overlay or cache.
 
 Explicit flushes and checkpoints wait for the admitted prefix and their writer's
-input. Metadata operations seal buffered writer inputs and drain publication
-before changing table state. Failed publication invalidates the lease and stops
-the successor; replay starts from persisted source progress. Partial-row repair
-notifications retain their synchronous durability barrier.
+input. The pipeline privately tracks live writers from construction to disposal.
+Metadata operations call `flushAllWriters()` to submit every writer's buffered
+rows/checkpoints and await publication before changing table state. Registering a
+writer does not mean its input has entered the two-slot publication pipeline.
+Failed publication invalidates the lease and stops the successor; replay starts
+from persisted source progress. Partial-row repair notifications retain their
+synchronous durability barrier.
 
 The two slots and 64 MiB accounted-work target bound pipeline admission, with
 headroom estimates for packing. These are not RSS limits: an application block or
