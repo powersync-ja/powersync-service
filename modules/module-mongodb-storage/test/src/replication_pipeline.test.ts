@@ -69,7 +69,15 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
       return original.apply(this, args);
     });
     using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
-    using uploads = vi.spyOn(c.objects, 'put');
+    const secondUpload = Promise.withResolvers<void>();
+    const put = c.objects.put.bind(c.objects);
+    using uploads = vi.spyOn(c.objects, 'put').mockImplementation(async (...args) => {
+      const result = await put(...args);
+      if (uploads.mock.calls.length === 2) {
+        secondUpload.resolve();
+      }
+      return result;
+    });
     let third: Promise<storage.FlushedResult | null> | undefined;
     try {
       expect(await save(writer, c.table, 'A', 'first')).toBeNull();
@@ -77,7 +85,10 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
       expect(await save(writer, c.table, 'A', 'second')).toBeNull();
       expect(publish).toHaveBeenCalledTimes(1);
       expect(reads).toHaveBeenCalledTimes(1); // The second row uses pending state.
-      expect(uploads).toHaveBeenCalledTimes(mode === 'offloaded' ? 1 : 0);
+      if (mode === 'offloaded') {
+        await secondUpload.promise;
+      }
+      expect(uploads).toHaveBeenCalledTimes(mode === 'offloaded' ? 2 : 0);
       expect(writer.last_flushed_op).toBeNull();
       expect(c.pipeline.pendingCount).toBe(2);
       const waiting = Promise.withResolvers<void>();
@@ -110,12 +121,13 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     ]);
   });
 
-  test('prepares the successor while uploads remain serial', async () => {
+  test('uploads the successor while its predecessor is still uploading', async () => {
     const c = await open(version, 'offloaded');
     await using _factory = c.factory;
     await using writer = c.writer;
     using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
     const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const put = c.objects.put.bind(c.objects);
     let count = 0;
@@ -124,6 +136,9 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
         first.resolve();
         await release.promise;
       }
+      if (count === 2) {
+        second.resolve();
+      }
       return put(...args);
     });
     using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
@@ -131,7 +146,8 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     await first.promise;
     try {
       await save(writer, c.table, 'B', 'second');
-      expect(_put).toHaveBeenCalledTimes(1);
+      await second.promise;
+      expect(_put).toHaveBeenCalledTimes(2);
       expect(publish).not.toHaveBeenCalled();
       expect(c.pipeline.pendingCount).toBe(2);
     } finally {
@@ -447,6 +463,102 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     await writer.commit('1/2');
     expect((await c.buckets.getCheckpoint()).lsn).toBe('1/2');
     expect(repairs).toHaveBeenCalledTimes(1);
+  });
+
+  test('joins an active successor upload when predecessor publication fails', async () => {
+    const c = await open(version, 'offloaded');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
+    const publishing = Promise.withResolvers<void>();
+    const failPublication = Promise.withResolvers<void>();
+    using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async () => {
+      publishing.resolve();
+      await failPublication.promise;
+      throw new Error('publication failed');
+    });
+    const uploading = Promise.withResolvers<void>();
+    const finishUpload = Promise.withResolvers<void>();
+    const put = c.objects.put.bind(c.objects);
+    let uploads = 0;
+    using _put = vi.spyOn(c.objects, 'put').mockImplementation(async (...args) => {
+      if (++uploads === 2) {
+        uploading.resolve();
+        await finishUpload.promise;
+      }
+      return put(...args);
+    });
+    let joined = false;
+    let joining: Promise<void> | undefined;
+    try {
+      await save(writer, c.table, 'A', 'first');
+      await publishing.promise;
+      await save(writer, c.table, 'B', 'second');
+      await uploading.promise;
+      joining = c.pipeline.join().then(() => {
+        joined = true;
+      });
+      failPublication.resolve();
+      await expect(save(writer, c.table, 'C', 'third')).rejects.toThrow('restart');
+      expect(joined).toBe(false);
+      expect(c.pipeline.accountedBytes).toBeGreaterThan(0);
+    } finally {
+      failPublication.resolve();
+      finishUpload.resolve();
+      await joining;
+    }
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(c.pipeline.pendingCount).toBe(0);
+    expect(c.pipeline.accountedBytes).toBe(0);
+    expect(
+      await c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId).countDocuments()
+    ).toBe(0);
+    expect((await c.buckets.getCheckpoint()).checkpoint).toBe(0n);
+  });
+
+  test('successor upload failure stops admission before predecessor publication finishes', async () => {
+    const c = await open(version, 'offloaded');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
+    const publishing = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const original = PersistedBatchV3.prototype.publish;
+    using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
+      this: PersistedBatchV3,
+      ...args
+    ) {
+      publishing.resolve();
+      await release.promise;
+      return original.apply(this, args);
+    });
+    const put = c.objects.put.bind(c.objects);
+    let uploads = 0;
+    using _put = vi.spyOn(c.objects, 'put').mockImplementation(async (...args) => {
+      if (++uploads === 2) {
+        throw new Error('successor upload failed');
+      }
+      return put(...args);
+    });
+    const aborted = Promise.withResolvers<void>();
+    c.lock.signal.addEventListener('abort', () => aborted.resolve(), { once: true });
+    try {
+      await save(writer, c.table, 'A', 'first');
+      await publishing.promise;
+      await save(writer, c.table, 'B', 'second');
+      await aborted.promise;
+      await expect(save(writer, c.table, 'C', 'third')).rejects.toThrow('restart');
+      // The failed successor must stay behind its predecessor through teardown.
+      expect(c.pipeline.pendingCount).toBe(2);
+      expect(c.pipeline.accountedBytes).toBeGreaterThan(0);
+    } finally {
+      release.resolve();
+      await c.pipeline.join();
+    }
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(c.pipeline.pendingCount).toBe(0);
+    expect(c.pipeline.accountedBytes).toBe(0);
+    expect((await c.buckets.getCheckpoint()).checkpoint).toBe(0n);
   });
 
   test('publication failure rejects capacity waiters and stops the suffix', async () => {

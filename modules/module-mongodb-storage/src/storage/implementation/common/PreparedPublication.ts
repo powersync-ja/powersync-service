@@ -10,8 +10,8 @@ export interface PublicationStats {
 }
 
 /**
- * Sealed output of the v3/v4 preparation stage. In the publishing stage, packing
- * and uploads run once, including on failure; MongoDB transaction retries create
+ * Sealed writes from v3/v4 row preparation. Payload packing and uploads finish
+ * preparation once, including on failure; MongoDB transaction retries create
  * fresh writes on every attempt without clearing the sealed batch.
  *
  * Scheduling metadata belongs to the caller: lease, selected config/mappings,
@@ -30,7 +30,8 @@ export interface PublicationStats {
  */
 export interface PreparedPublication {
   /**
-   * Start the publishing stage by packing payloads and uploading offloaded chunks.
+   * Finish preparation by packing payloads and uploading offloaded chunks.
+   * This can overlap a predecessor's uploads or MongoDB publication.
    * Preparation has already consumed assigned IDs. Sealing itself starts no I/O,
    * so the coordinator can establish ownership before yielding.
    * A packing/upload failure is terminal for this generation; all started uploads

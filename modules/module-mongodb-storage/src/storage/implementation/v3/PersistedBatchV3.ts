@@ -161,7 +161,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     options?: storage.BucketBatchCommitOptions,
     additionalWrites?: MongoWriteBatch
   ) {
-    // The publishing stage packs/uploads once, outside transaction retries. The
+    // Preparation packs/uploads once, outside transaction retries. The
     // coordinator awaits the entire bounded prefix before opening a transaction.
     if (!this.payloadsReady) {
       throw new ReplicationAssertionError('Pack and upload payloads before starting the transaction');

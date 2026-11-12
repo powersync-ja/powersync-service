@@ -290,7 +290,16 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       await this.pipeline.capacity(retainedBytes);
       this.batch = resumeBatch;
       this.pendingPublications++;
-      const receipt = this.pipeline.enqueue(changes, retainedBytes, publish);
+      const receipt = this.pipeline.enqueue(
+        changes,
+        retainedBytes,
+        async () => {
+          for (const publication of publications) {
+            await publication.packAndUploadPayloads();
+          }
+        },
+        publish
+      );
       void receipt
         .finally(() => {
           this.pendingPublications--;
@@ -328,8 +337,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const tracer = session === this.session ? this.tracer : this.pipeline.tracer;
     // This gate covers every sealed batch in the prefix, including truncate/drop.
     // The transaction must never wait for source reads, evaluation or S3 PUTs.
-    // Uploads belong to the publishing stage, before opening a
-    // transaction. Keep this idempotent gate for truncate/drop too.
+    // Queued work can pack/upload ahead of its publication turn. This idempotent
+    // gate also handles synchronous flushes and truncate/drop, which start their
+    // payload work here. Every upload must finish before opening the transaction.
     let attempts = 0;
     const retryDeadline = Date.now() + 90_000;
     try {
@@ -431,8 +441,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
     const records = new Map<string, LoadedSourceRecord | null>(overlay);
     let writtenSize = 0;
-    // Sealing is pure: only the publishing stage starts uploads. This leaves
-    // one predecessor's uploads/writes overlapping this block's reads/evaluation.
+    // Sealing is pure. After capacity is checked and ownership transfers to the
+    // pipeline, packing/uploads can overlap the predecessor's remaining work.
     const prepareGroup = (group: PersistedBatchV3) => {
       retainedBytes += group.estimatedRetainedBytes;
       publications.push(group.seal());

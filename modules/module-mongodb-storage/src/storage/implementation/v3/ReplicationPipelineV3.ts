@@ -16,14 +16,16 @@ interface Publication {
 }
 
 /**
- * Two stages, with one publishing batch and one preparing/prepared batch per lease:
+ * Two stages, with at most two in-flight batches per lease:
  * 1. Preparation reads stored source records, evaluates changes and seals writes
- *    on lock.session under writerMutex.
- * 2. Publishing packs bucket operations, uploads chunks above the inline threshold
- *    to configured object storage (e.g. S3), then commits MongoDB writes including
- *    references to those objects. This runs concurrently with preparation of the
- *    successor on a separate session.
- * No background task acquires that mutex.
+ *    on lock.session under writerMutex. After admission, background preparation
+ *    packs bucket operations and uploads offloaded chunks to object storage (e.g. S3).
+ * 2. Publishing commits the prepared MongoDB writes and object references, in FIFO
+ *    order on a separate session. The successor can read/evaluate, pack and upload
+ *    while its predecessor uploads or publishes. Both batches share the existing
+ *    object-storage request limiter; there is no additional upload queue.
+ * Reads/evaluation and MongoDB publishing each remain serialized. Both slots can
+ * be uploading at once. No background task acquires writerMutex or uses lock.session.
  *
  * Each source writer separately buffers one bounded input block. Only full
  * blocks (or explicit boundaries) enter preparation: alternating snapshot and
@@ -147,19 +149,31 @@ export class ReplicationPipelineV3 {
     this.reading = undefined;
   }
 
-  /** Transfer the prepared batch to the publishing stage; no uploads start before its turn. */
+  /** Own the sealed batch before starting uploads; only MongoDB publication waits for its turn. */
   enqueue(
     records: ReadonlyMap<string, LoadedSourceRecord>,
     bytes: number,
+    preparePayloads: () => Promise<void>,
     publish: (session: mongo.ClientSession) => Promise<void>
   ): Promise<void> {
     const previous = this.pending.at(-1)?.done;
     const preparationTime = this.lock.session.operationTime;
     const batch: Publication = { records, bytes, done: Promise.resolve() };
     this.pending.push(batch);
+    // Start payload work as soon as this batch is accounted for. Observe failure
+    // immediately, even while the predecessor is blocked in MongoDB. Keep this
+    // promise fulfilled: the lease carries the error, and FIFO teardown must join
+    // both the predecessor and all started uploads before removing this batch.
+    const payloads = Promise.resolve()
+      .then(() => {
+        this.lock.throwIfAborted();
+        return preparePayloads();
+      })
+      .catch((error) => this.fail(error));
     const task = (async () => {
       try {
         await previous;
+        await payloads;
         this.lock.throwIfAborted();
         if (preparationTime != null) {
           this.publicationSession.advanceOperationTime(preparationTime);
@@ -174,7 +188,7 @@ export class ReplicationPipelineV3 {
         this.pending.shift();
       }
     })();
-    // Failure aborts the lease before the successor starts. Keep teardown and
+    // Failure aborts the lease before the successor can publish. Keep teardown and
     // capacity waits rejection-free; public operations surface the lease error.
     batch.done = task.catch(() => {});
     return task;
