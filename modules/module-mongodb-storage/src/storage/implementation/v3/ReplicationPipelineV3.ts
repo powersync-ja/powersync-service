@@ -17,8 +17,11 @@ interface Publication {
 
 /**
  * One publishing batch and one preparing/prepared batch per stream lease.
- * Uploads and MongoDB publication form one sequential stage. Application may
- * read and evaluate its successor concurrently on lock.session under writerMutex.
+ * Publication packs bucket operations and uploads chunks above the inline
+ * threshold to configured object storage (e.g. S3), then commits MongoDB writes
+ * including references to those objects. Uploads and MongoDB publication form
+ * one sequential stage. Application may read and evaluate its successor
+ * concurrently on lock.session under writerMutex.
  * No background task acquires that mutex.
  *
  * Each source writer separately buffers one bounded input block. Only full
@@ -36,6 +39,11 @@ export class ReplicationPipelineV3 {
   private readonly writers = new Set<MongoBucketBatchV3>();
   private readonly pending: Publication[] = [];
   private reading?: Publication;
+  /**
+   * MongoDB operationTime from the last successful queued publication. The
+   * publisher records it here so application can copy its causal history from
+   * publicationSession into lock.session before reading stored source records.
+   */
   private publishedTime?: mongo.Timestamp;
 
   constructor(
@@ -102,7 +110,17 @@ export class ReplicationPipelineV3 {
     return [...batches].reduce((sum, batch) => sum + batch.records.size, 0);
   }
 
-  /** Only application code advances the read session, never a background publisher. */
+  /**
+   * Caller holds writerMutex. Advance the application session's MongoDB logical
+   * time so subsequent majority reads include completed publications from the
+   * separate publication session. Later batches can read that persisted state
+   * without retaining every earlier batch's delta. A predecessor whose publication
+   * overlaps the current application still needs the pinned overlay from beginRead().
+   *
+   * Only application code advances the read session. The background publisher
+   * records publishedTime instead of mutating lock.session during an active read
+   * or transaction. Advancing the clock neither waits for nor flushes queued work.
+   */
   advanceReadTime(): void {
     if (this.publishedTime != null) {
       this.lock.session.advanceOperationTime(this.publishedTime);
@@ -146,6 +164,7 @@ export class ReplicationPipelineV3 {
           this.publicationSession.advanceOperationTime(applicationTime);
         }
         await publish(this.publicationSession);
+        // Hand off the confirmed publication time before removing the batch from pending.
         this.publishedTime = this.publicationSession.operationTime;
       } catch (error) {
         this.fail(error);

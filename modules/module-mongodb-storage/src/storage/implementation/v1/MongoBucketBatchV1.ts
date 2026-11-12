@@ -3,6 +3,7 @@ import { ErrorCode, ReplicationAssertionError, ServiceError } from '@powersync/l
 import { ColumnDescriptor, InternalOpId, SourceTable, storage } from '@powersync/service-core';
 import { HydratedSyncConfig } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
@@ -37,6 +38,14 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     super(options);
     this.persisted_op = options.keepaliveOp ?? null;
     this.store = new SourceRecordStoreV1(this.db, this.replicationStreamId);
+  }
+
+  /** V1/v2 automatic flushes remain durable. */
+  protected override async automaticFlush(): Promise<storage.FlushedResult | null> {
+    const result = await this.flush();
+    // HACK: Give other streams a chance to also flush.
+    await timers.setTimeout(5);
+    return result;
   }
 
   private async withReplicationTransaction(

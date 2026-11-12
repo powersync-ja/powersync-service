@@ -760,13 +760,7 @@ export abstract class MongoBucketBatch
     return null;
   }
 
-  /** V1/v2 automatic flushes remain durable. */
-  protected async automaticFlush(): Promise<storage.FlushedResult | null> {
-    const result = await this.flush();
-    // HACK: Give other streams a chance to also flush.
-    await timers.setTimeout(5);
-    return result;
-  }
+  protected abstract automaticFlush(): Promise<storage.FlushedResult | null>;
 
   /**
    * Drop is equivalent to TRUNCATE, plus removing our record of the table.
