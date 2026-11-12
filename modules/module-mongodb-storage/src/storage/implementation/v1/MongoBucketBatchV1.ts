@@ -105,6 +105,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     projection?: mongo.Document
   ): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
+    const checkpoints = batch?.customWriteCheckpoints ?? [];
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
     let clearedError = false;
@@ -112,9 +113,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     using _ = this.tracer.span('storage', 'flush');
 
     await this.hooks?.beforeBatchFlush?.(this);
-    if (this.write_checkpoint_batch.length > 0) {
+    if (checkpoints.length > 0) {
       // Collection/index creation cannot run inside the replication transaction.
-      await this.prepareCustomWriteCheckpoints();
+      await this.prepareCustomWriteCheckpoints(checkpoints);
     }
 
     await this.withReplicationTransaction(
@@ -127,9 +128,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           clearedError ||= result.clearedError;
         }
 
-        if (this.write_checkpoint_batch.length > 0) {
-          this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
-          await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
+        if (checkpoints.length > 0) {
+          this.logger.info(`Writing ${checkpoints.length} custom write checkpoints`);
+          await this.batchCreateCustomWriteCheckpoints(session, opSeq.next(), checkpoints);
         }
 
         last_op = opSeq.last();
@@ -145,13 +146,11 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       projection
     );
 
-    // Keep checkpoints available if the transaction retries after writing them.
-    this.write_checkpoint_batch = [];
-
     if (clearedError) {
       this.clearedError = true;
     }
 
+    // Keep checkpoints available if the transaction retries after writing them.
     // null if done, set if we need another flush
     this.batch = resumeBatch;
 
@@ -377,13 +376,14 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     // No-op for V1: source records live in a shared collection.
   }
 
-  private async batchCreateCustomWriteCheckpoints(session: mongo.ClientSession, opId: InternalOpId): Promise<void> {
+  private async batchCreateCustomWriteCheckpoints(
+    session: mongo.ClientSession,
+    opId: InternalOpId,
+    inputCheckpoints: readonly storage.CustomWriteCheckpointOptions[]
+  ): Promise<void> {
     // Only the final checkpoint per user/stream is visible after this transaction.
     const checkpoints = new Map(
-      this.write_checkpoint_batch.map((checkpoint) => [
-        JSON.stringify([checkpoint.sync_rules_id, checkpoint.user_id]),
-        checkpoint
-      ])
+      inputCheckpoints.map((checkpoint) => [JSON.stringify([checkpoint.sync_rules_id, checkpoint.user_id]), checkpoint])
     );
     await this.db.custom_write_checkpoints.bulkWrite(
       [...checkpoints.values()].map((checkpointOptions) => {

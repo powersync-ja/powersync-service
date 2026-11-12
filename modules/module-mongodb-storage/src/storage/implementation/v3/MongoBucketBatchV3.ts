@@ -34,9 +34,6 @@ import {
   SourceTableReconciliationContext
 } from './source-table-utils.js';
 
-/** Event-only rows need a count boundary too; they never fill OperationBatch. */
-const MAX_CHECKPOINTS_PER_INPUT = 2000;
-
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV3;
 
@@ -74,11 +71,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       // because another writer's metadata barrier can seal and replace this input.
       this.pipeline.inputOwners.add(this);
       try {
-        const result = await this.saveInternal(record);
-        if (this.write_checkpoint_batch.length >= MAX_CHECKPOINTS_PER_INPUT) {
-          return this.automaticFlush();
-        }
-        return result;
+        return await this.saveInternal(record);
       } catch (error) {
         this.pipeline.fail(error);
         throw error;
@@ -88,7 +81,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   /** Submit a bounded input block, or a partial block at an explicit boundary. */
   async sealPipelineInput(): Promise<storage.FlushedResult | null> {
-    if (!this.batch?.hasData() && this.write_checkpoint_batch.length === 0) {
+    if (!this.batch?.hasData()) {
       return null;
     }
     this.queueAutomaticFlush = true;
@@ -117,7 +110,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   override async [Symbol.asyncDispose](): Promise<void> {
-    const pending = this.pendingPublications > 0 || this.batch?.hasData() || this.write_checkpoint_batch.length > 0;
+    const pending = this.pendingPublications > 0 || this.batch?.hasData();
     if (pending) {
       this.pipeline.fail(new ReplicationAbortedError('Disposed writer with pending replication work'));
     }
@@ -166,12 +159,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     using _span = this.tracer.span('storage', 'flush');
     await this.hooks?.beforeBatchFlush?.(this);
     const input = this.batch;
-    const checkpoints = this.write_checkpoint_batch.slice();
+    const checkpoints = input?.customWriteCheckpoints ?? [];
     const allocator = this.pipeline.allocator;
     await allocator.ensureCapacity();
     const contextProjection = { ...projection, state: 1, last_persisted_op: 1, sync_configs: 1 };
     if (checkpoints.length > 0) {
-      await this.prepareCustomWriteCheckpoints();
+      await this.prepareCustomWriteCheckpoints(checkpoints);
     }
     await this.pipeline.capacity();
     const overlay = this.pipeline.beginRead();
@@ -278,7 +271,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     if (shouldQueue) {
       await this.pipeline.capacity(retainedBytes);
       this.batch = resumeBatch;
-      this.write_checkpoint_batch.splice(0, checkpoints.length);
       this.pendingPublications++;
       const receipt = this.pipeline.enqueue(changes, retainedBytes, publish);
       void receipt
@@ -291,7 +283,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await this.pipeline.drain();
     await publish(this.session);
     this.batch = resumeBatch;
-    this.write_checkpoint_batch.splice(0, checkpoints.length);
     return { flushed_op: lastOp };
   }
 
@@ -809,7 +800,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     options?: storage.BucketBatchCommitOptions
   ): Promise<storage.CheckpointResult> {
     this.options.replicationLock.throwIfAborted();
-    if (this.markRecordUnavailable != null && this.batch?.hasData()) {
+    if (this.markRecordUnavailable != null && (this.batch?.length ?? 0) > 0) {
       // A combined data+checkpoint commit cannot return control to the connector
       // to process repair notifications between those two durable boundaries.
       // Require its explicit flush -> repair -> commit ordering even when this
@@ -1245,12 +1236,14 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
   }
 
-  protected override async prepareCustomWriteCheckpoints(): Promise<void> {
+  protected override async prepareCustomWriteCheckpoints(
+    checkpoints: readonly storage.CustomWriteCheckpointOptions[]
+  ): Promise<void> {
     // Most events never produce custom checkpoints, so create collections lazily
     // only for the event ids present in this batch. This hook runs before the
     // replication transaction because MongoDB cannot create indexes within it.
     const eventIds = new Set(
-      this.write_checkpoint_batch.map((checkpoint) => this.validateCustomCheckpointEventId(checkpoint.event_id))
+      checkpoints.map((checkpoint) => this.validateCustomCheckpointEventId(checkpoint.event_id))
     );
     for (const eventId of eventIds) {
       if (this.initializedCustomCheckpointEventIds.has(eventId)) {

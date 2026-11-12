@@ -117,7 +117,6 @@ export abstract class MongoBucketBatch
   protected readonly objectStorageUsageWriterId = createObjectStorageUsageWriterId();
 
   protected batch: OperationBatch | null = null;
-  protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   protected readonly markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   protected hooks: storage.StorageHooks | undefined;
   protected clearedError = false;
@@ -170,7 +169,8 @@ export abstract class MongoBucketBatch
   }
 
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
-    this.write_checkpoint_batch.push({
+    this.batch ??= new OperationBatch();
+    this.batch.addCustomWriteCheckpoint({
       ...checkpoint,
       sync_rules_id: this.replicationStreamId
     });
@@ -247,7 +247,9 @@ export abstract class MongoBucketBatch
   ): Promise<storage.SourceTable[]>;
 
   /** Perform any version-specific setup required before writing custom checkpoints. */
-  protected async prepareCustomWriteCheckpoints(): Promise<void> {}
+  protected async prepareCustomWriteCheckpoints(
+    _checkpoints: readonly storage.CustomWriteCheckpointOptions[]
+  ): Promise<void> {}
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     return this.withWriterLock(() => this.flushInternal(options), false);
@@ -258,7 +260,7 @@ export abstract class MongoBucketBatch
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
     // Each flushInner() is one transaction.
-    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
+    while (this.batch != null) {
       let r = await this.flushInner(options);
       if (r) {
         result = r;
@@ -274,11 +276,11 @@ export abstract class MongoBucketBatch
     options?: storage.BatchBucketFlushOptions,
     projection?: mongo.Document
   ): Promise<T> {
-    if (this.batch == null && this.write_checkpoint_batch.length === 0) {
+    if (this.batch == null) {
       return commitWithoutFlush();
     }
     let result!: T;
-    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
+    while (this.batch != null) {
       await this.flushInner(
         options,
         async (stream, lastOp, writes) => {
@@ -697,7 +699,7 @@ export abstract class MongoBucketBatch
   protected abstract onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: InternalOpId): void;
 
   async [Symbol.asyncDispose]() {
-    if (this.batch?.hasData() || this.write_checkpoint_batch.length > 0) {
+    if (this.batch?.hasData()) {
       // We don't error here, since:
       // 1. In error states, this is expected (we can't distinguish between disposing after success or error).
       // 2. SuppressedError is messy to deal with.
@@ -741,19 +743,16 @@ export abstract class MongoBucketBatch
       }
     }
 
-    /**
-     * Return if the table is just an event table
-     */
-    if (!sourceTable.syncData && !sourceTable.syncParameters) {
-      return null;
+    // Event-only tables can still buffer custom checkpoints. Only data/parameter
+    // rows need source-record lookup and evaluation, but both kinds of input can flush.
+    if (sourceTable.syncData || sourceTable.syncParameters) {
+      this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+
+      this.batch ??= new OperationBatch();
+      this.batch.push(new RecordOperation(record));
     }
 
-    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
-
-    this.batch ??= new OperationBatch();
-    this.batch.push(new RecordOperation(record));
-
-    if (this.batch.shouldFlush()) {
+    if (this.batch?.shouldFlush()) {
       return this.automaticFlush();
     }
     return null;
