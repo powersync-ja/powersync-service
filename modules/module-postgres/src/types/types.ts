@@ -8,6 +8,7 @@ export const validatePort = lib_postgres.validatePort;
 export const baseUri = lib_postgres.baseUri;
 export interface NormalizedPostgresConnectionConfig extends lib_postgres.NormalizedBasePostgresConnectionConfig {
   snapshot_socket_timeout_ms?: number | undefined;
+  slot_failover?: boolean | undefined;
 }
 export const POSTGRES_CONNECTION_TYPE = lib_postgres.POSTGRES_CONNECTION_TYPE;
 
@@ -27,7 +28,15 @@ export const PostgresConnectionConfig = service_types.configFile.DataSourceConfi
     /**
      * Interval in seconds between source connection heartbeats. Null or omitted uses the default.
      */
-    heartbeat_interval_seconds: service_types.orNull(t.number).optional()
+    heartbeat_interval_seconds: service_types.orNull(t.number).optional(),
+    /**
+     * Whether to enable logical replication slot failover (PostgreSQL 17+).
+     *
+     * This only affects new replication slots, and is disabled by default.
+     *
+     * @see {@link https://www.postgresql.org/docs/current/logical-replication-failover.html}
+     */
+    slot_failover: t.boolean.optional()
   })
 );
 
@@ -59,7 +68,8 @@ export function normalizeConnectionConfig(options: PostgresConnectionConfig) {
   return {
     ...lib_postgres.normalizeConnectionConfig(options),
     snapshot_socket_timeout_ms: lib_postgres.parseConnectTimeout(options.snapshot_socket_timeout, undefined),
-    heartbeat_interval_seconds: normalizeHeartbeatInterval(options.heartbeat_interval_seconds)
+    heartbeat_interval_seconds: normalizeHeartbeatInterval(options.heartbeat_interval_seconds),
+    slot_failover: options.slot_failover ?? false
   } satisfies NormalizedPostgresConnectionConfig & { heartbeat_interval_seconds: number };
 }
 
