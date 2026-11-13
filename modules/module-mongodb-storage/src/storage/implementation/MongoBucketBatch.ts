@@ -43,10 +43,12 @@ import { REPLICATION_WRITE_OPTIONS } from './MongoReplicationOptions.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { MongoWriteBatch } from './MongoWriteBatch.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
+import { ReplicationBatchLimits } from './ReplicationBatchLimits.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
 
 export interface MongoBucketBatchOptions {
+  batchLimits: ReplicationBatchLimits;
   replicationLock: MongoSyncRulesLock;
   opIdAllocator: MongoOpIdAllocator;
   /**
@@ -165,13 +167,13 @@ export abstract class MongoBucketBatch
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.hooks = options.hooks;
-    this.batch = new OperationBatch();
+    this.batch = new OperationBatch(this.options.batchLimits);
 
     this.tracer = options.tracer ?? new PerformanceTracer('MongoDB storage');
   }
 
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
-    this.batch ??= new OperationBatch();
+    this.batch ??= new OperationBatch(this.options.batchLimits);
     this.batch.addCustomWriteCheckpoint({
       ...checkpoint,
       sync_rules_id: this.replicationStreamId
@@ -689,7 +691,7 @@ export abstract class MongoBucketBatch
     if (sourceTable.syncData || sourceTable.syncParameters) {
       this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
-      this.batch ??= new OperationBatch();
+      this.batch ??= new OperationBatch(this.options.batchLimits);
       this.batch.push(new RecordOperation(record));
     }
 

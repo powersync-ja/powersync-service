@@ -44,6 +44,10 @@ export const MongoStorageReadPreference = service_types.enumLiteral(
 
 export type MongoStorageReadPreference = t.Encoded<typeof MongoStorageReadPreference>;
 
+/** Coordinated replication batch/transaction targets; default: medium. */
+export const MongoReplicationBatchSize = service_types.enumLiteral('small', 'medium', 'large');
+export type MongoReplicationBatchSize = t.Encoded<typeof MongoReplicationBatchSize>;
+
 export const MongoStorageConfig = service_types.configFile.BaseStorageConfig.and(lib_mongo.BaseMongoConfig).and(
   t.object({
     /**
@@ -73,6 +77,9 @@ export const MongoStorageConfig = service_types.configFile.BaseStorageConfig.and
 
     /** Maximum concurrent buckets across V3 chunk-compaction jobs. Range: 1–64. Default: 4 with object storage, otherwise 2. */
     chunk_compaction_concurrency: t.number.optional(),
+
+    /** Larger batches improve throughput at the cost of retained memory. Default: medium. */
+    replication_batch_size: MongoReplicationBatchSize.optional(),
 
     object_storage: S3ObjectStorageConfig.optional()
   })

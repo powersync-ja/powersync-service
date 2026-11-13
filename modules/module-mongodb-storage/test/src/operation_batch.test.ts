@@ -5,13 +5,13 @@ import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test, vi } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { OperationBatch } from '../../src/storage/implementation/OperationBatch.js';
-import {
-  MAX_INPUT_BATCH_BYTES,
-  MAX_INPUT_BATCH_COUNT
-} from '../../src/storage/implementation/ReplicationBatchLimits.js';
+import { DEFAULT_REPLICATION_BATCH_LIMITS } from '../../src/storage/implementation/ReplicationBatchLimits.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
+
+const { maxInputBatchBytes: MAX_INPUT_BATCH_BYTES, maxInputBatchCount: MAX_INPUT_BATCH_COUNT } =
+  DEFAULT_REPLICATION_BATCH_LIMITS;
 
 const CONFIG = /* yaml */ `
   # Sync config fixture.
