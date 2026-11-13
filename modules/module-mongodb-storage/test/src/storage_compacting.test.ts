@@ -861,6 +861,22 @@ bucket_definitions:
     expect(chunks[0]).toHaveLength(1);
   });
 
+  test('chunk targets count UTF-8 payload bytes rather than string length', () => {
+    const data = '界'.repeat(200_000);
+    const ops = [makeBucketDataDoc({ o: 1n, data }), makeBucketDataDoc({ o: 2n, data })];
+    expect(chunkBucketData(ops)).toEqual([[ops[0]], [ops[1]]]);
+    for (const chunk of chunkBucketData(ops)) {
+      const document = serializeBucketData('test[]', chunk);
+      expect(document.size).toBe(bson.calculateObjectSize(document.ops!));
+    }
+  });
+
+  test('chunk targets also account for large row identities', () => {
+    const row_id = 'x'.repeat(600_000);
+    const ops = [makeBucketDataDoc({ o: 1n, row_id }), makeBucketDataDoc({ o: 2n, row_id })];
+    expect(chunkBucketData(ops)).toEqual([[ops[0]], [ops[1]]]);
+  });
+
   test('9. serialization fidelity - null data preserved', () => {
     const ops = [makeBucketDataDoc({ o: 1n, data: null })];
     const doc = serializeBucketData('test[]', ops);

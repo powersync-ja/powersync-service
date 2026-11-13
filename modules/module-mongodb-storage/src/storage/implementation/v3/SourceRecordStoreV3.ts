@@ -17,10 +17,10 @@ import { CurrentDataDocumentV3, serializeParameterLookup, SourceTableDocumentV3 
  * The loadSizes(), loadDocuments() and loadTruncateBatch() methods are preparation
  * reads: callers must hold the lease's writer mutex and use its shared causal
  * session outside any transaction. These reads always request primary/majority
- * consistency, so they observe earlier writes in that session. Keep the mutex
- * held through publication to prevent another local writer from changing the
- * source records between preparation and commit. Publication transactions write
- * the prepared result without calling these read methods again.
+ * consistency. The lease pipeline advances the session clock from confirmed
+ * publications before reads, and overlays pending source-record versions while
+ * publication proceeds on a separate session. Pin those versions through reads
+ * that overlap commit. Publication never repeats these reads on transaction retry.
  */
 export class SourceRecordStoreV3 implements SourceRecordStore {
   constructor(

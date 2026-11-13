@@ -3,16 +3,17 @@ import * as bson from 'bson';
 
 import { storage } from '@powersync/service-core';
 import { mongoTableId } from '../../utils/util.js';
+import { MAX_INPUT_BATCH_BYTES, MAX_INPUT_BATCH_COUNT } from './ReplicationBatchLimits.js';
 
 /**
- * Maximum number of operations in a batch.
+ * Maximum number of row operations or custom checkpoints in a batch.
  */
-const MAX_BATCH_COUNT = 2000;
+const MAX_BATCH_COUNT = MAX_INPUT_BATCH_COUNT;
 
 /**
  * Maximum size of operations in the batch (estimated).
  */
-const MAX_RECORD_BATCH_SIZE = 5_000_000;
+const MAX_RECORD_BATCH_SIZE = MAX_INPUT_BATCH_BYTES;
 
 /**
  * Maximum size of size of current_data documents we lookup at a time.
@@ -20,15 +21,18 @@ const MAX_RECORD_BATCH_SIZE = 5_000_000;
 const MAX_CURRENT_DATA_BATCH_SIZE = 16_000_000;
 
 /**
- * Batch of input operations.
+ * Batch of input row operations and custom checkpoints.
  *
  * We accumulate operations up to MAX_RECORD_BATCH_SIZE,
- * then further split into sub-batches if MAX_CURRENT_DATA_BATCH_SIZE is exceeded.
+ * then further split rows into sub-batches if MAX_CURRENT_DATA_BATCH_SIZE is exceeded.
+ * Custom checkpoints bypass row evaluation and are persisted with the input's publication.
  */
 export class OperationBatch {
   batch: RecordOperation[] = [];
+  readonly customWriteCheckpoints: storage.CustomWriteCheckpointOptions[] = [];
   currentSize: number = 0;
 
+  /** Row count only: custom checkpoints bypass source-record lookup and repair. */
   get length() {
     return this.batch.length;
   }
@@ -38,12 +42,21 @@ export class OperationBatch {
     this.currentSize += op.estimatedSize;
   }
 
+  addCustomWriteCheckpoint(checkpoint: storage.CustomWriteCheckpointOptions) {
+    this.customWriteCheckpoints.push(checkpoint);
+    this.currentSize += bson.calculateObjectSize(checkpoint);
+  }
+
   shouldFlush() {
-    return this.batch.length >= MAX_BATCH_COUNT || this.currentSize > MAX_RECORD_BATCH_SIZE;
+    return (
+      this.batch.length >= MAX_BATCH_COUNT ||
+      this.customWriteCheckpoints.length >= MAX_BATCH_COUNT ||
+      this.currentSize > MAX_RECORD_BATCH_SIZE
+    );
   }
 
   hasData() {
-    return this.length > 0;
+    return this.length > 0 || this.customWriteCheckpoints.length > 0;
   }
 
   /**
@@ -52,6 +65,9 @@ export class OperationBatch {
    *
    */
   *batched(sizes: Map<string, number> | undefined): Generator<RecordOperation[]> {
+    if (this.length === 0) {
+      return;
+    }
     if (sizes == null) {
       yield this.batch;
       return;

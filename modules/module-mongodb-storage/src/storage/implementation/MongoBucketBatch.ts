@@ -116,8 +116,9 @@ export abstract class MongoBucketBatch
   protected readonly mapping: BucketDefinitionMapping;
   protected readonly objectStorageUsageWriterId = createObjectStorageUsageWriterId();
 
+  /** Mutable input for new saves; v3/v4 detach it when an operation is queued. */
   protected batch: OperationBatch | null = null;
-  protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
+
   protected readonly markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   protected hooks: storage.StorageHooks | undefined;
   protected clearedError = false;
@@ -170,7 +171,8 @@ export abstract class MongoBucketBatch
   }
 
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
-    this.write_checkpoint_batch.push({
+    this.batch ??= new OperationBatch();
+    this.batch.addCustomWriteCheckpoint({
       ...checkpoint,
       sync_rules_id: this.replicationStreamId
     });
@@ -188,9 +190,7 @@ export abstract class MongoBucketBatch
 
   protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
-    return this.withWriterLock(() => this.commitInternal(lsn, options));
-  }
+  abstract commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult>;
 
   protected abstract commitInternal(
     lsn: string,
@@ -247,54 +247,16 @@ export abstract class MongoBucketBatch
   ): Promise<storage.SourceTable[]>;
 
   /** Perform any version-specific setup required before writing custom checkpoints. */
-  protected async prepareCustomWriteCheckpoints(): Promise<void> {}
+  protected abstract prepareCustomWriteCheckpoints(
+    checkpoints: readonly storage.CustomWriteCheckpointOptions[]
+  ): Promise<void>;
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
-    return this.withWriterLock(() => this.flushInternal(options));
+    return this.withWriterLock(() => this.flushInternal(options), false);
   }
 
   /** Internal helpers require the public operation to hold the writer mutex. */
-  protected async flushInternal(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
-    let result: storage.FlushedResult | null = null;
-    // One flush may be split over multiple transactions.
-    // Each flushInner() is one transaction.
-    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
-      let r = await this.flushInner(options);
-      if (r) {
-        result = r;
-      }
-    }
-    return result;
-  }
-
-  /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
-  protected async flushAndCommit<T>(
-    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<T>,
-    commitWithoutFlush: () => Promise<T>,
-    options?: storage.BatchBucketFlushOptions,
-    projection?: mongo.Document
-  ): Promise<T> {
-    if (this.batch == null && this.write_checkpoint_batch.length === 0) {
-      return commitWithoutFlush();
-    }
-    let result!: T;
-    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
-      await this.flushInner(
-        options,
-        async (stream, lastOp, writes) => {
-          result = await checkpoint(stream, lastOp, writes);
-        },
-        projection
-      );
-    }
-    return result;
-  }
-
-  protected abstract flushInner(
-    options?: storage.BatchBucketFlushOptions,
-    checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<void>,
-    projection?: mongo.Document
-  ): Promise<storage.FlushedResult | null>;
+  protected abstract flushInternal(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null>;
 
   /**
    * Evaluate one source operation and append its storage writes to batch.
@@ -578,16 +540,15 @@ export abstract class MongoBucketBatch
     );
   }
 
-  protected async withTransaction<T>(
-    cb: (stream: SyncRuleDocumentBase) => Promise<T>,
-    session = this.session
-  ): Promise<T> {
-    return this.withFencedTransaction(() => this.fence(session), cb, session);
-  }
+  protected abstract withTransaction<T>(
+    callback: (stream: SyncRuleDocumentBase) => Promise<T>,
+    session?: mongo.ClientSession
+  ): Promise<T>;
 
   /**
-   * Internal transaction helper: the public writer operation already holds the
-   * mutex. The first operation must modify the stream document conditional on
+   * Internal transaction helper: the caller serializes use of its session, via
+   * the writer mutex or the v3/v4 publication FIFO. The first operation must
+   * modify the stream document conditional on
    * lease ownership. This database fence is required on every retry even though
    * local writers are serialized; another process may have taken over the lease.
    */
@@ -595,18 +556,19 @@ export abstract class MongoBucketBatch
     acquireFence: () => Promise<S>,
     cb: (stream: S) => Promise<T>,
     session = this.session,
-    description?: string
+    description?: string,
+    tracer = this.tracer
   ): Promise<T> {
     this.options.replicationLock.throwIfAborted();
     let attempts = 0;
     // Includes driver commit retries and the delays between transaction attempts.
-    using _transactionSpan = this.tracer.span('storage', 'transaction');
+    using _transactionSpan = tracer.span('storage', 'transaction');
     const result = await session.withTransaction(
       async () => {
         attempts++;
         // One callback invocation per transaction attempt. Commit happens after
         // this span; command monitoring is needed to measure the full wire lifetime.
-        using attemptSpan = this.tracer.span('storage', 'transaction_body');
+        using attemptSpan = tracer.span('storage', 'transaction_body');
         try {
           const stream = await acquireFence();
           const result = await cb(stream);
@@ -632,7 +594,7 @@ export abstract class MongoBucketBatch
             this.logger.warn('Transaction error', e as Error);
           }
           const delay = Math.random() * 50;
-          using _ = this.tracer.span('storage', 'retry_delay');
+          using _ = tracer.span('storage', 'retry_delay');
           await timers.setTimeout(delay);
           throw e;
         }
@@ -648,16 +610,10 @@ export abstract class MongoBucketBatch
    * database operation or reacquire this mutex. All session use, including reads,
    * belongs inside this boundary so it cannot join another writer's transaction.
    * Transaction helpers still fence database ownership on every attempt.
+   * V3/v4 also flush all writers before metadata operations; flush/commit pass
+   * false so their callbacks handle their own input without flushing other writers.
    */
-  private async withWriterLock<T>(callback: () => Promise<T>): Promise<T> {
-    using lockSpan = this.tracer.span('storage', 'internal_lock');
-    this.options.replicationLock.throwIfAborted();
-    return this.options.replicationLock.writerMutex.exclusiveLock(async () => {
-      lockSpan.end();
-      this.options.replicationLock.throwIfAborted();
-      return callback();
-    });
-  }
+  protected abstract withWriterLock<T>(callback: () => Promise<T>, flushAllWriters?: boolean): Promise<T>;
 
   /** Internal single-document update; the public operation already holds the mutex. */
   protected async updateStreamMetadata(
@@ -694,28 +650,22 @@ export abstract class MongoBucketBatch
   /** Advance the persisted head in the same transaction as the operations. */
   protected abstract onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: InternalOpId): void;
 
-  async [Symbol.asyncDispose]() {
-    if (this.batch?.hasData() || this.write_checkpoint_batch.length > 0) {
-      // We don't error here, since:
-      // 1. In error states, this is expected (we can't distinguish between disposing after success or error).
-      // 2. SuppressedError is messy to deal with.
-      this.logger.warn('Disposing writer with unflushed changes');
-    }
-    // The lease owns the shared session and ends it after all writers stop.
-    super.clearListeners();
-  }
+  abstract [Symbol.asyncDispose](): Promise<void>;
 
   async dispose() {
     await this[Symbol.asyncDispose]();
   }
 
-  async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+  abstract save(record: storage.SaveOptions): Promise<storage.FlushedResult | null>;
+
+  /** Buffer one complete input event synchronously, including its custom checkpoints. */
+  protected bufferRecord(record: storage.SaveOptions): boolean {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
     // V3 source tables own disjoint event-definition ids for each physical table. Multiple
     // SourceTables may evaluate different events, but each definition is evaluated through
     // at most one record for this row change.
-    // Legacy storage leaves eventDefinitionIds undefined and selects by table ref.
+    // V1/v2 storage leaves eventDefinitionIds undefined and selects by table ref.
     if (sourceTable.syncEvent) {
       for (const { event, eventId } of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>
@@ -734,26 +684,19 @@ export abstract class MongoBucketBatch
       }
     }
 
-    /**
-     * Return if the table is just an event table
-     */
-    if (!sourceTable.syncData && !sourceTable.syncParameters) {
-      return null;
+    // Event-only tables can still buffer custom checkpoints. Only data/parameter
+    // rows need source-record lookup and evaluation, but both kinds of input can flush.
+    if (sourceTable.syncData || sourceTable.syncParameters) {
+      this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+
+      this.batch ??= new OperationBatch();
+      this.batch.push(new RecordOperation(record));
     }
 
-    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
-
-    this.batch ??= new OperationBatch();
-    this.batch.push(new RecordOperation(record));
-
-    if (this.batch.shouldFlush()) {
-      const r = await this.flush();
-      // HACK: Give other streams a  chance to also flush
-      await timers.setTimeout(5);
-      return r;
-    }
-    return null;
+    return this.batch?.shouldFlush() ?? false;
   }
+
+  protected abstract automaticFlush(): Promise<storage.FlushedResult | null>;
 
   /**
    * Drop is equivalent to TRUNCATE, plus removing our record of the table.
@@ -781,22 +724,7 @@ export abstract class MongoBucketBatch
     return this.withWriterLock(() => this.truncateInternal(sourceTables));
   }
 
-  protected async truncateInternal(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
-    await this.flushInternal();
-
-    let last_op: InternalOpId | null = null;
-    for (let table of sourceTables) {
-      last_op = await this.truncateSingleInternal(table);
-    }
-
-    if (last_op) {
-      return {
-        flushed_op: last_op
-      };
-    } else {
-      return null;
-    }
-  }
+  protected abstract truncateInternal(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null>;
 
   async truncateSingle(sourceTable: storage.SourceTable): Promise<InternalOpId> {
     return this.withWriterLock(() => this.truncateSingleInternal(sourceTable));
@@ -845,27 +773,7 @@ export abstract class MongoBucketBatch
   /**
    * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    */
-  protected getTableEvents(
+  protected abstract getTableEvents(
     table: storage.SourceTable
-  ): { event: HydratedEventDescriptor; eventId?: EventDefinitionId }[] {
-    // V3 storage assigns event-definition ids to each source table, so membership is authoritative.
-    // Iterate the table's distinct ids and resolve each through the stream's deduped event map, so a
-    // definition reused across configs has one evaluator for that id. The evaluator may still return
-    // multiple payloads from matching queries. Legacy storage leaves this undefined and selects by table ref.
-    if (table.eventDefinitionIds != null) {
-      const eventById = this.options.parsedSyncConfig.eventById;
-      const events: { event: HydratedEventDescriptor; eventId: EventDefinitionId }[] = [];
-      for (const id of table.eventDefinitionIds) {
-        const event = eventById.get(id);
-        if (event != null && event.tableTriggersEvent(table.ref)) {
-          events.push({ event, eventId: id });
-        }
-      }
-      return events;
-    }
-
-    return this.sync_rules.eventDescriptors
-      .filter((event) => event.tableTriggersEvent(table.ref))
-      .map((event) => ({ event }));
-  }
+  ): { event: HydratedEventDescriptor; eventId?: EventDefinitionId }[];
 }

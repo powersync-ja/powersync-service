@@ -17,6 +17,7 @@ import {
 import { PreparedPublication } from '../common/PreparedPublication.js';
 import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
+import { RETAINED_BYTES_FACTOR } from '../ReplicationBatchLimits.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
 import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
@@ -62,19 +63,19 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   private readonly inlineThresholdBytes: number;
   private readonly signal?: AbortSignal;
   private sealed = false;
-  private preparation?: Promise<void>;
+  private payloadsTask?: Promise<void>;
   private payloadsReady = false;
 
   constructor(
     private readonly db: VersionedPowerSyncMongoV3,
     private readonly group_id: number,
     private readonly mapping: BucketDefinitionMapping,
-    writtenSize: number,
+    private readonly initialWrittenSize: number,
     options?: PersistedBatchV3Options
   ) {
     this.operations = new BatchOperationBuffer(
       group_id,
-      writtenSize,
+      initialWrittenSize,
       {
         // V3-specific definition validation; v1 does not persist definition ids.
         checkDefinitionId: (definitionId) => {
@@ -97,6 +98,17 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
 
   get currentSize(): number {
     return this.operations.currentSize;
+  }
+
+  /**
+   * Reuse the running size estimate with headroom for JS objects, membership
+   * maps, packed chunks and upload buffers, without traversing the batch again.
+   * Separate from transaction-size targets; this is not a measured heap size.
+   * This estimate intentionally charges superseded representations until commit.
+   * Exclude the carried transaction size: earlier groups account for themselves.
+   */
+  get estimatedRetainedBytes(): number {
+    return (this.currentSize - this.initialWrittenSize) * RETAINED_BYTES_FACTOR;
   }
 
   saveBucketData(options: SaveBucketDataOptions): void {
@@ -133,13 +145,13 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     }
   }
 
-  /** Cache readiness, including failure; the v3 batch owns the entire lifecycle. */
-  preparePayloads(): Promise<void> {
+  /** Cache packing/upload readiness, including failure; the v3 batch owns the lifecycle. */
+  packAndUploadPayloads(): Promise<void> {
     if (!this.sealed) {
-      throw new ReplicationAssertionError('Cannot prepare an unsealed publication');
+      throw new ReplicationAssertionError('Cannot pack or upload an unsealed publication');
     }
-    return (this.preparation ??= Promise.resolve()
-      .then(() => this.preparePayloadsImpl())
+    return (this.payloadsTask ??= Promise.resolve()
+      .then(() => this.packAndUploadPayloadsImpl())
       .then(() => {
         this.payloadsReady = true;
       }));
@@ -150,10 +162,10 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     options?: storage.BucketBatchCommitOptions,
     additionalWrites?: MongoWriteBatch
   ) {
-    // Never start preparation from a transaction attempt. The eager coordinator
-    // awaits readiness for the entire bounded prefix before opening a transaction.
+    // Preparation packs/uploads once, outside transaction retries. The
+    // coordinator awaits the entire bounded prefix before opening a transaction.
     if (!this.payloadsReady) {
-      throw new ReplicationAssertionError('Prepare publication payloads before starting the transaction');
+      throw new ReplicationAssertionError('Pack and upload payloads before starting the transaction');
     }
     return this.write(session, options, additionalWrites);
   }
@@ -343,7 +355,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   private readonly preparedUsageDeltas = new Map<BucketDefinitionId, bigint>();
   private preparedUploads: PreparedObjectStorageUpload[] = [];
 
-  private async preparePayloadsImpl(): Promise<void> {
+  private async packAndUploadPayloadsImpl(): Promise<void> {
     const operationsByDefinition = new Map<BucketDefinitionId, BucketDataDoc[]>();
     for (const document of this.operations.bucketData) {
       const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];

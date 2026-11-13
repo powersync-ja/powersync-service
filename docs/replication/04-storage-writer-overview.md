@@ -18,6 +18,54 @@ Writers batch source row changes and source metadata changes against the hydrate
 
 The source connector is responsible for closing each writer cleanly so pending work is either persisted at the right boundary or discarded with the failed attempt.
 
+## MongoDB V3/V4 Publication Pipeline
+
+Writers on one replication lease share a two-batch pipeline. Each writer buffers
+one normal input block (16,000 rows/checkpoints or 8 MiB estimated input). Preparation
+admits complete blocks, or partial blocks at explicit boundaries. Interleaved
+snapshot and streaming `save()` calls do not flush each other's input.
+
+Preparation reads source records, evaluates changes and seals writes. Once a
+batch owns a pipeline slot, preparation finishes by packing payloads and uploading
+offloaded chunks. The successor can upload while its predecessor is uploading or
+publishing. Publishing commits the prepared MongoDB writes in FIFO order, after
+that batch's uploads finish. There are at most two batches in flight in total;
+both can be uploading, but only one can publish to MongoDB. They share the existing
+object-storage request limiter, with no additional upload queue. Source connectors
+retain their existing bounded buffering/prefetch. Evaluation remains on the main thread.
+
+Preparation sees the predecessor's immutable source-record delta on top of
+majority reads. The delta includes tombstones and remains alive through the
+preparation block even if its predecessor commits during a read. Before another
+block can enter preparation, that predecessor has finished publication. Confirmed
+publication clocks advance the preparation session, so older batches need no
+retained overlay or cache.
+
+Ordinary saves append rows and their event checkpoints synchronously, without a
+mutex or lock trace. A flush captures and detaches its writer's current input
+before yielding, then queues preparation under the writer mutex. Saves arriving
+during that work use a fresh buffer; split-flush remainders stay private to the
+captured input. A save that fills its buffer still waits for preparation capacity.
+
+Explicit flushes and checkpoints wait for the admitted prefix and their captured
+input. The pipeline privately tracks live writers from construction to disposal.
+Metadata operations call `enqueueBufferedInputs()` synchronously before queueing
+their own mutex operation. This captures every writer's current rows/checkpoints
+and orders them before the metadata change. Later rows stay in fresh buffers and
+are submitted after the barrier. The metadata operation awaits publication before
+changing table state. Registering a writer does not mean its input has entered the
+two-slot publication pipeline.
+Failed publication invalidates the lease and stops the successor; replay starts
+from persisted source progress. Partial-row repair notifications retain their
+synchronous durability barrier.
+
+The two slots and 128 MiB accounted-work target bound pipeline admission, with
+headroom estimates for packing. These are not RSS limits: a preparation block or
+single oversized row can exceed the byte target. Source pages, captured inputs
+waiting for the writer mutex, and one fresh input block per active writer are
+additional bounded allowances, so total memory also scales with the number of
+active readers and replication streams.
+
 ## Source Table Resolution
 
 Before source rows can be evaluated, discovered table or collection metadata has to be matched to the stream's parsed sync config set and the persisted source table state. That resolution decides which `SourceTable` records should receive data, which persisted bucket or parameter definition ids they cover, and which outdated mappings should be removed.
