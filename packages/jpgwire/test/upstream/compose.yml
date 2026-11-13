@@ -1,0 +1,29 @@
+name: powersync-jpgwire-tests
+
+services:
+  node:
+    image: node:24.22.2-alpine
+    working_dir: /app
+    environment:
+      TEST_FILTER: ${TEST_FILTER:-}
+    command:
+      - node
+      - --test
+      - --test-name-pattern=.?${TEST_FILTER:-}
+      - test/upstream/test_node.js
+    volumes:
+      - ../..:/app:ro
+      - usock:/run/postgresql:ro
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  pg:
+    build:
+      context: .
+      dockerfile: pg.dockerfile
+    volumes:
+      - usock:/run/postgresql
+
+volumes:
+  usock:

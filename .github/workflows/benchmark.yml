@@ -1,0 +1,134 @@
+name: Benchmark a Pull Request
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  run:
+    permissions:
+      pull-requests: write
+      contents: read
+    name: Build and run benchmarks on PR
+    # If the comment is against a PR from a member and starts with "benchmark this"
+    if: ${{ github.event.issue.pull_request && github.event.issue.state == 'open' && (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER') && (startsWith(github.event.comment.body, 'benchmark this') || startsWith(github.event.comment.body, 'Benchmark this'))}}
+    runs-on: ubuntu-latest
+
+    env:
+      BENCHMARK_POSTGRES_SOURCE_URL: postgres://postgres:postgres@localhost:5432/powersync_source_test
+      BENCHMARK_POSTGRES_STORAGE_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+      BENCHMARK_MONGODB_SOURCE_URL: mongodb://localhost:27017/powersync_test_data
+      BENCHMARK_MONGODB_STORAGE_URL: mongodb://localhost:27018/powersync_test
+      # Forks can pull public images without configuring Docker Hub credentials.
+      HAS_DOCKERHUB_CREDENTIALS: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+
+    steps:
+      - name: Set tags from comment
+        id: benchmark-options
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const match = context.payload.comment.body.trim().match(/^benchmark this(?:\s+([\s\S]*))?$/i);
+            if (!match) {
+              core.setFailed('Use "Benchmark this" followed optionally by a Vitest tag expression.');
+              return;
+            }
+            core.setOutput('tags-filter', (match[1] ?? 'profile:quick').trim());
+
+      - name: Resolve pull request commit
+        id: pr-head
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('sha', pull.head.sha);
+
+      - name: Checkout pull request
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pr-head.outputs.sha }}
+          persist-credentials: false
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request' && env.HAS_DOCKERHUB_CREDENTIALS == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
+
+      - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
+
+      - name: Start PostgreSQL (Source)
+        uses: ./.github/actions/start-postgres-source
+
+      - name: Start MongoDB (Storage)
+        uses: ./.github/actions/start-mongodb
+        with:
+          mongodb-port: 27018
+
+      - name: Start MongoDB (Source)
+        uses: ./.github/actions/start-mongodb
+        with:
+          mongodb-port: 27017
+
+      - name: Run Benchmarks
+        id: benchmarks
+        env:
+          CUSTOM_SHA: ${{ steps.pr-head.outputs.sha }}
+          BENCHMARK_TAGS_FILTER: ${{ steps.benchmark-options.outputs.tags-filter }}
+        run: pnpm benchmark:test
+
+      - name: Run Report
+        id: report
+        if: ${{ !cancelled() && steps.benchmarks.outputs.run-id != '' }}
+        env:
+          BENCHMARK_RUN_ID: ${{ steps.benchmarks.outputs.run-id }}
+        run: pnpm benchmark:report --run-id "$BENCHMARK_RUN_ID"
+
+      - name: Upload benchmark artifacts
+        id: artifacts
+        if: ${{ !cancelled() && steps.benchmarks.outputs.run-directory != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.benchmarks.outputs.run-directory }}
+          if-no-files-found: error
+
+      - name: Format PR comment
+        id: comment
+        if: ${{ !cancelled() && steps.report.outcome == 'success' }}
+        env:
+          BENCHMARK_RUN_ID: ${{ steps.benchmarks.outputs.run-id }}
+          BENCHMARK_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BENCHMARK_ARTIFACT_URL: ${{ steps.artifacts.outputs.artifact-url }}
+        run: node packages/service-core-benchmarks/dist/scripts/pr-comment.js --run-id "$BENCHMARK_RUN_ID"
+
+      - name: Post benchmark results
+        if: ${{ !cancelled() }}
+        uses: actions/github-script@v9
+        env:
+          BENCHMARK_RUN_DIRECTORY: ${{ steps.benchmarks.outputs.run-directory }}
+          BENCHMARK_COMMENT_READY: ${{ steps.comment.outcome == 'success' }}
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+            const path = require('node:path');
+            const workflowUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let body = `Benchmark execution or reporting failed. [View workflow logs](${workflowUrl}).`;
+            if (process.env.BENCHMARK_COMMENT_READY === 'true') {
+              body = await fs.readFile(path.join(process.env.BENCHMARK_RUN_DIRECTORY, 'report', 'comment.md'), 'utf8');
+            }
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
