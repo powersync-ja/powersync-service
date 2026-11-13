@@ -127,6 +127,34 @@ describe.each([3, 4])('checkpoint input ownership v%i', (storageVersion) => {
     expect(c.stream.current_lock!.replicationPipeline!.pendingCount).toBe(0);
   });
 
+  test('metadata captures checkpoints before queued publication, leaving later events in a fresh input', async () => {
+    const c = await open(storageVersion);
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await c.save(1);
+    const session = c.stream.current_lock!.replicationPipeline!.publicationSession;
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const transaction = session.withTransaction.bind(session);
+    using _transaction = vi.spyOn(session, 'withTransaction').mockImplementationOnce(async (...args) => {
+      entered.resolve();
+      await release.promise;
+      return transaction(...args);
+    });
+    const metadata = writer.getSourceTableStatus(c.table);
+    try {
+      await entered.promise;
+      await c.save(2);
+    } finally {
+      release.resolve();
+      await metadata;
+    }
+    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({ checkpoint: 1n });
+    await writer.commit('1/2');
+    expect(await c.checkpoints.findOne({ user_id: 'user-1' })).toMatchObject({ checkpoint: 2n });
+    expect(c.observed).toEqual([1n, 2n]);
+  });
+
   test('keeps the admitted checkpoints stable through retry while the next input fills', async () => {
     const c = await open(storageVersion);
     await using _factory = c.factory;

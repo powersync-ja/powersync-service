@@ -41,20 +41,30 @@ block can enter preparation, that predecessor has finished publication. Confirme
 publication clocks advance the preparation session, so older batches need no
 retained overlay or cache.
 
-Explicit flushes and checkpoints wait for the admitted prefix and their writer's
+Ordinary saves append rows and their event checkpoints synchronously, without a
+mutex or lock trace. A flush captures and detaches its writer's current input
+before yielding, then queues preparation under the writer mutex. Saves arriving
+during that work use a fresh buffer; split-flush remainders stay private to the
+captured input. A save that fills its buffer still waits for preparation capacity.
+
+Explicit flushes and checkpoints wait for the admitted prefix and their captured
 input. The pipeline privately tracks live writers from construction to disposal.
-Metadata operations call `flushAllWriters()` to submit every writer's buffered
-rows/checkpoints and await publication before changing table state. Registering a
-writer does not mean its input has entered the two-slot publication pipeline.
+Metadata operations call `enqueueBufferedInputs()` synchronously before queueing
+their own mutex operation. This captures every writer's current rows/checkpoints
+and orders them before the metadata change. Later rows stay in fresh buffers and
+are submitted after the barrier. The metadata operation awaits publication before
+changing table state. Registering a writer does not mean its input has entered the
+two-slot publication pipeline.
 Failed publication invalidates the lease and stops the successor; replay starts
 from persisted source progress. Partial-row repair notifications retain their
 synchronous durability barrier.
 
 The two slots and 128 MiB accounted-work target bound pipeline admission, with
 headroom estimates for packing. These are not RSS limits: a preparation block or
-single oversized row can exceed the byte target. Source pages and one input block
-per active writer are additional bounded allowances, so total memory also scales
-with the number of active readers and replication streams.
+single oversized row can exceed the byte target. Source pages, captured inputs
+waiting for the writer mutex, and one fresh input block per active writer are
+additional bounded allowances, so total memory also scales with the number of
+active readers and replication streams.
 
 ## Source Table Resolution
 

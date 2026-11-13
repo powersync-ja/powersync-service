@@ -40,6 +40,53 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     this.store = new SourceRecordStoreV1(this.db, this.replicationStreamId);
   }
 
+  protected override get flushInput(): OperationBatch | null {
+    return this.batch;
+  }
+
+  override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    if (this.bufferRecord(record)) {
+      return this.automaticFlush();
+    }
+    return null;
+  }
+
+  override async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
+    return this.withWriterLock(() => this.commitInternal(lsn, options), false);
+  }
+
+  protected override async withWriterLock<T>(callback: () => Promise<T>, _flushAllWriters = true): Promise<T> {
+    using lockSpan = this.tracer.span('storage', 'internal_lock');
+    this.options.replicationLock.throwIfAborted();
+    return this.options.replicationLock.writerMutex.exclusiveLock(async () => {
+      lockSpan.end();
+      this.options.replicationLock.throwIfAborted();
+      return callback();
+    });
+  }
+
+  protected override async withTransaction<T>(
+    cb: (stream: SyncRuleDocumentBase) => Promise<T>,
+    session = this.session
+  ): Promise<T> {
+    return this.withFencedTransaction(() => this.fence(session), cb, session);
+  }
+
+  protected override async prepareCustomWriteCheckpoints(
+    _checkpoints: readonly storage.CustomWriteCheckpointOptions[]
+  ): Promise<void> {}
+
+  override async [Symbol.asyncDispose](): Promise<void> {
+    if (this.batch?.hasData()) {
+      // We don't error here, since:
+      // 1. In error states, this is expected (we can't distinguish between disposing after success or error).
+      // 2. SuppressedError is messy to deal with.
+      this.logger.warn('Disposing writer with unflushed changes');
+    }
+    // The lease owns the shared session and ends it after all writers stop.
+    super.clearListeners();
+  }
+
   /** V1/v2 automatic flushes remain durable. */
   protected override async automaticFlush(): Promise<storage.FlushedResult | null> {
     const result = await this.flush();

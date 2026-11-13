@@ -116,7 +116,9 @@ export abstract class MongoBucketBatch
   protected readonly mapping: BucketDefinitionMapping;
   protected readonly objectStorageUsageWriterId = createObjectStorageUsageWriterId();
 
+  /** Mutable input for new saves; v3/v4 detach it when an operation is queued. */
   protected batch: OperationBatch | null = null;
+
   protected readonly markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   protected hooks: storage.StorageHooks | undefined;
   protected clearedError = false;
@@ -168,6 +170,9 @@ export abstract class MongoBucketBatch
     this.tracer = options.tracer ?? new PerformanceTracer('MongoDB storage');
   }
 
+  /** V1 flushes its buffer directly; v3/v4 provide captured input. */
+  protected abstract get flushInput(): OperationBatch | null;
+
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
     this.batch ??= new OperationBatch();
     this.batch.addCustomWriteCheckpoint({
@@ -188,9 +193,7 @@ export abstract class MongoBucketBatch
 
   protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
-    return this.withWriterLock(() => this.commitInternal(lsn, options), false);
-  }
+  abstract commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult>;
 
   protected abstract commitInternal(
     lsn: string,
@@ -247,9 +250,9 @@ export abstract class MongoBucketBatch
   ): Promise<storage.SourceTable[]>;
 
   /** Perform any version-specific setup required before writing custom checkpoints. */
-  protected async prepareCustomWriteCheckpoints(
-    _checkpoints: readonly storage.CustomWriteCheckpointOptions[]
-  ): Promise<void> {}
+  protected abstract prepareCustomWriteCheckpoints(
+    checkpoints: readonly storage.CustomWriteCheckpointOptions[]
+  ): Promise<void>;
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     return this.withWriterLock(() => this.flushInternal(options), false);
@@ -260,7 +263,7 @@ export abstract class MongoBucketBatch
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
     // Each flushInner() is one transaction.
-    while (this.batch != null) {
+    while (this.flushInput != null) {
       let r = await this.flushInner(options);
       if (r) {
         result = r;
@@ -276,11 +279,11 @@ export abstract class MongoBucketBatch
     options?: storage.BatchBucketFlushOptions,
     projection?: mongo.Document
   ): Promise<T> {
-    if (this.batch == null) {
+    if (this.flushInput == null) {
       return commitWithoutFlush();
     }
     let result!: T;
-    while (this.batch != null) {
+    while (this.flushInput != null) {
       await this.flushInner(
         options,
         async (stream, lastOp, writes) => {
@@ -580,12 +583,10 @@ export abstract class MongoBucketBatch
     );
   }
 
-  protected async withTransaction<T>(
-    cb: (stream: SyncRuleDocumentBase) => Promise<T>,
-    session = this.session
-  ): Promise<T> {
-    return this.withFencedTransaction(() => this.fence(session), cb, session);
-  }
+  protected abstract withTransaction<T>(
+    callback: (stream: SyncRuleDocumentBase) => Promise<T>,
+    session?: mongo.ClientSession
+  ): Promise<T>;
 
   /**
    * Internal transaction helper: the caller serializes use of its session, via
@@ -655,15 +656,7 @@ export abstract class MongoBucketBatch
    * V3/v4 also flush all writers before metadata operations; flush/commit pass
    * false so their callbacks handle their own input without flushing other writers.
    */
-  protected async withWriterLock<T>(callback: () => Promise<T>, _flushAllWriters = true): Promise<T> {
-    using lockSpan = this.tracer.span('storage', 'internal_lock');
-    this.options.replicationLock.throwIfAborted();
-    return this.options.replicationLock.writerMutex.exclusiveLock(async () => {
-      lockSpan.end();
-      this.options.replicationLock.throwIfAborted();
-      return callback();
-    });
-  }
+  protected abstract withWriterLock<T>(callback: () => Promise<T>, flushAllWriters?: boolean): Promise<T>;
 
   /** Internal single-document update; the public operation already holds the mutex. */
   protected async updateStreamMetadata(
@@ -700,27 +693,16 @@ export abstract class MongoBucketBatch
   /** Advance the persisted head in the same transaction as the operations. */
   protected abstract onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: InternalOpId): void;
 
-  async [Symbol.asyncDispose]() {
-    if (this.batch?.hasData()) {
-      // We don't error here, since:
-      // 1. In error states, this is expected (we can't distinguish between disposing after success or error).
-      // 2. SuppressedError is messy to deal with.
-      this.logger.warn('Disposing writer with unflushed changes');
-    }
-    // The lease owns the shared session and ends it after all writers stop.
-    super.clearListeners();
-  }
+  abstract [Symbol.asyncDispose](): Promise<void>;
 
   async dispose() {
     await this[Symbol.asyncDispose]();
   }
 
-  async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
-    return this.saveInternal(record);
-  }
+  abstract save(record: storage.SaveOptions): Promise<storage.FlushedResult | null>;
 
-  /** Save implementation; v3/v4 serialize admission before calling it. */
-  protected async saveInternal(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+  /** Buffer one complete input event synchronously, including its custom checkpoints. */
+  protected bufferRecord(record: storage.SaveOptions): boolean {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
     // V3 source tables own disjoint event-definition ids for each physical table. Multiple
@@ -754,10 +736,7 @@ export abstract class MongoBucketBatch
       this.batch.push(new RecordOperation(record));
     }
 
-    if (this.batch?.shouldFlush()) {
-      return this.automaticFlush();
-    }
-    return null;
+    return this.batch?.shouldFlush() ?? false;
   }
 
   protected abstract automaticFlush(): Promise<storage.FlushedResult | null>;

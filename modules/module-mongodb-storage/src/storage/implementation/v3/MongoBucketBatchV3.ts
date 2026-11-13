@@ -52,6 +52,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   private readonly pipeline: ReplicationPipelineV3;
   private enqueuePublication = false;
   private pendingPublications = 0;
+  private pendingInputs = 0;
+  /** Owned by the current mutex operation; saves only append to this.batch. */
+  private capturedInput: OperationBatch | null = null;
+
   /** Avoid repeating idempotent createIndexes calls for every checkpoint flush. */
   private readonly initializedCustomCheckpointEventIds = new Set<EventDefinitionId>();
   // Used only to validate supplied checkpoint ids; it does not initialize collections.
@@ -76,36 +80,55 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     this.pipeline.registerWriter(this);
   }
 
+  protected override get flushInput(): OperationBatch | null {
+    return this.capturedInput;
+  }
+
   override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
-    return super.withWriterLock(async () => {
-      // Buffer one bounded input block while both publication slots are occupied.
-      // Automatic flushing checks capacity before preparation; keep the mutex here
-      // because another writer's metadata barrier can flush and replace this input.
-      try {
-        return await this.saveInternal(record);
-      } catch (error) {
-        this.pipeline.fail(error);
-        throw error;
+    try {
+      this.options.replicationLock.throwIfAborted();
+      // No await or mutex is needed to append an input event. Flushes detach their
+      // input before yielding, so preparation never reads this mutable buffer.
+      // A full buffer still waits for preparation capacity, bounding read-ahead.
+      if (this.bufferRecord(record)) {
+        return await this.automaticFlush();
       }
-    });
+      return null;
+    } catch (error) {
+      this.pipeline.fail(error);
+      throw error;
+    }
+  }
+
+  override async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
+    this.options.replicationLock.throwIfAborted();
+    if (this.markRecordUnavailable != null && (this.batch?.length ?? 0) > 0) {
+      // A combined data+checkpoint commit cannot return control to the connector
+      // to process repair notifications between those two durable boundaries.
+      // Require its explicit flush -> repair -> commit ordering even when this
+      // particular input might turn out not to need repair. An empty batch does
+      // not prove its external repair queue is drained; that remains the caller's
+      // responsibility. keepalive() delegates here and has the same requirement.
+      throw new ReplicationAssertionError(
+        'Flush pending rows and process markRecordUnavailable repairs before committing source progress'
+      );
+    }
+    // Reject invalid repair ordering before detaching input, so the connector
+    // can still flush, repair, and retry its commit on this writer.
+    return this.withWriterLock(() => this.commitInternal(lsn, options), false);
   }
 
   /**
-   * Caller holds writerMutex. Flush this writer's buffered rows/checkpoints into
-   * the pipeline, waiting for preparation/admission but not necessarily publication.
-   * Repairs retain their synchronous flush path. Use public flush() for durability
-   * when the caller does not already hold the mutex.
+   * Capture this writer's rows/checkpoints and queue preparation under writerMutex.
+   * Capture and enqueue happen before yielding, establishing the input's place
+   * relative to metadata barriers. Wait for preparation/admission, not necessarily
+   * publication. Repairs retain their synchronous flush path.
    */
   async flushBufferedInputToPipeline(): Promise<storage.FlushedResult | null> {
     if (!this.batch?.hasData()) {
       return null;
     }
-    this.enqueuePublication = true;
-    try {
-      return await this.flushInternal();
-    } finally {
-      this.enqueuePublication = false;
-    }
+    return this.withCapturedInputLock(this.takeBufferedInput(), () => this.flushInternal(), true);
   }
 
   protected override async automaticFlush(): Promise<storage.FlushedResult | null> {
@@ -113,23 +136,71 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   /**
-   * Metadata operations flush all live writers before changing shared table state.
+   * Metadata operations capture all live writers before changing shared table state.
    * Explicit flush/commit pass false: they drain admitted work and flush their own
    * input in the callback, without forcing other writers' partial buffers to publish.
    */
-  protected override async withWriterLock<T>(callback: () => Promise<T>, flushAllWriters = true): Promise<T> {
-    return super.withWriterLock(async () => {
-      if (flushAllWriters) {
-        await this.pipeline.flushAllWriters();
-      } else {
-        await this.pipeline.drain();
-      }
+  protected override withWriterLock<T>(callback: () => Promise<T>, flushAllWriters = true): Promise<T> {
+    // Queue all captured inputs before queueing the metadata operation itself.
+    // Saves after this synchronous boundary use fresh buffers and queue behind it.
+    if (flushAllWriters) {
+      this.pipeline.enqueueBufferedInputs();
+    }
+    return this.withCapturedInputLock(this.takeBufferedInput(), async () => {
+      await this.pipeline.drain();
       return callback();
     });
   }
 
+  private takeBufferedInput(): OperationBatch | null {
+    const input = this.batch;
+    this.batch = null;
+    return input;
+  }
+
+  /** Only captured batches and metadata operations acquire/trace the writer lock. */
+  private async withCapturedInputLock<T>(
+    input: OperationBatch | null,
+    callback: () => Promise<T>,
+    enqueuePublication = false
+  ): Promise<T> {
+    const hasInput = input?.hasData() ?? false;
+    if (hasInput) {
+      this.pendingInputs++;
+    }
+    try {
+      using lockSpan = this.tracer.span('storage', 'internal_lock');
+      this.options.replicationLock.throwIfAborted();
+      return await this.options.replicationLock.writerMutex.exclusiveLock(async () => {
+        lockSpan.end();
+        this.options.replicationLock.throwIfAborted();
+        this.capturedInput = input;
+        this.enqueuePublication = enqueuePublication;
+        try {
+          return await callback();
+        } finally {
+          this.capturedInput = null;
+          this.enqueuePublication = false;
+        }
+      });
+    } catch (error) {
+      // A captured input must never disappear after failure while other writers
+      // continue advancing source progress. Replay it under a fresh lease. An
+      // input-free metadata rejection can be retried, e.g. snapshot completion
+      // rejected because a table still needs snapshotting.
+      if (hasInput) {
+        this.pipeline.fail(error);
+      }
+      throw error;
+    } finally {
+      if (hasInput) {
+        this.pendingInputs--;
+      }
+    }
+  }
+
   override async [Symbol.asyncDispose](): Promise<void> {
-    const pending = this.pendingPublications > 0 || this.batch?.hasData();
+    const pending = this.pendingInputs > 0 || this.pendingPublications > 0 || this.batch?.hasData();
     if (pending) {
       this.pipeline.fail(new ReplicationAbortedError('Disposed writer with pending replication work'));
     }
@@ -138,7 +209,14 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         await this.pipeline.join();
       }
       this.pipeline.unregisterWriter(this);
-      await super[Symbol.asyncDispose]();
+      if (this.batch?.hasData()) {
+        // We don't error here, since:
+        // 1. In error states, this is expected (we can't distinguish between disposing after success or error).
+        // 2. SuppressedError is messy to deal with.
+        this.logger.warn('Disposing writer with unflushed changes');
+      }
+      // The lease owns the shared session and ends it after all writers stop.
+      super.clearListeners();
     });
   }
 
@@ -177,7 +255,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   ): Promise<storage.FlushedResult | null> {
     using _span = this.tracer.span('storage', 'flush');
     await this.hooks?.beforeBatchFlush?.(this);
-    const input = this.batch;
+    const input = this.capturedInput;
     const checkpoints = input?.customWriteCheckpoints ?? [];
     const allocator = this.pipeline.allocator;
     await allocator.ensureCapacity();
@@ -292,7 +370,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const shouldQueue = this.enqueuePublication && repairs.length === 0;
     if (shouldQueue) {
       await this.pipeline.capacity(retainedBytes);
-      this.batch = resumeBatch;
+      this.capturedInput = resumeBatch;
       this.pendingPublications++;
       const receipt = this.pipeline.enqueue(
         changes,
@@ -313,7 +391,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
     await this.pipeline.drain();
     await publish(this.session);
-    this.batch = resumeBatch;
+    this.capturedInput = resumeBatch;
     return { flushed_op: lastOp };
   }
 
@@ -832,17 +910,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     options?: storage.BucketBatchCommitOptions
   ): Promise<storage.CheckpointResult> {
     this.options.replicationLock.throwIfAborted();
-    if (this.markRecordUnavailable != null && (this.batch?.length ?? 0) > 0) {
-      // A combined data+checkpoint commit cannot return control to the connector
-      // to process repair notifications between those two durable boundaries.
-      // Require its explicit flush -> repair -> commit ordering even when this
-      // particular input might turn out not to need repair. An empty batch does
-      // not prove its external repair queue is drained; that remains the caller's
-      // responsibility. keepalive() delegates here and has the same requirement.
-      throw new ReplicationAssertionError(
-        'Flush pending rows and process markRecordUnavailable repairs before committing source progress'
-      );
-    }
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
     using _ = this.tracer.span('storage', 'commit');

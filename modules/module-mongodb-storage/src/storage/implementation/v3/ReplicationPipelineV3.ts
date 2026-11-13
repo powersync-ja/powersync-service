@@ -63,15 +63,15 @@ export class ReplicationPipelineV3 {
   }
 
   /**
-   * Caller holds writerMutex. Flush every writer's buffered input, then wait for
-   * publication before a metadata operation can change the state those rows use.
-   * Calling a writer's public flush() here would reacquire the same mutex.
+   * Synchronously capture and queue every writer's current input. The caller
+   * then queues its metadata operation on writerMutex and drains publication
+   * there. Do not await between writers: rows appended after this boundary must
+   * stay behind the metadata change, even while earlier inputs are being prepared.
    */
-  async flushAllWriters(): Promise<void> {
+  enqueueBufferedInputs(): void {
     for (const writer of this.writers) {
-      await writer.flushBufferedInputToPipeline();
+      void writer.flushBufferedInputToPipeline().catch((error) => this.fail(error));
     }
-    await this.drain();
   }
 
   get pendingCount() {

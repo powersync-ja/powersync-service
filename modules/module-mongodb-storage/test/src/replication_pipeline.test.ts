@@ -223,6 +223,150 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     expect(c.pipeline.accountedBytes).toBe(0);
   });
 
+  test('buffers without locking while metadata publishes only its captured prefix', async () => {
+    const c = await open(version, 'offloaded');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await using other = await c.buckets.createWriter(test_utils.BATCH_OPTIONS);
+    await save(writer, c.table, 'A', 'before truncate');
+    await save(other, c.table, 'B', 'before truncate');
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const load = SourceRecordStoreV3.prototype.loadDocuments;
+    using _read = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments').mockImplementationOnce(async function (
+      this: SourceRecordStoreV3,
+      ...args
+    ) {
+      entered.resolve();
+      await release.promise;
+      return load.apply(this, args);
+    });
+    const truncating = writer.truncate([c.table]);
+    let saving: Promise<unknown> | undefined;
+    try {
+      await entered.promise;
+      using acquisitions = vi.spyOn(c.lock.writerMutex, 'exclusiveLock');
+      let buffered = false;
+      saving = Promise.all([
+        save(writer, c.table, 'C', 'after truncate'),
+        save(other, c.table, 'D', 'after truncate')
+      ]).then(() => {
+        buffered = true;
+      });
+      // Buffering is synchronous, even while preparation owns the writer mutex.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(buffered).toBe(true);
+      expect(acquisitions).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await Promise.all([truncating, saving]);
+    }
+    const records = c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId);
+    expect(await records.countDocuments()).toBe(0);
+    // Neither the active writer's input nor the other writer's queued input may
+    // absorb rows arriving after the metadata barrier was requested.
+    await other.flush();
+    await writer.commit('1/2');
+    expect((await records.find({}).toArray()).map((row) => bson.deserialize(row.data!.buffer).id).sort()).toEqual([
+      'C',
+      'D'
+    ]);
+    expect((await c.buckets.getCheckpoint()).lsn).toBe('1/2');
+  });
+
+  test('a full input buffered after a metadata request waits and publishes after it', async () => {
+    const c = await open(version, 'disabled');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await using other = await c.buckets.createWriter(test_utils.BATCH_OPTIONS);
+    await save(writer, c.table, 'A', 'before truncate');
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const holding = c.lock.writerMutex.exclusiveLock(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    const truncating = writer.truncate([c.table]);
+    using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
+    let submitted = false;
+    const saving = save(other, c.table, 'B', 'after truncate').then(() => {
+      submitted = true;
+    });
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(submitted).toBe(false); // A full buffer still applies backpressure.
+    } finally {
+      release.resolve();
+      await Promise.all([holding, truncating, saving]);
+    }
+    await other.commit('1/2');
+    const records = await c.buckets.db
+      .sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId)
+      .find({})
+      .toArray();
+    expect(records.map((row) => bson.deserialize(row.data!.buffer).id)).toEqual(['B']);
+    expect((await c.buckets.getCheckpoint()).lsn).toBe('1/2');
+  });
+
+  test('split flush remainders do not overwrite rows buffered during preparation', async () => {
+    const c = await open(version, 'disabled');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await save(writer, c.table, 'A', 'first');
+    await save(writer, c.table, 'B', 'second');
+    using _split = vi.spyOn(PersistedBatchV3.prototype, 'shouldFlushTransaction').mockReturnValue(true);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const load = SourceRecordStoreV3.prototype.loadDocuments;
+    using _read = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments').mockImplementationOnce(async function (
+      this: SourceRecordStoreV3,
+      ...args
+    ) {
+      entered.resolve();
+      await release.promise;
+      return load.apply(this, args);
+    });
+    const flushing = writer.flush();
+    try {
+      await entered.promise;
+      await save(writer, c.table, 'C', 'next input');
+    } finally {
+      release.resolve();
+      await flushing;
+    }
+    const records = c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId);
+    const ids = async () =>
+      (await records.find({}).toArray()).map((row) => bson.deserialize(row.data!.buffer).id).sort();
+    expect(await ids()).toEqual(['A', 'B']);
+    await writer.commit('1/2');
+    expect(await ids()).toEqual(['A', 'B', 'C']);
+    expect(c.pipeline.accountedBytes).toBe(0);
+  });
+
+  test('disposing a writer with detached input waiting for the mutex invalidates the lease', async () => {
+    const c = await open(version, 'disabled');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await save(writer, c.table, 'A', 'queued');
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const holding = c.lock.writerMutex.exclusiveLock(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    const flushing = expect(writer.flush()).rejects.toThrow('restart');
+    const disposing = writer.dispose();
+    try {
+      expect(c.lock.signal.aborted).toBe(true);
+    } finally {
+      release.resolve();
+      await Promise.all([holding, flushing, disposing]);
+    }
+    expect(c.pipeline.pendingCount).toBe(0);
+  });
+
   test('an oversized prefix stops further admission until publication completes', async () => {
     const c = await open(version, 'disabled');
     await using _factory = c.factory;
