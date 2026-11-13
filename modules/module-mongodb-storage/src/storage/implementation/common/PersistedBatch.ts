@@ -3,6 +3,7 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDefinitionId, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { MongoIdSequence } from '../MongoIdSequence.js';
+import { ReplicationBatchLimits } from '../ReplicationBatchLimits.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
 export interface SaveBucketDataOptions {
@@ -30,6 +31,7 @@ export interface UpsertCurrentDataOptions {
 }
 
 export interface PersistedBatchOptions {
+  batchLimits?: ReplicationBatchLimits;
   logger?: Logger;
 }
 

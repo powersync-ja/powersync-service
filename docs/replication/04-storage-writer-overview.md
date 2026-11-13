@@ -18,10 +18,44 @@ Writers batch source row changes and source metadata changes against the hydrate
 
 The source connector is responsible for closing each writer cleanly so pending work is either persisted at the right boundary or discarded with the failed attempt.
 
+## MongoDB Replication Batch Sizes
+
+MongoDB storage uses one profile to coordinate input buffering, transaction splitting,
+and v3/v4 pipeline backpressure. Configure it in the service config:
+
+```yaml
+storage:
+  type: mongodb
+  uri: mongodb://localhost:27017/powersync
+  replication_batch_size: medium
+```
+
+The default is `medium`. `large` preserves the limits used before profiles were added.
+Larger profiles can improve throughput by amortizing round trips, at the cost of
+more retained memory and longer individual transactions. Smaller profiles can
+help reduce memory use or transaction duration.
+
+| Profile            | Input rows or checkpoints | Estimated input bytes | Transaction entries per category | Estimated transaction bytes | v3/v4 pipeline accounted-work target |
+| ------------------ | ------------------------: | --------------------: | -------------------------------: | --------------------------: | -----------------------------------: |
+| `small`            |                     4,000 |                 2 MiB |                            4,000 |                       4 MiB |                               32 MiB |
+| `medium` (default) |                     8,000 |                 4 MiB |                            8,000 |                       8 MiB |                               64 MiB |
+| `large`            |                    16,000 |                 8 MiB |                           16,000 |                      16 MiB |                              128 MiB |
+
+These are flush and backpressure targets, not hard memory or MongoDB transaction
+limits. A whole row is evaluated before splitting; high fanout or one oversized
+row can exceed a target. Transaction counts apply separately to bucket operations,
+parameter entries, and source records, preserving the existing splitting rules.
+The pipeline target includes 4x packing headroom per transaction target across two
+slots; it excludes source buffers and raw writer input. All profiles keep two
+pipeline slots and the same current-row lookup partitioning, payload chunk sizes,
+and object-storage request concurrency. The profile applies per replication
+stream, so total memory also depends on active streams and writers.
+
 ## MongoDB V3/V4 Publication Pipeline
 
 Writers on one replication lease share a two-batch pipeline. Each writer buffers
-one normal input block (16,000 rows/checkpoints or 8 MiB estimated input). Preparation
+one normal input block (8,000 rows/checkpoints or 4 MiB estimated input with the
+default `medium` profile). Preparation
 admits complete blocks, or partial blocks at explicit boundaries. Interleaved
 snapshot and streaming `save()` calls do not flush each other's input.
 
@@ -59,7 +93,7 @@ Failed publication invalidates the lease and stops the successor; replay starts
 from persisted source progress. Partial-row repair notifications retain their
 synchronous durability barrier.
 
-The two slots and 128 MiB accounted-work target bound pipeline admission, with
+The two slots and the profile’s accounted-work target (64 MiB by default) bound pipeline admission, with
 headroom estimates for packing. These are not RSS limits: a preparation block or
 single oversized row can exceed the byte target. Source pages, captured inputs
 waiting for the writer mutex, and one fresh input block per active writer are

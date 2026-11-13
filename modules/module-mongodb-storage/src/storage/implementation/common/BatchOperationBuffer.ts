@@ -4,33 +4,12 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
 import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
-import { MAX_PREPARED_BATCH_BYTES, MAX_PREPARED_BATCH_COUNT } from '../ReplicationBatchLimits.js';
+import { DEFAULT_REPLICATION_BATCH_LIMITS, ReplicationBatchLimits } from '../ReplicationBatchLimits.js';
 import { TaggedBucketParameterDocument } from '../models.js';
 import { BucketDataDoc, BucketKey } from './BucketDataDoc.js';
 import { BucketStateUpdate, SaveBucketDataOptions } from './PersistedBatch.js';
 import { PublicationStats } from './PreparedPublication.js';
 import { SourceRecordBucketState } from './SourceRecordStore.js';
-
-/**
- * Maximum size of operations we write in a single transaction.
- *
- * It's tricky to find the exact limit, but from experience, over 100MB
- * can cause an error:
- * > transaction is too large and will not fit in the storage engine cache
- *
- * Additionally, unbounded size here can balloon our memory usage in some edge
- * cases.
- *
- * When we reach this threshold, we commit the transaction and start a new one.
- */
-const MAX_TRANSACTION_BATCH_SIZE = MAX_PREPARED_BATCH_BYTES;
-
-/**
- * Limit number of documents to write in a single transaction.
- *
- * This has an effect on error message size in some cases.
- */
-const MAX_TRANSACTION_DOC_COUNT = MAX_PREPARED_BATCH_COUNT;
 
 /**
  * Shared operation generation, size accounting and diagnostics. Each storage
@@ -59,7 +38,8 @@ export class BatchOperationBuffer {
       checkDefinitionId(id: BucketDefinitionId | null): BucketDefinitionId;
       getBucketDefinitionId(source: BucketDataSource): BucketDefinitionId;
     },
-    private readonly logger: Logger = defaultLogger
+    private readonly logger: Logger = defaultLogger,
+    private readonly limits: ReplicationBatchLimits = DEFAULT_REPLICATION_BATCH_LIMITS
   ) {
     this.currentSize = writtenSize;
   }
@@ -258,12 +238,26 @@ export class BatchOperationBuffer {
     });
   }
 
+  /**
+   * Maximum size of operations we write in a single transaction.
+   *
+   * It's tricky to find the exact limit, but from experience, over 100MB
+   * can cause an error:
+   * > transaction is too large and will not fit in the storage engine cache
+   *
+   * Additionally, unbounded size here can balloon our memory usage in some edge
+   * cases.
+   *
+   * When we reach this threshold, we commit the transaction and start a new one.
+   * We also limit the number of documents per write category; this has an effect
+   * on error message size in some cases.
+   */
   shouldFlushTransaction(currentDataCount: number) {
     return (
-      this.currentSize >= MAX_TRANSACTION_BATCH_SIZE ||
-      this.bucketDataCount >= MAX_TRANSACTION_DOC_COUNT ||
-      currentDataCount >= MAX_TRANSACTION_DOC_COUNT ||
-      this.bucketParameters.length >= MAX_TRANSACTION_DOC_COUNT
+      this.currentSize >= this.limits.maxTransactionBatchBytes ||
+      this.bucketDataCount >= this.limits.maxTransactionBatchCount ||
+      currentDataCount >= this.limits.maxTransactionBatchCount ||
+      this.bucketParameters.length >= this.limits.maxTransactionBatchCount
     );
   }
 

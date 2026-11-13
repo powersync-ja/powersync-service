@@ -76,6 +76,7 @@ export class MongoStorageProvider implements storage.StorageProvider {
           });
     const syncStorageFactory = new MongoBucketStorage(database, {
       chunkCompactionConcurrency,
+      replicationBatchSize: decodedConfig.replication_batch_size,
       replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
       readPreference,
       statsReadPreference:

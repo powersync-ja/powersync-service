@@ -28,6 +28,7 @@ export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorag
         supportsMultipleSyncConfigs: factoryOptions.supportsMultipleSyncConfigs,
         objectStorage: factoryOptions.objectStorage,
         chunkCompactionConcurrency: factoryOptions.chunkCompactionConcurrency,
+        replicationBatchSize: factoryOptions.replicationBatchSize,
         inlineThresholdBytes: factoryOptions.inlineThresholdBytes
       });
     },

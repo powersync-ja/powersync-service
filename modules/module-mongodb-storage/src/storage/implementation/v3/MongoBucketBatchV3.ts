@@ -68,7 +68,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     super(options);
     this.pipeline = options.replicationLock.replicationPipeline ??= new ReplicationPipelineV3(
       options.replicationLock,
-      options.opIdAllocator
+      options.opIdAllocator,
+      options.batchLimits
     );
     const syncConfigIds = options.syncConfigIds ?? [];
     if (syncConfigIds.length == 0) {
@@ -241,6 +242,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   protected createPersistedBatch(writtenSize: number): PersistedBatchV3 {
     return new PersistedBatchV3(this.db, this.replicationStreamId, this.mapping, writtenSize, {
       logger: this.logger,
+      batchLimits: this.options.batchLimits,
       objectStorage: this.options.objectStorage,
       inlineThresholdBytes: this.options.inlineThresholdBytes,
       signal: this.options.signal,
@@ -671,7 +673,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         if (group!.shouldFlushTransaction()) {
           prepareGroup(group!);
           group = null;
-          resumeBatch = new OperationBatch();
+          resumeBatch = new OperationBatch(this.options.batchLimits);
         }
       }
       if (group != null) {

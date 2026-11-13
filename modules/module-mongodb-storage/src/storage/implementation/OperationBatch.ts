@@ -3,17 +3,7 @@ import * as bson from 'bson';
 
 import { storage } from '@powersync/service-core';
 import { mongoTableId } from '../../utils/util.js';
-import { MAX_INPUT_BATCH_BYTES, MAX_INPUT_BATCH_COUNT } from './ReplicationBatchLimits.js';
-
-/**
- * Maximum number of row operations or custom checkpoints in a batch.
- */
-const MAX_BATCH_COUNT = MAX_INPUT_BATCH_COUNT;
-
-/**
- * Maximum size of operations in the batch (estimated).
- */
-const MAX_RECORD_BATCH_SIZE = MAX_INPUT_BATCH_BYTES;
+import { DEFAULT_REPLICATION_BATCH_LIMITS, ReplicationBatchLimits } from './ReplicationBatchLimits.js';
 
 /**
  * Maximum size of size of current_data documents we lookup at a time.
@@ -23,7 +13,7 @@ const MAX_CURRENT_DATA_BATCH_SIZE = 16_000_000;
 /**
  * Batch of input row operations and custom checkpoints.
  *
- * We accumulate operations up to MAX_RECORD_BATCH_SIZE,
+ * We accumulate operations up to the configured input count/byte targets,
  * then further split rows into sub-batches if MAX_CURRENT_DATA_BATCH_SIZE is exceeded.
  * Custom checkpoints bypass row evaluation and are persisted with the input's publication.
  */
@@ -31,6 +21,8 @@ export class OperationBatch {
   batch: RecordOperation[] = [];
   readonly customWriteCheckpoints: storage.CustomWriteCheckpointOptions[] = [];
   currentSize: number = 0;
+
+  constructor(private readonly limits: ReplicationBatchLimits = DEFAULT_REPLICATION_BATCH_LIMITS) {}
 
   /** Row count only: custom checkpoints bypass source-record lookup and repair. */
   get length() {
@@ -49,9 +41,9 @@ export class OperationBatch {
 
   shouldFlush() {
     return (
-      this.batch.length >= MAX_BATCH_COUNT ||
-      this.customWriteCheckpoints.length >= MAX_BATCH_COUNT ||
-      this.currentSize > MAX_RECORD_BATCH_SIZE
+      this.batch.length >= this.limits.maxInputBatchCount ||
+      this.customWriteCheckpoints.length >= this.limits.maxInputBatchCount ||
+      this.currentSize > this.limits.maxInputBatchBytes
     );
   }
 

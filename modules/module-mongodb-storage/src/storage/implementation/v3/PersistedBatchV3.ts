@@ -86,7 +86,8 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
         },
         getBucketDefinitionId: (source) => mapping.bucketSourceId(source)
       },
-      options?.logger
+      options?.logger,
+      options?.batchLimits
     );
     this.inlineThresholdBytes = options?.inlineThresholdBytes ?? DEFAULT_INLINE_THRESHOLD_BYTES;
     this.signal = options?.signal;

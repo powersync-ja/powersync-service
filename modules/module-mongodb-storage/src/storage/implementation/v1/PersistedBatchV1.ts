@@ -45,7 +45,8 @@ export class PersistedBatchV1 implements PersistedBatch {
         checkDefinitionId: () => LEGACY_BUCKET_DATA_DEFINITION_ID,
         getBucketDefinitionId: () => LEGACY_BUCKET_DATA_DEFINITION_ID
       },
-      options?.logger
+      options?.logger,
+      options?.batchLimits
     );
   }
 
