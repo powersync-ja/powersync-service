@@ -46,4 +46,14 @@ describe('Migrations', () => {
 
     expect(tables.find((t) => t.table_name == 'sync_rules')).exist;
   });
+
+  it('creates the op_id index for empty storage', async () => {
+    await POSTGRES_STORAGE_SETUP.migrate(Direction.Up);
+    const { db } = await POSTGRES_STORAGE_FACTORY.factory();
+    const row = await db.sql`
+      SELECT
+        to_regclass('bucket_data_op_id_index') IS NOT NULL AS present
+    `.first<{ present: boolean }>();
+    expect(row?.present).toBe(true);
+  });
 });
