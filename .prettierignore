@@ -10,3 +10,5 @@ pnpm-lock.yaml
 packages/schema/json-schema
 packages/sync-rules/schema
 modules/module-convex/convex/_generated
+# TODO: Remove? Prevents prettier from reformatting the pgwire files
+packages/jpgwire/src/pgwire/
