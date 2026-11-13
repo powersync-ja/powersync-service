@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ErrorCode, ReplicationAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor, InternalOpId, SourceTable, storage } from '@powersync/service-core';
-import { HydratedSyncConfig } from '@powersync/service-sync-rules';
+import { HydratedEventDescriptor, HydratedSyncConfig } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../../utils/util.js';
@@ -40,8 +40,11 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     this.store = new SourceRecordStoreV1(this.db, this.replicationStreamId);
   }
 
-  protected override get flushInput(): OperationBatch | null {
-    return this.batch;
+  protected override getTableEvents(table: storage.SourceTable): { event: HydratedEventDescriptor }[] {
+    // V1/v2 leave eventDefinitionIds undefined and selects events by table ref.
+    return this.sync_rules.eventDescriptors
+      .filter((event) => event.tableTriggersEvent(table.ref))
+      .map((event) => ({ event }));
   }
 
   override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
@@ -155,7 +158,46 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     );
   }
 
-  protected override async flushInner(
+  /** Internal helpers require the public operation to hold the writer mutex. */
+  protected override async flushInternal(
+    options?: storage.BatchBucketFlushOptions
+  ): Promise<storage.FlushedResult | null> {
+    let result: storage.FlushedResult | null = null;
+    // One flush may be split over multiple transactions.
+    // Each flushInner() is one transaction.
+    while (this.batch != null) {
+      let r = await this.flushInner(options);
+      if (r) {
+        result = r;
+      }
+    }
+    return result;
+  }
+
+  /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
+  private async flushAndCommit<T>(
+    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<T>,
+    commitWithoutFlush: () => Promise<T>,
+    options?: storage.BatchBucketFlushOptions,
+    projection?: mongo.Document
+  ): Promise<T> {
+    if (this.batch == null) {
+      return commitWithoutFlush();
+    }
+    let result!: T;
+    while (this.batch != null) {
+      await this.flushInner(
+        options,
+        async (stream, lastOp, writes) => {
+          result = await checkpoint(stream, lastOp, writes);
+        },
+        projection
+      );
+    }
+    return result;
+  }
+
+  private async flushInner(
     options?: storage.BatchBucketFlushOptions,
     checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<void>,
     projection?: mongo.Document
@@ -341,6 +383,25 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       resumeBatch: resumeBatch?.hasData() ? resumeBatch : null,
       clearedError
     };
+  }
+
+  protected override async truncateInternal(
+    sourceTables: storage.SourceTable[]
+  ): Promise<storage.FlushedResult | null> {
+    await this.flushInternal();
+
+    let last_op: InternalOpId | null = null;
+    for (let table of sourceTables) {
+      last_op = await this.truncateSingleInternal(table);
+    }
+
+    if (last_op) {
+      return {
+        flushed_op: last_op
+      };
+    } else {
+      return null;
+    }
   }
 
   protected override async truncateSingleInternal(sourceTable: storage.SourceTable): Promise<InternalOpId> {

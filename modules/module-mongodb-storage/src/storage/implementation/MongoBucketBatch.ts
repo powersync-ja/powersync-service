@@ -170,9 +170,6 @@ export abstract class MongoBucketBatch
     this.tracer = options.tracer ?? new PerformanceTracer('MongoDB storage');
   }
 
-  /** V1 flushes its buffer directly; v3/v4 provide captured input. */
-  protected abstract get flushInput(): OperationBatch | null;
-
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
     this.batch ??= new OperationBatch();
     this.batch.addCustomWriteCheckpoint({
@@ -259,47 +256,7 @@ export abstract class MongoBucketBatch
   }
 
   /** Internal helpers require the public operation to hold the writer mutex. */
-  protected async flushInternal(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
-    let result: storage.FlushedResult | null = null;
-    // One flush may be split over multiple transactions.
-    // Each flushInner() is one transaction.
-    while (this.flushInput != null) {
-      let r = await this.flushInner(options);
-      if (r) {
-        result = r;
-      }
-    }
-    return result;
-  }
-
-  /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
-  protected async flushAndCommit<T>(
-    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<T>,
-    commitWithoutFlush: () => Promise<T>,
-    options?: storage.BatchBucketFlushOptions,
-    projection?: mongo.Document
-  ): Promise<T> {
-    if (this.flushInput == null) {
-      return commitWithoutFlush();
-    }
-    let result!: T;
-    while (this.flushInput != null) {
-      await this.flushInner(
-        options,
-        async (stream, lastOp, writes) => {
-          result = await checkpoint(stream, lastOp, writes);
-        },
-        projection
-      );
-    }
-    return result;
-  }
-
-  protected abstract flushInner(
-    options?: storage.BatchBucketFlushOptions,
-    checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<void>,
-    projection?: mongo.Document
-  ): Promise<storage.FlushedResult | null>;
+  protected abstract flushInternal(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null>;
 
   /**
    * Evaluate one source operation and append its storage writes to batch.
@@ -767,22 +724,7 @@ export abstract class MongoBucketBatch
     return this.withWriterLock(() => this.truncateInternal(sourceTables));
   }
 
-  protected async truncateInternal(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
-    await this.flushInternal();
-
-    let last_op: InternalOpId | null = null;
-    for (let table of sourceTables) {
-      last_op = await this.truncateSingleInternal(table);
-    }
-
-    if (last_op) {
-      return {
-        flushed_op: last_op
-      };
-    } else {
-      return null;
-    }
-  }
+  protected abstract truncateInternal(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null>;
 
   async truncateSingle(sourceTable: storage.SourceTable): Promise<InternalOpId> {
     return this.withWriterLock(() => this.truncateSingleInternal(sourceTable));
@@ -831,27 +773,7 @@ export abstract class MongoBucketBatch
   /**
    * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    */
-  protected getTableEvents(
+  protected abstract getTableEvents(
     table: storage.SourceTable
-  ): { event: HydratedEventDescriptor; eventId?: EventDefinitionId }[] {
-    // V3 storage assigns event-definition ids to each source table, so membership is authoritative.
-    // Iterate the table's distinct ids and resolve each through the stream's deduped event map, so a
-    // definition reused across configs has one evaluator for that id. The evaluator may still return
-    // multiple payloads from matching queries. V1/v2 storage leaves this undefined and selects by table ref.
-    if (table.eventDefinitionIds != null) {
-      const eventById = this.options.parsedSyncConfig.eventById;
-      const events: { event: HydratedEventDescriptor; eventId: EventDefinitionId }[] = [];
-      for (const id of table.eventDefinitionIds) {
-        const event = eventById.get(id);
-        if (event != null && event.tableTriggersEvent(table.ref)) {
-          events.push({ event, eventId: id });
-        }
-      }
-      return events;
-    }
-
-    return this.sync_rules.eventDescriptors
-      .filter((event) => event.tableTriggersEvent(table.ref))
-      .map((event) => ({ event }));
-  }
+  ): { event: HydratedEventDescriptor; eventId?: EventDefinitionId }[];
 }

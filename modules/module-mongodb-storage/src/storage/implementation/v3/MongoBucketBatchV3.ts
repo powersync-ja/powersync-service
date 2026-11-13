@@ -7,7 +7,7 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
-import { EventDefinitionId } from '@powersync/service-sync-rules';
+import { EventDefinitionId, HydratedEventDescriptor } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { canCheckpointState } from '../CheckpointState.js';
@@ -80,8 +80,26 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     this.pipeline.registerWriter(this);
   }
 
-  protected override get flushInput(): OperationBatch | null {
-    return this.capturedInput;
+  protected override getTableEvents(
+    table: storage.SourceTable
+  ): { event: HydratedEventDescriptor; eventId: EventDefinitionId }[] {
+    // V3 storage assigns event-definition ids to each source table, so membership is authoritative.
+    // Iterate the table's distinct ids and resolve each through the stream's deduped event map, so a
+    // definition reused across configs has one evaluator for that id. The evaluator may still return
+    // multiple payloads from matching queries.
+    const ids = table.eventDefinitionIds;
+    if (ids == null) {
+      throw new ReplicationAssertionError('Expected assigned event-definition ids for a v3 source table');
+    }
+    const eventById = this.options.parsedSyncConfig.eventById;
+    const events: { event: HydratedEventDescriptor; eventId: EventDefinitionId }[] = [];
+    for (const id of ids) {
+      const event = eventById.get(id);
+      if (event != null && event.tableTriggersEvent(table.ref)) {
+        events.push({ event, eventId: id });
+      }
+    }
+    return events;
   }
 
   override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
@@ -248,7 +266,46 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     );
   }
 
-  protected override async flushInner(
+  /** Internal helpers require the public operation to hold the writer mutex. */
+  protected override async flushInternal(
+    options?: storage.BatchBucketFlushOptions
+  ): Promise<storage.FlushedResult | null> {
+    let result: storage.FlushedResult | null = null;
+    // One captured input may be split over multiple publications. Each
+    // flushInner() consumes a prefix, retaining its remainder for this operation.
+    while (this.capturedInput != null) {
+      let r = await this.flushInner(options);
+      if (r) {
+        result = r;
+      }
+    }
+    return result;
+  }
+
+  /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
+  private async flushAndCommit<T>(
+    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<T>,
+    commitWithoutFlush: () => Promise<T>,
+    options?: storage.BatchBucketFlushOptions,
+    projection?: lib_mongo.mongo.Document
+  ): Promise<T> {
+    if (this.capturedInput == null) {
+      return commitWithoutFlush();
+    }
+    let result!: T;
+    while (this.capturedInput != null) {
+      await this.flushInner(
+        options,
+        async (stream, lastOp, writes) => {
+          result = await checkpoint(stream, lastOp, writes);
+        },
+        projection
+      );
+    }
+    return result;
+  }
+
+  private async flushInner(
     options?: storage.BatchBucketFlushOptions,
     checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<void>,
     projection?: lib_mongo.mongo.Document
@@ -631,6 +688,26 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       changes,
       retainedBytes
     };
+  }
+
+  protected override async truncateInternal(
+    sourceTables: storage.SourceTable[]
+  ): Promise<storage.FlushedResult | null> {
+    // The metadata barrier has already published every captured input. Rows
+    // buffered after that boundary belong to later operations and stay untouched.
+
+    let last_op: InternalOpId | null = null;
+    for (let table of sourceTables) {
+      last_op = await this.truncateSingleInternal(table);
+    }
+
+    if (last_op) {
+      return {
+        flushed_op: last_op
+      };
+    } else {
+      return null;
+    }
   }
 
   protected override async truncateSingleInternal(sourceTable: storage.SourceTable): Promise<InternalOpId> {
