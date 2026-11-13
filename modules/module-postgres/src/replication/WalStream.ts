@@ -16,6 +16,8 @@ import {
   MetricsEngine,
   RelationCache,
   ReplicationLagTracker,
+  SnapshotGate,
+  snapshotGate,
   SourceEntityDescriptor,
   SourceTable,
   storage
@@ -72,6 +74,8 @@ export interface WalStreamOptions {
    * Automatic size-based storage flushes are independent of this interval.
    */
   snapshotProgressIntervalMs?: number;
+  /** Shared with other replication jobs; injectable for isolated tests. */
+  snapshotGate?: SnapshotGate;
 
   /**
    * Called after each snapshot chunk is flushed, for testing.
@@ -93,6 +97,11 @@ interface InitResult {
   needsInitialSync: boolean;
   /** True if snapshot must be started from scratch with a new slot. */
   needsNewSlot: boolean;
+}
+
+interface SnapshotTableOptions {
+  limited?: PrimaryKeyValue[];
+  streamingDependency?: boolean;
 }
 
 export const ZERO_LSN = '00000000/00000000';
@@ -151,6 +160,7 @@ export class WalStream {
 
   private snapshotChunkLength: number;
   private readonly snapshotProgressIntervalMs: number;
+  private readonly snapshotGate: SnapshotGate;
   private onSnapshotChunkFlushed?: () => Promise<void>;
 
   private replicationLag = new ReplicationLagTracker();
@@ -180,6 +190,7 @@ export class WalStream {
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
     this.snapshotProgressIntervalMs = options.snapshotProgressIntervalMs ?? 10_000;
+    this.snapshotGate = options.snapshotGate ?? snapshotGate;
     this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
     this.slotHealthCheckIntervalMs = options.slotHealthCheckIntervalMs ?? 120_000;
 
@@ -677,14 +688,14 @@ WHERE  oid = $1::regclass`,
     batch: storage.BucketStorageBatch,
     db: pgwire.PgConnection,
     table: storage.SourceTable,
-    limited?: PrimaryKeyValue[]
+    options?: SnapshotTableOptions
   ): Promise<storage.SourceTable> {
     // Note: We use the default "Read Committed" isolation level here, not snapshot isolation.
     // The data may change during the transaction, but that is compensated for in the streaming
     // replication afterwards.
     await rquery(db, 'BEGIN');
     try {
-      await this.snapshotTable(batch, db, table, limited);
+      await this.snapshotTable(batch, db, table, options);
 
       // Get the current LSN.
       // The data will only be consistent once incremental replication has passed that point.
@@ -721,8 +732,10 @@ WHERE  oid = $1::regclass`,
     batch: storage.BucketStorageBatch,
     db: pgwire.PgConnection,
     table: storage.SourceTable,
-    limited?: PrimaryKeyValue[]
+    options?: SnapshotTableOptions
   ) {
+    const limited = options?.limited;
+    const allowPause = limited == null && !options?.streamingDependency;
     let totalEstimatedCount = table.snapshotStatus?.totalEstimatedCount;
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     let lastCountTime = 0;
@@ -748,6 +761,10 @@ WHERE  oid = $1::regclass`,
       this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - not resumable`);
       q = new SimpleSnapshotQuery(db, table, this.snapshotChunkLength);
       at = 0;
+    }
+    if (allowPause) {
+      // Targeted repairs are prerequisites for streaming progress and must bypass the gate.
+      await this.snapshotGate.wait(this.abort_signal);
     }
     await q.initialize();
 
@@ -793,6 +810,7 @@ WHERE  oid = $1::regclass`,
       }
 
       const now = performance.now();
+      const pauseSnapshot = allowPause && this.snapshotGate.isPaused;
       // Targeted repairs and test hooks retain their per-page flush contract.
       // Ordinary snapshots drain only at progress boundaries, table completion
       // or graceful shutdown. Automatic size-based flushes remain unchanged.
@@ -801,6 +819,7 @@ WHERE  oid = $1::regclass`,
         this.onSnapshotChunkFlushed != null ||
         now - lastProgressAt >= this.snapshotProgressIntervalMs ||
         !hasRemainingData ||
+        pauseSnapshot ||
         this.abort_signal.aborted;
       if (persistProgress) {
         // Important: flush before marking progress
@@ -840,6 +859,11 @@ WHERE  oid = $1::regclass`,
       if (this.abort_signal.aborted) {
         // We only abort after flushing
         throw new ReplicationAbortedError(`Initial replication interrupted`);
+      }
+      if (pauseSnapshot && hasRemainingData) {
+        // The completed page and its progress are durable before waiting. This
+        // wait owns no storage lock and is interrupted by shutdown.
+        await this.snapshotGate.wait(this.abort_signal);
       }
     }
   }
@@ -882,7 +906,9 @@ WHERE  oid = $1::regclass`,
         for (const table of snapshotCandidates) {
           // Truncate this table, in case a previous snapshot was interrupted.
           await batch.truncate([table]);
-          const doneTable = await this.snapshotTableInTx(batch, db, table);
+          // This inline snapshot is required to continue streaming. It must not
+          // wait for that same stream to finish consuming its buffered changes.
+          const doneTable = await this.snapshotTableInTx(batch, db, table, { streamingDependency: true });
           snapshotDoneById.set(doneTable.id, doneTable);
         }
         // After table snapshots, wait for replication to catch up.
@@ -919,12 +945,7 @@ WHERE  oid = $1::regclass`,
     try {
       for (let rows of byTable.values()) {
         const table = rows[0].table;
-        await this.snapshotTableInTx(
-          batch,
-          db,
-          table,
-          rows.map((r) => r.key)
-        );
+        await this.snapshotTableInTx(batch, db, table, { limited: rows.map((r) => r.key) });
       }
       // Even with resnapshot, we need to wait until we get a new consistent checkpoint
       // after the snapshot, so we need to send a keepalive message.
@@ -1156,6 +1177,12 @@ WHERE  oid = $1::regclass`,
       });
     };
 
+    using backlog = this.snapshotGate.trackStreaming();
+    let hasBufferedSourceMessages = false;
+    // We don't handle any plain keepalive messages while we have transactions.
+    // While we have transactions, we use that to advance the position.
+    // Replication never starts in the middle of a transaction, so this starts as false.
+    let skipKeepalive = false;
     await this.storage.startBatch(
       {
         logger: this.logger,
@@ -1164,13 +1191,16 @@ WHERE  oid = $1::regclass`,
         storeCurrentData: true,
         skipExistingRows: false,
         markRecordUnavailable,
-        signal: this.abort_signal
+        signal: this.abort_signal,
+        hooks: {
+          beforeBatchFlush: async () => {
+            if (hasBufferedSourceMessages || skipKeepalive) {
+              backlog.setBacklogged(true);
+            }
+          }
+        }
       },
       async (batch) => {
-        // We don't handle any plain keepalive messages while we have transactions.
-        // While we have transactions, we use that to advance the position.
-        // Replication never starts in the middle of a transaction, so this starts as false.
-        let skipKeepalive = false;
         let count = 0;
 
         for await (const chunk of replicationStream.pgoutputDecode()) {
@@ -1192,8 +1222,10 @@ WHERE  oid = $1::regclass`,
           const assumeKeepAlive = !exposesLogicalMessages;
           let keepAliveDetected = false;
           const lastCommit = messages.findLast((msg) => msg.tag == 'commit');
+          const lastMessage = messages.at(-1);
 
           for (const msg of messages) {
+            hasBufferedSourceMessages = msg !== lastMessage;
             if (msg.tag == 'relation') {
               await this.handleRelation({
                 batch,
@@ -1261,6 +1293,7 @@ WHERE  oid = $1::regclass`,
             }
           }
 
+          hasBufferedSourceMessages = false;
           if (!skipKeepalive) {
             if (assumeKeepAlive || keepAliveDetected) {
               // Reset the detection flag.
@@ -1282,6 +1315,12 @@ WHERE  oid = $1::regclass`,
             // We receive chunks with empty messages often (about each second).
             // Acknowledging here progresses the slot past these and frees up resources.
             await this.ack(chunkLastLsn, replicationStream);
+            if (messages.length === 0 && backlog.isBacklogged) {
+              // Empty transport chunks outside a transaction are the idle signal.
+              // Drain storage, without requiring a snapshot-dependent checkpoint.
+              await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
+              backlog.setBacklogged(false);
+            }
           }
 
           this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED).add(1);

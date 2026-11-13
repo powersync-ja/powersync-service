@@ -14,6 +14,8 @@ import {
   RelationCache,
   ReplicationLagTracker,
   SaveOperationTag,
+  SnapshotGate,
+  snapshotGate,
   SourceEntityDescriptor,
   SourceTable,
   storage
@@ -78,6 +80,8 @@ export interface ChangeStreamOptions {
 
   storageHooks?: storage.StorageHooks;
   snapshotHooks?: MongoSnapshotterHooks;
+  /** Shared across jobs by default; injectable for isolated replication tests. */
+  snapshotGate?: SnapshotGate;
   /**
    * Create one adapter per replication attempt, shared with its snapshotter and source probes.
    */
@@ -137,6 +141,7 @@ export class ChangeStream {
   private changeStreamTimeout: number;
 
   private storageHooks: storage.StorageHooks | undefined;
+  private readonly snapshotGate: SnapshotGate;
 
   private readonly sourceRowConverter: SourceRowConverter;
   private readonly queryProvider: MongoReplicationQueryProvider;
@@ -170,6 +175,7 @@ export class ChangeStream {
       this.maxAwaitTimeMS = Math.min(10_000, this.keepaliveIntervalMs + 100);
     }
     this.storageHooks = options.storageHooks;
+    this.snapshotGate = options.snapshotGate ?? snapshotGate;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
     this.sync_rules = options.storage.getParsedSyncRules({
@@ -615,6 +621,9 @@ export class ChangeStream {
 
   async streamChangesInternal() {
     await this.ensureDetected();
+    using backlog = this.snapshotGate.trackStreaming();
+    let hasBufferedSourceChanges = false;
+    let emptySourceBatch = false;
     const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
@@ -629,7 +638,17 @@ export class ChangeStream {
         defaultSchema: this.defaultDb.databaseName,
         // We get a complete postimage for every change, so we don't need to store the current data.
         storeCurrentData: false,
-        hooks: this.storageHooks,
+        hooks: {
+          ...this.storageHooks,
+          beforeBatchFlush: async (writer) => {
+            if (hasBufferedSourceChanges) {
+              // Automatic flushes count too. Pause future snapshot pages before
+              // persistence waits; accepted writes and metadata continue draining.
+              backlog.setBacklogged(true);
+            }
+            await this.storageHooks?.beforeBatchFlush?.(writer);
+          }
+        },
         // Let the source loop stop on cancellation, then drain its last safe progress below.
         // Storage still uses the replication lease signal to cancel work if ownership is lost.
         tracer
@@ -679,6 +698,8 @@ export class ChangeStream {
           signal: this.abortSignal,
           tracer,
           onBatch: (batch) => {
+            emptySourceBatch = batch.events.length === 0;
+            hasBufferedSourceChanges = false;
             // Count actual transport, even if the adapter drops every envelope or reassembles fragments.
             bytesReplicatedMetric.add(batch.byteSize);
             chunksReplicatedMetric.add(1);
@@ -702,6 +723,7 @@ export class ChangeStream {
               break;
             }
             for (const { event: changeDocument, hasBufferedChanges } of sourceBatch.events) {
+              hasBufferedSourceChanges = hasBufferedChanges;
               if (this.abortSignal.aborted) {
                 break streamLoop;
               }
@@ -873,6 +895,7 @@ export class ChangeStream {
                 });
               }
             }
+            hasBufferedSourceChanges = false;
             if (this.abortSignal.aborted) {
               break;
             }
@@ -882,6 +905,14 @@ export class ChangeStream {
               filteredSinceProgress = (filteredSinceProgress ?? 0) + batchFilteredCount;
             }
             const resumeToken = sourceBatch.getResumeToken();
+            if (emptySourceBatch && resumeToken != null && backlog.isBacklogged) {
+              // Last-in-batch is not caught-up: another full batch may follow.
+              // An empty raw response (not filtering or unfinished split events)
+              // confirms idle. Drain streaming writes before reopening snapshots;
+              // checkpoint visibility may still depend on the snapshot itself.
+              await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
+              backlog.setBacklogged(false);
+            }
             if (resumeToken != null) {
               const filteredCount = filteredSinceProgress;
               if (changesSinceProgress == 0) {

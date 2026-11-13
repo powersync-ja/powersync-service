@@ -4,6 +4,8 @@ import {
   MetricsEngine,
   PerformanceTracer,
   SaveOperationTag,
+  SnapshotGate,
+  snapshotGate,
   SourceEntityDescriptor,
   SourceTable,
   storage
@@ -47,6 +49,7 @@ export interface MongoSnapshotterOptions {
   checkpointStreamId: mongo.ObjectId;
   storageHooks?: storage.StorageHooks;
   snapshotHooks?: MongoSnapshotterHooks;
+  snapshotGate?: SnapshotGate;
   queryProvider?: MongoReplicationQueryProvider;
 }
 
@@ -77,6 +80,7 @@ export class MongoSnapshotter {
   private readonly maxAwaitTimeMS: number;
   private readonly snapshotChunkLength: number;
   private readonly snapshotProgressIntervalMs: number;
+  private readonly snapshotGate: SnapshotGate;
   private readonly abortSignal: AbortSignal;
   private readonly logger: Logger;
   private readonly checkpointStreamId: mongo.ObjectId;
@@ -102,6 +106,7 @@ export class MongoSnapshotter {
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
     this.snapshotProgressIntervalMs = options.snapshotProgressIntervalMs ?? 10_000;
+    this.snapshotGate = options.snapshotGate ?? snapshotGate;
     this.abortSignal = options.abortSignal;
     this.logger = options.logger ?? options.storage.logger;
     this.checkpointStreamId = options.checkpointStreamId;
@@ -340,7 +345,9 @@ export class MongoSnapshotter {
       await batch.truncate(tables);
 
       for (const table of tables) {
-        await this.snapshotTable(batch, table);
+        // This inline snapshot is a streaming dependency. Waiting for streaming
+        // to catch up here would prevent the stream from consuming its backlog.
+        await this.snapshotTable(batch, table, { streamingDependency: true });
       }
       const noCheckpointBefore = await this.checkpointImplementation.createStandaloneCheckpoint();
 
@@ -403,6 +410,7 @@ export class MongoSnapshotter {
   }
 
   private async replicateTable(tableRequest: SourceTable) {
+    await this.waitForStreaming();
     await this.snapshotHooks?.beforeSnapshotStarted?.(tableRequest);
 
     await using writer = await this.storage.createWriter({
@@ -480,7 +488,11 @@ export class MongoSnapshotter {
     return result;
   }
 
-  private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+  private async snapshotTable(
+    batch: storage.BucketStorageBatch,
+    table: storage.SourceTable,
+    options?: { streamingDependency: boolean }
+  ) {
     const rowsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
@@ -530,10 +542,18 @@ export class MongoSnapshotter {
       lastProgressAt = now;
       pendingProgress = false;
     };
-    let nextChunkPromise = query.nextChunk();
+    let nextChunkPromise: ReturnType<typeof query.nextChunk> | undefined;
     try {
       while (true) {
+        if (!options?.streamingDependency && this.snapshotGate.isPaused) {
+          // Finish the last complete page before pausing. This also preserves
+          // durable progress if shutdown aborts the wait. No storage lock is held.
+          await persistProgress();
+          await this.waitForStreaming();
+        }
+        nextChunkPromise ??= query.nextChunk();
         const { docs: docBatch, lastKey, bytes: chunkBytes } = await nextChunkPromise;
+        nextChunkPromise = undefined;
         if (docBatch.length == 0) {
           // No more data - stop iterating
           break;
@@ -549,7 +569,9 @@ export class MongoSnapshotter {
         }
 
         // Pre-fetch next batch, so that we can read and write concurrently
-        nextChunkPromise = query.nextChunk();
+        if (options?.streamingDependency || !this.snapshotGate.isPaused) {
+          nextChunkPromise = query.nextChunk();
+        }
         for (const buffer of docBatch) {
           const { row, replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
           // This auto-flushes when the batch reaches its size limit
@@ -578,8 +600,18 @@ export class MongoSnapshotter {
       await persistProgress();
     } finally {
       // In case the loop was interrupted, make sure we await the last promise.
-      await nextChunkPromise.catch(() => {});
+      await nextChunkPromise?.catch(() => {});
     }
+  }
+
+  private async waitForStreaming(): Promise<void> {
+    if (this.snapshotGate.isPaused) {
+      const started = performance.now();
+      this.logger.info('Pausing snapshot while streaming has a backlog');
+      await this.snapshotGate.wait(this.abortSignal);
+      this.logger.info(`Resuming snapshot after ${(performance.now() - started).toFixed(0)}ms`);
+    }
+    this.abortSignal.throwIfAborted();
   }
 
   private async handleRelation(

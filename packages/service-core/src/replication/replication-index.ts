@@ -6,3 +6,4 @@ export * from './replication-metrics.js';
 export * from './ReplicationEngine.js';
 export * from './ReplicationLagTracker.js';
 export * from './ReplicationModule.js';
+export * from './SnapshotGate.js';

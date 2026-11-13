@@ -85,6 +85,30 @@ For each source transaction, page, or event batch, the stream helper generally:
 
 When the source emits an event that advances replication position but contains no user data, the helper calls `keepalive(lsn)`.
 
+## Streaming Backlog And Snapshot Gating
+
+MongoDB and Postgres replication jobs share a process-local snapshot gate. When
+streaming flushes storage while more source events are buffered, it pauses the
+production of new snapshot pages in those connectors, including snapshots in
+other replication streams. Postgres also treats a flush within an unfinished
+transaction as backlog. This policy uses observed work, not replication lag.
+
+The pause remains across source batches. MongoDB clears it only after an empty
+raw source batch with a safe resume token; filtering out every event or consuming
+the last event in a nonempty batch does not establish catch-up. Postgres uses an
+empty transport chunk outside a transaction. Both drain outstanding streaming
+writes before releasing their pause, without requiring a client checkpoint that
+might itself depend on snapshot completion. Each streaming attempt releases its
+registration on exit, and snapshots resume when no registered stream is backlogged.
+
+Snapshot pages already in progress and bounded prefetch may finish. Before
+waiting, snapshots persist their last completed page and its progress. Gate waits
+hold no storage writer mutex and can be cancelled during shutdown. Metadata
+operations, accepted storage writes, inline snapshots required by streaming, and
+targeted repairs bypass the gate so they cannot deadlock streaming progress.
+No prepared publications are reordered, and the gate adds no fixed delay or CPU
+yielding policy. Sustained streaming overload can keep snapshots paused indefinitely.
+
 ## Schema Changes During Streaming
 
 Automatic source schema change handling is not required for every replication module. If streaming discovers a source table that is selected by the sync config but not yet snapshot-complete, the connector must decide whether to snapshot it inline, queue it, or mark it complete based on source capabilities.
