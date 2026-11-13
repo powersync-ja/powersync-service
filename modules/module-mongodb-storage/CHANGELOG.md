@@ -1,5 +1,11 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.25.1
+
+### Patch Changes
+
+- @powersync/service-core@1.28.4
+
 ## 0.25.0
 
 ### Minor Changes

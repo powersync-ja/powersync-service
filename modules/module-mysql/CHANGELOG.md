@@ -1,5 +1,11 @@
 # @powersync/service-module-mysql
 
+## 0.16.10
+
+### Patch Changes
+
+- @powersync/service-core@1.28.4
+
 ## 0.16.9
 
 ### Patch Changes
