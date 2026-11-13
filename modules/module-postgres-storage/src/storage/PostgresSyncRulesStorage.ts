@@ -921,11 +921,13 @@ export class PostgresSyncRulesStorage
 
   private opIdIndexCheckedAt = 0;
   private opIdIndexReady = false;
+  private opIdIndexWarned = false;
 
   /**
-   * Data bucket changes need an index on bucket_data (group_id, op_id). It is optional and not created by a
-   * migration, so that it can be created concurrently on large existing storage. Without it, all data buckets are
-   * invalidated as before.
+   * Data bucket changes need an index on bucket_data (group_id, op_id). The migration only creates it while
+   * bucket_data is small, because it cannot build it concurrently. Without it, all data buckets are invalidated as
+   * before, and a warning asks to create it manually. Checked again every minute, so a manually created index is
+   * used without a restart.
    */
   private async hasOpIdIndex(): Promise<boolean> {
     const now = Date.now();
@@ -942,6 +944,13 @@ export class PostgresSyncRulesStorage
         .decoded(t.object({ valid: t.boolean }))
         .first();
       this.opIdIndexReady = row?.valid === true;
+      if (!this.opIdIndexReady && !this.opIdIndexWarned) {
+        this.opIdIndexWarned = true;
+        this.logger.warn(
+          `Index ${BUCKET_DATA_OP_ID_INDEX} is missing, so every checkpoint re-checks all data buckets of connected clients. ` +
+            `Create it in the storage schema with: CREATE INDEX CONCURRENTLY ${BUCKET_DATA_OP_ID_INDEX} ON bucket_data (group_id, op_id)`
+        );
+      }
     }
     return this.opIdIndexReady;
   }

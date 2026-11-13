@@ -5,7 +5,7 @@ import {
   ScopedParameterLookup,
   UnscopedParameterLookup
 } from '@powersync/service-sync-rules';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { BUCKET_DATA_OP_ID_INDEX } from '../../src/storage/PostgresSyncRulesStorage.js';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -181,8 +181,11 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
       await writer.commit('1/2');
       const cp2 = await bucketStorage.getCheckpoint();
 
+      const warn = vi.spyOn(bucketStorage.logger, 'warn');
       const withoutIndex = await bucketStorage.getCheckpointChanges({ lastCheckpoint: cp1, nextCheckpoint: cp2 });
       expect(withoutIndex.invalidateDataBuckets).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('CREATE INDEX CONCURRENTLY bucket_data_op_id_index');
 
       try {
         expect(BUCKET_DATA_OP_ID_INDEX).toBe('bucket_data_op_id_index');
@@ -199,7 +202,8 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
         expect(none.invalidateDataBuckets).toBe(false);
         expect(none.updatedDataBuckets.size).toBe(0);
       } finally {
-        await db.sql`DROP INDEX IF EXISTS bucket_data_op_id_index`.execute();
+        // The migration creates the index for small storage; leave it in place for the other tests.
+        await db.sql`CREATE INDEX IF NOT EXISTS bucket_data_op_id_index ON bucket_data (group_id, op_id)`.execute();
       }
     });
 
