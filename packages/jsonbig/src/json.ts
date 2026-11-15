@@ -10,7 +10,11 @@ const numberParser: NumberParser = (value) => {
 const numberStringifier = {
   test: (value: any) => typeof value == 'number',
   stringify: (value: unknown) => {
-    const text = (value as number).toString();
+    const num = value as number;
+    if (!Number.isFinite(num)) {
+      return 'null';
+    }
+    const text = num.toString();
     if (isInteger(text)) {
       // Used to preserve the "type".
       return text + '.0';
