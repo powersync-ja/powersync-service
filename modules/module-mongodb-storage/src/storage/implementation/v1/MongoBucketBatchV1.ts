@@ -1,8 +1,9 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ErrorCode, ReplicationAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor, InternalOpId, SourceTable, storage } from '@powersync/service-core';
-import { HydratedSyncConfig } from '@powersync/service-sync-rules';
+import { HydratedEventDescriptor, HydratedSyncConfig } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
@@ -37,6 +38,64 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     super(options);
     this.persisted_op = options.keepaliveOp ?? null;
     this.store = new SourceRecordStoreV1(this.db, this.replicationStreamId);
+  }
+
+  protected override getTableEvents(table: storage.SourceTable): { event: HydratedEventDescriptor }[] {
+    // V1/v2 leave eventDefinitionIds undefined and selects events by table ref.
+    return this.sync_rules.eventDescriptors
+      .filter((event) => event.tableTriggersEvent(table.ref))
+      .map((event) => ({ event }));
+  }
+
+  override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    if (this.bufferRecord(record)) {
+      return this.automaticFlush();
+    }
+    return null;
+  }
+
+  override async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
+    return this.withWriterLock(() => this.commitInternal(lsn, options), false);
+  }
+
+  protected override async withWriterLock<T>(callback: () => Promise<T>, _flushAllWriters = true): Promise<T> {
+    using lockSpan = this.tracer.span('storage', 'internal_lock');
+    this.options.replicationLock.throwIfAborted();
+    return this.options.replicationLock.writerMutex.exclusiveLock(async () => {
+      lockSpan.end();
+      this.options.replicationLock.throwIfAborted();
+      return callback();
+    });
+  }
+
+  protected override async withTransaction<T>(
+    cb: (stream: SyncRuleDocumentBase) => Promise<T>,
+    session = this.session
+  ): Promise<T> {
+    return this.withFencedTransaction(() => this.fence(session), cb, session);
+  }
+
+  protected override async prepareCustomWriteCheckpoints(
+    _checkpoints: readonly storage.CustomWriteCheckpointOptions[]
+  ): Promise<void> {}
+
+  override async [Symbol.asyncDispose](): Promise<void> {
+    if (this.batch?.hasData()) {
+      // We don't error here, since:
+      // 1. In error states, this is expected (we can't distinguish between disposing after success or error).
+      // 2. SuppressedError is messy to deal with.
+      this.logger.warn('Disposing writer with unflushed changes');
+    }
+    // The lease owns the shared session and ends it after all writers stop.
+    super.clearListeners();
+  }
+
+  /** V1/v2 automatic flushes remain durable. */
+  protected override async automaticFlush(): Promise<storage.FlushedResult | null> {
+    const result = await this.flush();
+    // HACK: Give other streams a chance to also flush.
+    await timers.setTimeout(5);
+    return result;
   }
 
   private async withReplicationTransaction(
@@ -99,12 +158,52 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     );
   }
 
-  protected override async flushInner(
+  /** Internal helpers require the public operation to hold the writer mutex. */
+  protected override async flushInternal(
+    options?: storage.BatchBucketFlushOptions
+  ): Promise<storage.FlushedResult | null> {
+    let result: storage.FlushedResult | null = null;
+    // One flush may be split over multiple transactions.
+    // Each flushInner() is one transaction.
+    while (this.batch != null) {
+      let r = await this.flushInner(options);
+      if (r) {
+        result = r;
+      }
+    }
+    return result;
+  }
+
+  /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
+  private async flushAndCommit<T>(
+    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<T>,
+    commitWithoutFlush: () => Promise<T>,
+    options?: storage.BatchBucketFlushOptions,
+    projection?: mongo.Document
+  ): Promise<T> {
+    if (this.batch == null) {
+      return commitWithoutFlush();
+    }
+    let result!: T;
+    while (this.batch != null) {
+      await this.flushInner(
+        options,
+        async (stream, lastOp, writes) => {
+          result = await checkpoint(stream, lastOp, writes);
+        },
+        projection
+      );
+    }
+    return result;
+  }
+
+  private async flushInner(
     options?: storage.BatchBucketFlushOptions,
     checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<void>,
     projection?: mongo.Document
   ): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
+    const checkpoints = batch?.customWriteCheckpoints ?? [];
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
     let clearedError = false;
@@ -112,9 +211,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     using _ = this.tracer.span('storage', 'flush');
 
     await this.hooks?.beforeBatchFlush?.(this);
-    if (this.write_checkpoint_batch.length > 0) {
+    if (checkpoints.length > 0) {
       // Collection/index creation cannot run inside the replication transaction.
-      await this.prepareCustomWriteCheckpoints();
+      await this.prepareCustomWriteCheckpoints(checkpoints);
     }
 
     await this.withReplicationTransaction(
@@ -127,9 +226,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           clearedError ||= result.clearedError;
         }
 
-        if (this.write_checkpoint_batch.length > 0) {
-          this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
-          await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
+        if (checkpoints.length > 0) {
+          this.logger.info(`Writing ${checkpoints.length} custom write checkpoints`);
+          await this.batchCreateCustomWriteCheckpoints(session, opSeq.next(), checkpoints);
         }
 
         last_op = opSeq.last();
@@ -145,13 +244,11 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       projection
     );
 
-    // Keep checkpoints available if the transaction retries after writing them.
-    this.write_checkpoint_batch = [];
-
     if (clearedError) {
       this.clearedError = true;
     }
 
+    // Keep checkpoints available if the transaction retries after writing them.
     // null if done, set if we need another flush
     this.batch = resumeBatch;
 
@@ -288,6 +385,25 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     };
   }
 
+  protected override async truncateInternal(
+    sourceTables: storage.SourceTable[]
+  ): Promise<storage.FlushedResult | null> {
+    await this.flushInternal();
+
+    let last_op: InternalOpId | null = null;
+    for (let table of sourceTables) {
+      last_op = await this.truncateSingleInternal(table);
+    }
+
+    if (last_op) {
+      return {
+        flushed_op: last_op
+      };
+    } else {
+      return null;
+    }
+  }
+
   protected override async truncateSingleInternal(sourceTable: storage.SourceTable): Promise<InternalOpId> {
     let last_op: InternalOpId | null = null;
 
@@ -377,13 +493,14 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     // No-op for V1: source records live in a shared collection.
   }
 
-  private async batchCreateCustomWriteCheckpoints(session: mongo.ClientSession, opId: InternalOpId): Promise<void> {
+  private async batchCreateCustomWriteCheckpoints(
+    session: mongo.ClientSession,
+    opId: InternalOpId,
+    inputCheckpoints: readonly storage.CustomWriteCheckpointOptions[]
+  ): Promise<void> {
     // Only the final checkpoint per user/stream is visible after this transaction.
     const checkpoints = new Map(
-      this.write_checkpoint_batch.map((checkpoint) => [
-        JSON.stringify([checkpoint.sync_rules_id, checkpoint.user_id]),
-        checkpoint
-      ])
+      inputCheckpoints.map((checkpoint) => [JSON.stringify([checkpoint.sync_rules_id, checkpoint.user_id]), checkpoint])
     );
     await this.db.custom_write_checkpoints.bulkWrite(
       [...checkpoints.values()].map((checkpointOptions) => {

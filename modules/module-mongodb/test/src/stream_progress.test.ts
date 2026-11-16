@@ -84,10 +84,13 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
           doNotClear: true,
           streamOptions: {
             snapshotChunkLength: 5,
+            streamingProgressIntervalMs: 0,
             createReplicationQueryProvider: () => provider,
             storageHooks: {
               beforeBatchFlush: async () => {
-                if (failFlush) throw new Error('injected retained-row flush failure');
+                if (failFlush) {
+                  throw new Error('injected retained-row flush failure');
+                }
               }
             }
           }
@@ -111,7 +114,9 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
         });
         const result = await context.startStreaming();
         expect(result).toMatchObject({ status: 'rejected', reason: expect.any(Error) });
-        if (result.status == 'rejected') expect(String(result.reason)).toContain('retained-row flush failure');
+        if (result.status == 'rejected') {
+          expect(String(result.reason)).toContain('retained-row flush failure');
+        }
         // Saving the later token despite the failed flush would skip document 1 on restart.
         expect(save).toHaveBeenCalledOnce();
         expect(setResumeLsn).not.toHaveBeenCalled();
@@ -156,7 +161,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
         await using context = await openChangeStreamTestContext(factory, {
           storageVersion,
           doNotClear: true,
-          streamOptions: { snapshotChunkLength: 5 }
+          streamOptions: { snapshotChunkLength: 5, streamingProgressIntervalMs: 0 }
         });
         await context.loadActiveSyncRules();
         context.storage!.registerListener({
@@ -166,7 +171,9 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
               await setResumeLsn(lsn);
               // Abort only after the third position is persisted, so reopening uses an exact token
               // inside the transaction rather than the position recorded before any of its inserts.
-              if (++progressCount == 3) context.abort(new Error('stop inside transaction'));
+              if (++progressCount == 3) {
+                context.abort(new Error('stop inside transaction'));
+              }
             });
           }
         });
@@ -225,6 +232,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
           doNotClear: true,
           streamOptions: {
             snapshotChunkLength: 5,
+            streamingProgressIntervalMs: 0,
             // Keep the test inside the idle keepalive interval: filtered activity must still save
             // progress while the checkpoint barrier is pending, rather than being treated as idle.
             keepaliveIntervalMs: 60_000,
@@ -254,7 +262,9 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
                         }
                         filtered += count;
                         beforeFailure = positionBeforeBatch;
-                        if (scenario == 'adapter failure') throw new Error('injected adapter failure');
+                        if (scenario == 'adapter failure') {
+                          throw new Error('injected adapter failure');
+                        }
                         failFlush = scenario == 'flush failure';
                         forwardedProgress = true;
                         return progress;
@@ -267,7 +277,9 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
                       savedPositions.push((await context.storage!.getStatus()).resumeLsn!);
                       // End the successful case deliberately while the later checkpoint marker is
                       // still pending, so assertions observe progress independently of a commit.
-                      if (savedPositions.length == 3) throw new Error('stopped after three safe boundaries');
+                      if (savedPositions.length == 3) {
+                        throw new Error('stopped after three safe boundaries');
+                      }
                     }
                   }
                 })();
@@ -283,7 +295,9 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
             // Inject at the public flush boundary to test flush-before-resume ordering on every backend.
             const originalFlush = batch.flush.bind(batch);
             vi.spyOn(batch, 'flush').mockImplementation(async (...args) => {
-              if (failFlush) throw new Error('injected flush failure');
+              if (failFlush) {
+                throw new Error('injected flush failure');
+              }
               return originalFlush(...args);
             });
             const originalSave = batch.save.bind(batch);
@@ -306,7 +320,9 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
         });
         const result = await context.startStreaming();
         expect(result.status).toBe('rejected');
-        if (result.status != 'rejected') throw new Error('Expected the controlled stop');
+        if (result.status != 'rejected') {
+          throw new Error('Expected the controlled stop');
+        }
         expect(String(result.reason)).toContain(
           scenario == 'progress' ? 'three safe boundaries' : `injected ${scenario}`
         );
