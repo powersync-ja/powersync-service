@@ -2,6 +2,12 @@ name: Rust
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out. Defaults to the ref of the calling workflow.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -16,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
 
       # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Install Rust
@@ -53,6 +61,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
 
       # Skip compiling entirely when no Rust sources have changed.
       - name: Restore built addon

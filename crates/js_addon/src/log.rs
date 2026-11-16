@@ -90,7 +90,7 @@ impl Log for WinstonForwarder {
                 Some(message) => message.to_owned(),
                 None => record.args().to_string(),
             },
-            target: record.target().to_owned(),
+            module_path: record.module_path().map(str::to_owned),
             fields: fields.0,
         };
 
@@ -106,7 +106,7 @@ impl Log for WinstonForwarder {
 struct LogEntry {
     level: &'static str,
     message: String,
-    target: String,
+    module_path: Option<String>,
     fields: Vec<(String, FieldValue)>,
 }
 
@@ -131,7 +131,10 @@ impl ToNapiValue for LogEntry {
                 FieldValue::String(value) => info.set(key, value)?,
             }
         }
-        info.set("target", val.target)?;
+        if let Some(ref path) = val.module_path {
+            info.set("rust_module", path)?;
+        }
+
         info.set("level", val.level)?;
         info.set("message", val.message)?;
 
