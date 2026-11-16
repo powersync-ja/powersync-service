@@ -19,7 +19,9 @@ jobs:
 
       # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Install Rust
-        run: rustup toolchain install
+        run: |
+          rustup toolchain install
+          rustup component add rustfmt
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
