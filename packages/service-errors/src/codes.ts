@@ -583,7 +583,9 @@ export enum ErrorCode {
   PSYNC_S4105 = 'PSYNC_S4105',
 
   /**
-   * Sync config reprocess is blocked because another sync config is deploying.
+   * Sync config reprocess is blocked.
+   *
+   * Another sync config is deploying, or the sync config in the service configuration is invalid.
    */
   PSYNC_S4106 = 'PSYNC_S4106'
 }
