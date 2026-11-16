@@ -19,7 +19,7 @@ jobs:
 
       # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Install Rust
-        run: rustup toolchain install --profile minimal --component clippy,rustfmt
+        run: rustup toolchain install
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -63,7 +63,9 @@ jobs:
       - name: Install Rust
         if: steps.addon-cache.outputs.cache-hit != 'true'
         shell: bash
-        run: rustup toolchain install --profile minimal --target ${{ matrix.target }}
+        run: |
+          rustup toolchain install --profile minimal
+          rustup target add ${{ matrix.target }}
 
       - name: Cache Rust build
         if: steps.addon-cache.outputs.cache-hit != 'true'
