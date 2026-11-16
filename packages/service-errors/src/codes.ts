@@ -220,6 +220,12 @@ export enum ErrorCode {
    */
   PSYNC_S1146 = 'PSYNC_S1146',
 
+  /**
+   * Replication was requested with `slot_failover: true`, but we're connected to a PostgreSQL server without support
+   * for that.
+   */
+  PSYNC_S1147 = 'PSYNC_S1147',
+
   // ## PSYNC_S12xx: MySQL replication issues
 
   // ## PSYNC_S13xx: MongoDB replication issues

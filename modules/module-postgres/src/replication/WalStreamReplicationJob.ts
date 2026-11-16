@@ -123,7 +123,8 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
         abort_signal: this.abortController.signal,
         storage: this.options.storage,
         metrics: this.options.metrics,
-        connections: connectionManager
+        connections: connectionManager,
+        slotFailover: this.connectionFactory.dbConnectionConfig.slot_failover
       });
       this.lastStream = stream;
       await stream.replicate();

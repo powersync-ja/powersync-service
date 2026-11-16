@@ -7,5 +7,10 @@ export const env = utils.collectEnvironmentVariables({
   CI: utils.type.boolean.default('false'),
   SLOW_TESTS: utils.type.boolean.default('false'),
   TEST_MONGO_STORAGE: utils.type.boolean.default('true'),
-  TEST_POSTGRES_STORAGE: utils.type.boolean.default('true')
+  TEST_POSTGRES_STORAGE: utils.type.boolean.default('true'),
+  /**
+   * Postgres image (e.g. postgres:17) for replication slot failover tests, which start their own
+   * primary / standby containers with testcontainers. These tests are skipped when not set.
+   */
+  PG_FAILOVER_TEST_IMAGE: utils.type.string.optional()
 });
