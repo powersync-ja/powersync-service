@@ -1,7 +1,7 @@
 import { BasicRouterRequest, Context, RouterEngine, storage, updateSyncRulesFromYaml } from '@/index.js';
 import { diagnostics, reprocess } from '@/routes/endpoints/admin.js';
 import { reprocessSyncRules } from '@/routes/endpoints/sync-rules.js';
-import { SyncConfigEngine } from '@/system/SyncConfigEngine.js';
+import { SyncConfigEngine, SyncConfigResultStatus } from '@/system/SyncConfigEngine.js';
 import { describe, expect, it, vi } from 'vitest';
 import { mockServiceContext } from './mocks.js';
 
@@ -36,10 +36,18 @@ function makeStoredConfig() {
   } as unknown as storage.ResolvedSyncConfig;
 }
 
-async function makeContext(content: string, active = true, connected = true) {
+/**
+ * @param source Inline sync config content, or a file path to load it from.
+ */
+async function makeContext(source: string | { path: string }, active = true, connected = true) {
   const service = mockServiceContext(null);
   service.configuration = {
-    sync_rules: { present: true, content, version_label: 'local', exit_on_error: false }
+    sync_rules: {
+      present: true,
+      ...(typeof source === 'string' ? { content: source } : source),
+      version_label: 'local',
+      exit_on_error: false
+    }
   } as typeof service.configuration;
   const persisted = makeStoredConfig();
   (service.storageEngine as any).activeBucketStorage = {
@@ -181,4 +189,41 @@ describe('manual reprocessing with rejected local config', () => {
       expect(update).not.toHaveBeenCalled();
     }
   );
+});
+
+describe('manual reprocessing with unreadable local config', () => {
+  it.each([
+    {
+      path: reprocess.path,
+      reprocessSlotName: async (context: Context) => {
+        const response = await reprocess.handler({ context, request: REQUEST, params: {} });
+        return response.connections[0].slot_name;
+      }
+    },
+    {
+      path: reprocessSyncRules.path,
+      reprocessSlotName: async (context: Context) => {
+        const response = await reprocessSyncRules.handler({ context, request: REQUEST, params: {} });
+        return response.slot_name;
+      }
+    }
+  ])('reprocesses the active config at $path', async ({ reprocessSlotName }) => {
+    // The configured file is not mounted on this process.
+    const { context } = await makeContext({ path: '/nonexistent/sync-config.yaml' });
+    const service = context.service_context;
+    expect((await service.syncConfigEngine.getConfigured()).status).toBe(SyncConfigResultStatus.UNAVAILABLE);
+    const backend = service.storageEngine.activeBucketStorage;
+    vi.spyOn(backend, 'getDeployingSyncConfig').mockResolvedValue(null);
+    const update = vi.fn(async (_options: storage.UpdateSyncRulesOptions) => {
+      return { replicationStreamName: 'replacement_slot' } as storage.PersistedReplicationStream;
+    });
+    backend.updateSyncRules = update;
+    expect(await reprocessSlotName(context)).toBe('replacement_slot');
+    expect(update).toHaveBeenCalledOnce();
+    expect(update.mock.calls[0][0]).toMatchObject({
+      config: { yaml: VALID_CONFIG },
+      version_label: 'stored',
+      forceNewReplicationStream: true
+    });
+  });
 });

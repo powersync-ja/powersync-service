@@ -229,7 +229,9 @@ export function assertAcceptedSyncConfig(result: SyncConfigValidationResult): Co
 /**
  * Check local admission before manual reprocessing; callers separately check stored processing work.
  * Both manual reprocess endpoints use this guard; automatic recovery does not.
- * @throws A 409 `PSYNC_S4106` service error for rejected input, or the original input load failure.
+ * Configured input that could not be loaded does not block reprocessing, which only uses the
+ * stored active config.
+ * @throws A 409 `PSYNC_S4106` service error for rejected input.
  */
 export async function assertConfiguredSyncConfigValid(engine: SyncConfigEngine): Promise<void> {
   const result = await engine.getConfigured();
@@ -240,8 +242,5 @@ export async function assertConfiguredSyncConfigValid(engine: SyncConfigEngine):
       description: 'Cannot reprocess while the configured sync config is invalid',
       details: 'Correct the sync config and restart the affected service processes'
     });
-  }
-  if (result.status === SyncConfigResultStatus.UNAVAILABLE) {
-    throw result.error;
   }
 }
