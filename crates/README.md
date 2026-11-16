@@ -23,10 +23,9 @@ compiled into a single Node addon loaded by the service.
 
 However, we still want Rust code to be written in a modular way. PowerSync
 Cloud also contains internal changes offering additional features for paid
-plans. These private builds re-use the `powersync_service` and
-`powersync_service_js_addon_shared` crates, which are published to crates.io.
-They re-define `open_edition_js_entrypoint` (and the `RustModule` from
-`@powersync/service-image`) to inject additional functionality.
+plans. These private builds re-use the public `powersync_service` and
+`powersync_service_js_addon_shared` crates, but add their own entrypoint and
+a custom JavaScript `RustModule` loader to inject additional functionality.
 
 ## Testing
 
@@ -43,4 +42,4 @@ future.
 We don't publish compiled binaries to NPM. Instead:
 
 - Containers build the node addon for their target platform.
-- When running the service locally, run `pnpm build:rust` and launch the service with `--rust-addon <path>`.
+- When running the service locally, run `pnpm -w rust:build-addon` (it prints the output path) and launch the service with `--rust-addon <path>`.
