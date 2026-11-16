@@ -1,0 +1,16 @@
+[package]
+name = "powersync_service_js_addon_shared"
+description = "Node.js addon bindings for the PowerSync Service, shared by its editions."
+edition = "2024"
+
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+powersync_service = { workspace = true }
+log = { workspace = true }
+napi = { workspace = true }
+napi-derive = { workspace = true }

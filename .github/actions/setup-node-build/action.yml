@@ -1,5 +1,5 @@
 name: Setup Node and Build
-description: Enable Corepack, install Node.js dependencies, and build the workspace
+description: Enable Corepack, install Node.js dependencies, build the workspace, and restore the Rust addon
 
 runs:
   using: composite
@@ -21,3 +21,30 @@ runs:
     - name: Build
       shell: bash
       run: pnpm build
+
+    - name: Determine Rust target
+      id: rust-target
+      shell: bash
+      run: |
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) target=x86_64-unknown-linux-gnu ;;
+          Linux-ARM64) target=aarch64-unknown-linux-gnu ;;
+          Windows-X64) target=x86_64-pc-windows-msvc ;;
+          macOS-ARM64) target=aarch64-apple-darwin ;;
+          macOS-X64) target=x86_64-apple-darwin ;;
+          *)
+            echo "::error::No Rust addon is built for $RUNNER_OS-$RUNNER_ARCH"
+            exit 1
+            ;;
+        esac
+        echo "target=$target" >> "$GITHUB_OUTPUT"
+
+    - name: Download Rust addon
+      uses: actions/download-artifact@v5
+      with:
+        name: rust-addon-${{ steps.rust-target.outputs.target }}
+        path: ${{ runner.temp }}/rust-addon
+
+    - name: Configure Rust addon
+      shell: bash
+      run: echo "POWERSYNC_RUST_ADDON=$RUNNER_TEMP/rust-addon/open_edition_js_entrypoint.node" >> "$GITHUB_ENV"

@@ -1,0 +1,3 @@
+[toolchain]
+# When reviewing a dependabot update to this file, also modify service/Dockerfile to update rustc.
+channel = "1.100.0"
