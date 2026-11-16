@@ -1,7 +1,7 @@
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
       interval: weekly
     cooldown:
@@ -9,7 +9,7 @@ updates:
     groups:
       github-actions:
         patterns:
-          - "*"
+          - '*'
 
   - package-ecosystem: 'cargo'
     directory: '/'
