@@ -23,7 +23,7 @@ export function generateEntryProgram(startHandlers?: Record<utils.ServiceRunner,
     .option('--rust-addon <path>', 'Path to the Rust .node module');
 
   entryProgram.hook('preAction', (program) => {
-    const addonPath: string | undefined = program.opts().rustAddonPath;
+    const addonPath: string | undefined = program.opts().rustAddon;
     if (addonPath) {
       container
         .getImplementation(modules.ModuleManager)
