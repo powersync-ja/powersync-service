@@ -221,7 +221,8 @@ export enum ErrorCode {
   PSYNC_S1146 = 'PSYNC_S1146',
 
   /**
-   * Replication was requested with `slot_failover: true`, which requires Postgres version 17 or later.
+   * Replication was requested with `slot_failover: true`, but we're connected to a PostgreSQL server without support
+   * for that.
    */
   PSYNC_S1147 = 'PSYNC_S1147',
 

@@ -48,6 +48,30 @@ describe.skipIf(env.PG_FAILOVER_TEST_IMAGE == null)('replication slot failover',
     expect(slot).toBeUndefined();
   });
 
+  test('fails without synchronized_standby_slots', async ({ skip }) => {
+    skip(expectedMajorVersion < 17, 'Failover slots require Postgres 17+');
+
+    // A standalone primary, so synchronized_standby_slots is not configured.
+    const primary = await startPrimary(image);
+    onTestFinished(async () => {
+      await primary.remove();
+    });
+
+    await using context = await WalStreamTestContext.open(INITIALIZED_STORAGE_FACTORY.factory, {
+      connectionOptions: primary.connectionConfig,
+      walStreamOptions: { slotFailover: true }
+    });
+    const { pool } = context;
+    await context.updateSyncRules(SYNC_CONFIG);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description text)`);
+
+    await expect(context.initializeReplication()).rejects.toThrow(
+      `slot_failover enabled, but no synchronized_standby_slots are set.`
+    );
+    const slot = await getSlot(pool, context.storage!.replicationStreamName);
+    expect(slot).toBeUndefined();
+  });
+
   test('resumes replication on a promoted standby', async ({ skip }) => {
     skip(expectedMajorVersion < 17, 'Failover slots require Postgres 17+');
 

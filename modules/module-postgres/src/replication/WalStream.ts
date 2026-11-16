@@ -35,6 +35,7 @@ import {
 
 import { ReplicationMetric } from '@powersync/service-types';
 import { PostgresTypeResolver } from '../types/resolver.js';
+import { getServerVersion } from '../utils/postgres_version.js';
 import { MissingReplicationSlotError } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
@@ -574,7 +575,7 @@ WHERE  oid = $1::regclass`,
 
       // We use the replication connection here, not a pool.
       // The replication slot must be created before we start snapshotting tables.
-      const useFailover = await this.#useFailoverSlot();
+      const useFailover = await this.#useFailoverSlot(db);
       const optionsClause = useFailover ? ' (FAILOVER true)' : '';
       await rquery(replicationConnection, `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput${optionsClause}`);
 
@@ -1339,16 +1340,29 @@ WHERE  oid = $1::regclass`,
   /**
    * Whether to create replication slots with failover support. Requires Postgres 17+ and the option to be enabled.
    */
-  async #useFailoverSlot(): Promise<boolean> {
+  async #useFailoverSlot(connection: pgwire.PgConnection): Promise<boolean> {
     if (!this.options.slotFailover) {
       return false;
     }
 
-    const version = await this.connections.getServerVersion();
+    const version = await getServerVersion(connection);
     if (!version || version.compareMain('17.0.0') < 0) {
       throw new DatabaseConnectionError(
         ErrorCode.PSYNC_S1147,
         `The slot_failover option requires PostgreSQL 17 or later.`,
+        new Error()
+      );
+    }
+
+    // We can't fully validate the synchronized_standby_slots option because we don't know which slot is configured for
+    // the standby we'll connect to on failover. But as a quick check, we know that no slots being configured is
+    // definitely wrong (for consistent replication, the logical replication failover slot we use must not receive
+    // changes until they've been processed by failovers).
+    const standbySlots = pgwire.pgwireRows(await rquery(connection, 'SHOW synchronized_standby_slots'));
+    if (!standbySlots.length || standbySlots[0].synchronized_standby_slots == '') {
+      throw new DatabaseConnectionError(
+        ErrorCode.PSYNC_S1147,
+        `slot_failover enabled, but no synchronized_standby_slots are set.`,
         new Error()
       );
     }
