@@ -157,6 +157,9 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
       after: { id: 'A', description: '"'.repeat(8 * 1024 * 1024), retained: 'old' },
       afterReplicaId: test_utils.rid('A')
     });
+    // Automatic save admission is speculative; the explicit barrier waits for
+    // the immutable publication and its transaction retry.
+    await writer.flush();
     expect(attempts).toBe(2);
     expect(logged).toHaveBeenCalledTimes(1);
     expect(logged).toHaveBeenCalledWith(expect.stringMatching(/^Row .* too large: .* bytes\. Removing\.$/));
@@ -532,8 +535,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
     try {
       await entered.promise;
       using read = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
-      await save(writer, context.table, 'after cleanup');
-      pending.push(writer.flush());
+      pending.push(save(writer, context.table, 'after cleanup').then(() => writer.flush()));
       expect(read).not.toHaveBeenCalled();
       release.resolve();
       await Promise.all(pending);

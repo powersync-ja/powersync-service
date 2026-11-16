@@ -283,6 +283,7 @@ export abstract class MongoSyncBucketStorage
       replicationStreamName: this.replicationStreamName,
       replicationLock,
       opIdAllocator: this.factory.getOpIdAllocator(this.replicationStream, replicationLock),
+      batchLimits: this.factory.replicationBatchLimits,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,

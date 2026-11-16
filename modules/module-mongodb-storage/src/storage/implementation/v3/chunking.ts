@@ -1,4 +1,3 @@
-import { bson } from '@powersync/service-core';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 
 export const DEFAULT_MAX_DOC_SIZE_BYTES = 1024 * 1024; // 1MB
@@ -19,8 +18,14 @@ export function chunkBucketData(
   let currentSize = 0;
 
   for (const op of operations) {
-    // Add 5 to account for array index up to 4 digits (9999) plus null byte.
-    const opSize = bson.calculateObjectSize(op) + 5;
+    // Chunk boundaries only need an estimate, but should be close to actual values.
+    // This estimate is more CPU-efficient than calculating the actual BSON size.
+    const opSize =
+      192 +
+      Buffer.byteLength(op.data ?? '') +
+      2 * Buffer.byteLength(op.subkey ?? '') +
+      Buffer.byteLength(op.table ?? '') +
+      Buffer.byteLength(op.row_id ?? '');
 
     if (currentSize + opSize > maxDocSizeBytes && currentChunk.length > 0) {
       chunks.push(currentChunk);

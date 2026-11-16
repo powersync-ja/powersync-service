@@ -10,8 +10,9 @@ export interface PublicationStats {
 }
 
 /**
- * Sealed view of a v3/v4 batch. Preparation runs once, including on failure;
- * publication creates fresh MongoDB writes on every attempt without clearing it.
+ * Sealed writes from v3/v4 row preparation. Payload packing and uploads finish
+ * preparation once, including on failure; MongoDB transaction retries create
+ * fresh writes on every attempt without clearing the sealed batch.
  *
  * Scheduling metadata belongs to the caller: lease, selected config/mappings,
  * input suffix, checkpoint intent and durable progress. Replay is valid only
@@ -20,7 +21,7 @@ export interface PublicationStats {
  * fit a different context or overwrite its object paths. Publication also
  * asserts that assigned IDs advance the freshly fenced persisted head.
  *
- * No application repair callbacks run here. The coordinator collects
+ * No connector repair callbacks run here. The coordinator collects
  * markRecordUnavailable records during evaluation and delivers them only after
  * confirmed commit. Diagnostics run during evaluation.
  * Before/after-flush hooks, source events and custom checkpoint consumption also
@@ -29,14 +30,17 @@ export interface PublicationStats {
  */
 export interface PreparedPublication {
   /**
-   * Explicitly start preparation after consuming assigned IDs. Sealing itself
-   * starts no I/O, so the coordinator can establish ownership before yielding.
-   * A rejected preparation is terminal for this generation; all started uploads
-   * must have settled before this promise rejects.
+   * Finish preparation by packing payloads and uploading offloaded chunks.
+   * This can overlap a predecessor's uploads or MongoDB publication.
+   * Preparation has already consumed assigned IDs. Sealing itself starts no I/O,
+   * so the coordinator can establish ownership before yielding.
+   * A packing/upload failure is terminal for this generation; all started uploads
+   * must settle before this promise rejects.
    */
-  preparePayloads(): Promise<void>;
+  packAndUploadPayloads(): Promise<void>;
   /**
-   * Requires completed readiness before starting the publication transaction.
+   * Commit the MongoDB portion of the publishing stage. Packing and uploads must
+   * finish before starting the transaction.
    * An optional batch supplies independent head/checkpoint writes to execute
    * together with this group's data. This method owns execution of that batch;
    * callers must not execute it again or include another group's dependent writes.
