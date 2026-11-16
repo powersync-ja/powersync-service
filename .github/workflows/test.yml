@@ -40,6 +40,11 @@ jobs:
       - name: Check formatting
         run: pnpm format:check
 
+  build-rust:
+    name: Rust
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+    uses: ./.github/workflows/rust.yml
+
   test-service-container-build:
     name: Build and Test PowerSync Service
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
@@ -72,6 +77,7 @@ jobs:
   run-core-tests:
     name: Core Test
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+    needs: build-rust
     runs-on: ubuntu-latest
 
     steps:
@@ -86,6 +92,7 @@ jobs:
   run-core-tests-windows:
     name: Core Test (Windows)
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+    needs: build-rust
     runs-on: windows-latest
 
     steps:

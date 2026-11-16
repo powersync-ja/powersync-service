@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+# Always kept in sync with service/package.json
+version = "1.28.3"
+
+authors = ["PowerSync"]
+license = "Apache-2.0"
+repository = "https://github.com/powersync-ja/powersync-service"
+homepage = "https://powersync.com/"
+
+[workspace.dependencies]
+powersync_service = { path = "crates/powersync_service", version = "=1.28.3" }
+powersync_service_js_addon_shared = { path = "crates/js_addon", version = "=1.28.3" }
+
+log = { version = "0.4.35", features = ["kv"] }
+napi = "3"
+napi-derive = "3"

@@ -1,0 +1,4 @@
+# musl targets link the C runtime statically by default, which doesn't support building the cdylib loaded by Node.js.
+# Linking it dynamically is what Node.js on Alpine expects anyway.
+[target.'cfg(target_env = "musl")']
+rustflags = ["-C", "target-feature=-crt-static"]
