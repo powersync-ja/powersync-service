@@ -357,7 +357,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           // Computing our current progress is a little tricky here, since
           // we're stopping in the middle of a batch.
           // We create a new batch, and push any remaining operations to it.
-          resumeBatch = new OperationBatch();
+          resumeBatch = new OperationBatch(this.options.batchLimits);
           persistSpan.end();
           evalSpan = this.tracer.span('evaluate');
         }
@@ -482,7 +482,8 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
   protected createPersistedBatch(writtenSize: number): PersistedBatchV1 {
     return new PersistedBatchV1(this.db, this.replicationStreamId, writtenSize, {
-      logger: this.logger
+      logger: this.logger,
+      batchLimits: this.options.batchLimits
     });
   }
 

@@ -5,12 +5,15 @@ import * as bson from 'bson';
 import { describe, expect, test, vi } from 'vitest';
 import { MongoPersistedReplicationStream } from '../../src/storage/implementation/MongoPersistedReplicationStream.js';
 import { OperationBatch } from '../../src/storage/implementation/OperationBatch.js';
-import { MAX_INPUT_BATCH_COUNT, MAX_PIPELINE_BYTES } from '../../src/storage/implementation/ReplicationBatchLimits.js';
+import { DEFAULT_REPLICATION_BATCH_LIMITS } from '../../src/storage/implementation/ReplicationBatchLimits.js';
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
+
+const { maxInputBatchCount: MAX_INPUT_BATCH_COUNT, maxPipelineBytes: MAX_PIPELINE_BYTES } =
+  DEFAULT_REPLICATION_BATCH_LIMITS;
 
 const CONFIG = `
 config:

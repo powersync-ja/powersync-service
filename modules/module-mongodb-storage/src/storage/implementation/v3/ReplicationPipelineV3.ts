@@ -4,7 +4,7 @@ import { PerformanceTracer } from '@powersync/service-core';
 import { LoadedSourceRecord } from '../common/SourceRecordStore.js';
 import { MongoOpIdAllocator } from '../MongoOpIdAllocator.js';
 import { MongoSyncRulesLock } from '../MongoSyncRulesLock.js';
-import { MAX_PIPELINE_BATCHES, MAX_PIPELINE_BYTES } from '../ReplicationBatchLimits.js';
+import { MAX_PIPELINE_BATCHES, ReplicationBatchLimits } from '../ReplicationBatchLimits.js';
 import type { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 
 interface Publication {
@@ -49,7 +49,8 @@ export class ReplicationPipelineV3 {
 
   constructor(
     private readonly lock: MongoSyncRulesLock,
-    readonly allocator: MongoOpIdAllocator
+    readonly allocator: MongoOpIdAllocator,
+    private readonly limits: ReplicationBatchLimits
   ) {
     this.publicationSession = lock.db.client.startSession({ causalConsistency: true });
   }
@@ -90,7 +91,7 @@ export class ReplicationPipelineV3 {
     this.lock.throwIfAborted();
     while (
       this.pending.length >= MAX_PIPELINE_BATCHES ||
-      (this.pending.length > 0 && this.accountedBytes + bytes > MAX_PIPELINE_BYTES)
+      (this.pending.length > 0 && this.accountedBytes + bytes > this.limits.maxPipelineBytes)
     ) {
       const signal = this.lock.signal;
       const aborted = Promise.withResolvers<void>();

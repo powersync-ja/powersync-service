@@ -1,12 +1,4 @@
-/**
- * Fixed large batching targets. These are flush/backpressure thresholds, not
- * hard memory ceilings: a complete source row may exceed a target on its own.
- */
-export const MAX_INPUT_BATCH_COUNT = 16_000;
-export const MAX_INPUT_BATCH_BYTES = 8 * 1024 * 1024;
-/** Per write category, preserving the existing transaction splitting rules. */
-export const MAX_PREPARED_BATCH_COUNT = 16_000;
-export const MAX_PREPARED_BATCH_BYTES = 16 * 1024 * 1024;
+import type { MongoReplicationBatchSize } from '../../types/types.js';
 
 /** Headroom for JS objects, memberships, packed chunks and upload buffers. */
 export const RETAINED_BYTES_FACTOR = 4;
@@ -17,8 +9,37 @@ export const RETAINED_BYTES_FACTOR = 4;
  */
 export const MAX_PIPELINE_BATCHES = 2;
 
-/**
- * Allow two normal prepared batches to overlap within the accounted-work target.
- * Accounted work includes packing headroom; this is not an RSS or single-row limit.
- */
-export const MAX_PIPELINE_BYTES = MAX_PIPELINE_BATCHES * RETAINED_BYTES_FACTOR * MAX_PREPARED_BATCH_BYTES;
+export const DEFAULT_REPLICATION_BATCH_SIZE: MongoReplicationBatchSize = 'medium';
+
+/** Flush/backpressure targets, not hard memory ceilings or single-row limits. */
+export interface ReplicationBatchLimits {
+  /** Row operations or custom checkpoints in a writer's input buffer. */
+  readonly maxInputBatchCount: number;
+  /** Estimated input bytes before row evaluation. */
+  readonly maxInputBatchBytes: number;
+  /** Per write category, preserving the existing transaction splitting rules. */
+  readonly maxTransactionBatchCount: number;
+  readonly maxTransactionBatchBytes: number;
+  /** Accounted work including packing headroom; excludes source/raw input buffers. */
+  readonly maxPipelineBytes: number;
+}
+
+function profile(count: number, inputBytes: number, transactionBytes: number): ReplicationBatchLimits {
+  return Object.freeze({
+    maxInputBatchCount: count,
+    maxInputBatchBytes: inputBytes,
+    maxTransactionBatchCount: count,
+    maxTransactionBatchBytes: transactionBytes,
+    maxPipelineBytes: MAX_PIPELINE_BATCHES * RETAINED_BYTES_FACTOR * transactionBytes
+  });
+}
+
+/** Larger profiles trade higher retained memory for fewer flushes and round trips. */
+export const REPLICATION_BATCH_LIMITS: Readonly<Record<MongoReplicationBatchSize, ReplicationBatchLimits>> =
+  Object.freeze({
+    small: profile(4_000, 2 * 1024 * 1024, 4 * 1024 * 1024),
+    medium: profile(8_000, 4 * 1024 * 1024, 8 * 1024 * 1024),
+    large: profile(16_000, 8 * 1024 * 1024, 16 * 1024 * 1024)
+  });
+
+export const DEFAULT_REPLICATION_BATCH_LIMITS = REPLICATION_BATCH_LIMITS[DEFAULT_REPLICATION_BATCH_SIZE];

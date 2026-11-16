@@ -24,7 +24,11 @@ import {
 } from '@powersync/service-core';
 import { Semaphore } from 'async-mutex';
 import { ObjectId } from 'bson';
-import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE, normalizeChunkCompactionConcurrency } from '../types/types.js';
+import {
+  DEFAULT_CLEAR_BATCH_THROTTLE_RATE,
+  MongoReplicationBatchSize,
+  normalizeChunkCompactionConcurrency
+} from '../types/types.js';
 import { generateReplicationStreamName } from '../utils/util.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
@@ -34,6 +38,11 @@ import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { MongoOpIdAllocator } from './implementation/MongoOpIdAllocator.js';
 import { MongoPersistedReplicationStream } from './implementation/MongoPersistedReplicationStream.js';
 import { MongoSyncRulesLock } from './implementation/MongoSyncRulesLock.js';
+import {
+  DEFAULT_REPLICATION_BATCH_SIZE,
+  REPLICATION_BATCH_LIMITS,
+  ReplicationBatchLimits
+} from './implementation/ReplicationBatchLimits.js';
 import { stopReplicationStreamPipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { ObjectStorage } from './implementation/v3/object-storage/ObjectStorage.js';
@@ -42,6 +51,8 @@ import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyn
 import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
+  /** Coordinated replication limits. Default: medium. */
+  replicationBatchSize?: MongoReplicationBatchSize;
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
@@ -95,6 +106,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   private activeStorageCache: MongoSyncBucketStorage | undefined;
 
   public readonly db: PowerSyncMongo;
+  public readonly replicationBatchLimits: ReplicationBatchLimits;
   public readonly chunkCompactionConcurrency: number;
   public readonly chunkCompactionSlots: Semaphore;
 
@@ -103,6 +115,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     private options: MongoBucketStorageOptions
   ) {
     super();
+    this.replicationBatchLimits =
+      REPLICATION_BATCH_LIMITS[options.replicationBatchSize ?? DEFAULT_REPLICATION_BATCH_SIZE];
     this.chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(
       options.chunkCompactionConcurrency,
       options.objectStorage != null
