@@ -20,7 +20,7 @@ export function generateEntryProgram(startHandlers?: Record<utils.ServiceRunner,
   entryProgram
     .name('powersync-runner')
     .description('CLI to initiate a PowerSync service runner')
-    .option('--rust-addon-path <path>', 'Path to the Rust .node module');
+    .option('--rust-addon <path>', 'Path to the Rust .node module');
 
   entryProgram.hook('preAction', (program) => {
     const addonPath: string | undefined = program.opts().rustAddonPath;
