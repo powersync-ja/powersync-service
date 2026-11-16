@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Install Rust
@@ -32,6 +32,7 @@ jobs:
           rustup component add rustfmt clippy
 
       - name: Cache Rust build
+        if: ${{ inputs.ref == '' }}
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
@@ -62,10 +63,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       # Skip compiling entirely when no Rust sources have changed.
       - name: Restore built addon
+        if: ${{ inputs.ref == '' }}
         id: addon-cache
         uses: actions/cache@v4
         with:
@@ -80,7 +82,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Cache Rust build
-        if: steps.addon-cache.outputs.cache-hit != 'true'
+        if: ${{ inputs.ref == '' && steps.addon-cache.outputs.cache-hit != 'true' }}
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
