@@ -21,7 +21,7 @@ jobs:
       - name: Install Rust
         run: |
           rustup toolchain install
-          rustup component add rustfmt
+          rustup component add rustfmt clippy
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
