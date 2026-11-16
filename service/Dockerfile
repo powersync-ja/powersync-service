@@ -104,7 +104,7 @@ RUN mkdir -p .probes && chown -R web:web .probes
 
 USER 901
 
-ENTRYPOINT ["node", "service/lib/entry.js", "--rust-addon-path", "rust/open_edition_js_entrypoint.node"]
+ENTRYPOINT ["node", "service/lib/entry.js", "--rust-addon", "rust/open_edition_js_entrypoint.node"]
 
 # This starts the unified service by default. 
 CMD ["start"]

@@ -24,8 +24,9 @@
     "clean:modules": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
-    "version-packages": "changeset version && pnpm sync:cargo-version",
-    "sync:cargo-version": "node scripts/sync-cargo-version.mts",
+    "version-packages": "changeset version && pnpm rust:cargo-version",
+    "rust:build-addon": "node scripts/build-rust-addon.mts",
+    "rust:cargo-version": "node scripts/sync-cargo-version.mts",
     "test:core": "pnpm run -r --filter \"!./modules/*\" test",
     "configure-hooks": "husky"
   },

@@ -43,4 +43,4 @@ future.
 We don't publish compiled binaries to NPM. Instead:
 
 - Containers build the node addon for their target platform.
-- When running the service locally, run `pnpm build:rust` and launch the service with `--rust-addon-path <path>`.
+- When running the service locally, run `pnpm build:rust` and launch the service with `--rust-addon <path>`.
