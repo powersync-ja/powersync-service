@@ -6,7 +6,7 @@
  * `cargo build`. The path of the addon is printed to stdout, everything else is written to stderr.
  */
 import { spawn } from 'node:child_process';
-import { copyFile } from 'node:fs/promises';
+import { copyFile, rename, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -47,5 +47,13 @@ if (libraryPath == null) {
 }
 
 const addonPath = path.join(path.dirname(libraryPath), `${CRATE_NAME}.node`);
-await copyFile(libraryPath, addonPath);
+// copyFile overwrites an existing destination in place, which crashes processes that have the previous addon loaded
+// (e.g. a Vitest process re-running tests in watch mode). Replacing the file with a rename keeps their copy intact, we
+// also avoid writes when we know the .node copy is up-to-date.
+const [library, addon] = await Promise.all([stat(libraryPath), stat(addonPath).catch(() => null)]);
+if (addon == null || addon.mtimeMs <= library.mtimeMs) {
+  const tempPath = `${addonPath}.${process.pid}.tmp`;
+  await copyFile(libraryPath, tempPath);
+  await rename(tempPath, addonPath);
+}
 console.log(addonPath);
