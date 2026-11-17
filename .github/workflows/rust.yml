@@ -18,7 +18,7 @@ env:
 
 jobs:
   lint:
-    name: Rust Lints
+    name: Rust Lints and Unit Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -40,6 +40,9 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --all
 
   build:
     name: Build Rust Addon (${{ matrix.target }})
