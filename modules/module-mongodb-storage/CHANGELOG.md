@@ -1,5 +1,24 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.26.0
+
+### Minor Changes
+
+- baea889: [MongoDB Storage] Increase replication performance by pipelining replication work.
+
+### Patch Changes
+
+- f5feba2: Support configurable replication batch sizes.
+- 1f2c010: Use dataSize command to query collection sizes.
+- Updated dependencies [de9deec]
+- Updated dependencies [baea889]
+- Updated dependencies [9bebc41]
+  - @powersync/service-core@1.29.0
+  - @powersync/service-jsonbig@0.18.0
+  - @powersync/service-sync-rules@0.45.1
+  - @powersync/lib-services-framework@0.10.6
+  - @powersync/lib-service-mongodb@0.6.37
+
 ## 0.25.0
 
 ### Minor Changes

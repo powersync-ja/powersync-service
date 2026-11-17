@@ -1,5 +1,20 @@
 # @powersync/service-core
 
+## 1.29.0
+
+### Minor Changes
+
+- baea889: [MongoDB Storage] Increase replication performance by pipelining replication work.
+
+### Patch Changes
+
+- de9deec: Fix reprocess endpoints returning a 500 error when the sync config file in the service configuration cannot be read by the API process.
+- Updated dependencies [9bebc41]
+  - @powersync/service-jsonbig@0.18.0
+  - @powersync/service-sync-rules@0.45.1
+  - @powersync/lib-services-framework@0.10.6
+  - @powersync/service-rsocket-router@0.3.1
+
 ## 1.28.3
 
 ### Patch Changes

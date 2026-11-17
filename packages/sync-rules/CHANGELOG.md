@@ -1,5 +1,12 @@
 # @powersync/service-sync-rules
 
+## 0.45.1
+
+### Patch Changes
+
+- Updated dependencies [9bebc41]
+  - @powersync/service-jsonbig@0.18.0
+
 ## 0.45.0
 
 ### Minor Changes

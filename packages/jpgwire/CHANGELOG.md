@@ -1,5 +1,14 @@
 # @powersync/service-jpgwire
 
+## 0.21.28
+
+### Patch Changes
+
+- 41eef38: Bring pgwire within jpgwire and fix CancelRequest bug
+- Updated dependencies [9bebc41]
+  - @powersync/service-jsonbig@0.18.0
+  - @powersync/service-sync-rules@0.45.1
+
 ## 0.21.27
 
 ### Patch Changes

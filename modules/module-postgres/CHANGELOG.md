@@ -1,5 +1,22 @@
 # @powersync/service-module-postgres
 
+## 0.23.9
+
+### Patch Changes
+
+- baea889: [MongoDB Storage] Increase replication performance by pipelining replication work.
+- 136f733: Add the `slot_failover` boolean option for PostgreSQL sources, allowing replication slots to sync to physical standbys during switchovers.
+- Updated dependencies [de9deec]
+- Updated dependencies [baea889]
+- Updated dependencies [9bebc41]
+- Updated dependencies [41eef38]
+  - @powersync/service-core@1.29.0
+  - @powersync/service-jsonbig@0.18.0
+  - @powersync/service-jpgwire@0.21.28
+  - @powersync/service-sync-rules@0.45.1
+  - @powersync/lib-services-framework@0.10.6
+  - @powersync/lib-service-postgres@0.5.9
+
 ## 0.23.8
 
 ### Patch Changes

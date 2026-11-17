@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.6.2
+
+### Patch Changes
+
+- 136f733: Add the `slot_failover` boolean option for PostgreSQL sources, allowing replication slots to sync to physical standbys during switchovers.
+
 ## 0.6.1
 
 ### Patch Changes
