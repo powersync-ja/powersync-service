@@ -1,7 +1,13 @@
+import { modules } from '@powersync/service-core';
 import { CompatibilityContext } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { performance } from 'node:perf_hooks';
-import { DirectSourceRowConverter, LegacySourceRowConverter, parseChangeDocument } from '../dist/index.js';
+import {
+  DirectSourceRowConverter,
+  LegacySourceRowConverter,
+  RustSourceRowConverter,
+  parseChangeDocument
+} from '../dist/index.js';
 
 // This is a synthetic benchmark to test performance of parseChangeDocument
 // versus the normal bson.deserialize().
@@ -101,7 +107,7 @@ type BenchmarkResult = {
 const rawConverter = new DirectSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
 const docConverter = new LegacySourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
 
-const BENCHMARKS: readonly Benchmark[] = [
+const BENCHMARKS: Benchmark[] = [
   {
     label: 'parseChangeDocument + rawToSqliteRow',
     run: (buffer: Buffer) => {
@@ -112,8 +118,8 @@ const BENCHMARKS: readonly Benchmark[] = [
       if (change.fullDocument == null) {
         throw new Error('Expected fullDocument to be present');
       }
-      const fullDocument = rawConverter.rawToSqliteRow(change.fullDocument) as { checksum?: number };
-      return Number(fullDocument.checksum ?? 0);
+      const { row } = rawConverter.rawToSqliteRow(change.fullDocument);
+      return Number(row.checksum ?? 0);
     }
   },
   {
@@ -121,10 +127,27 @@ const BENCHMARKS: readonly Benchmark[] = [
     run: (buffer: Buffer) => {
       const change = bson.deserialize(buffer, BSON_OPTIONS) as { fullDocument?: { checksum?: number } };
       const fullDocument = docConverter.documentToSqliteRow(change.fullDocument!);
-      return Number(change.fullDocument?.checksum ?? 0);
+      return Number(fullDocument.checksum ?? 0);
     }
   }
-] as const;
+];
+
+// Build a release addon first and set POWERSYNC_RUST_ADDON to include Rust in the comparison.
+if (process.env.POWERSYNC_RUST_ADDON) {
+  const rustModule = new modules.RustModule({ name: 'Rust', addonPath: process.env.POWERSYNC_RUST_ADDON });
+  await rustModule.loadRust();
+  const rustConverter = new RustSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY, rustModule);
+  BENCHMARKS.push({
+    label: 'parseChangeDocument + Rust rawToSqliteRow',
+    run: (buffer) => {
+      const change = parseChangeDocument(buffer);
+      if (!('fullDocument' in change) || change.fullDocument == null) {
+        throw new Error('Expected fullDocument to be present');
+      }
+      return Number(rustConverter.rawToSqliteRow(change.fullDocument).row.checksum ?? 0);
+    }
+  });
+}
 
 function createFullDocument(operationType: OperationType, targetBytes: number): FullDocument {
   const seed = targetBytes + (operationType === 'insert' ? 11 : 29);
@@ -306,7 +329,7 @@ function runBenchmark(
 }
 
 function printRow(values: string[]): void {
-  const widths = [16, 10, 10, 38, 10, 10];
+  const widths = [16, 10, 10, 42, 10, 10];
   const line = values
     .map((value, index) => value.padEnd(widths[index] ?? value.length))
     .join('  ')

@@ -1,3 +1,5 @@
+import type { modules } from '@powersync/service-core';
+import { rustModuleForTesting } from '@powersync/service-core-tests';
 import {
   CompatibilityContext,
   CompatibilityEdition,
@@ -20,12 +22,13 @@ import {
   ObjectId,
   Timestamp
 } from 'bson';
-import { describe, expect, test } from 'vitest';
+import { beforeAll, describe, expect, test } from 'vitest';
 
 import { JsonBufferWriter } from '@module/replication/JsonBufferWriter.js';
 import {
   DirectSourceRowConverter,
   LegacySourceRowConverter,
+  RustSourceRowConverter,
   SourceRowConverter
 } from '@module/replication/SourceRowConverter.js';
 
@@ -458,6 +461,108 @@ for (const dateCase of DATE_COMPATIBILITY_CASES) {
     }
   );
 }
+
+describe('RustSourceRowConverter', () => {
+  let rustModule: modules.RustModule;
+  beforeAll(async () => {
+    rustModule = await rustModuleForTesting();
+    await rustModule.loadRust();
+  }, 120_000);
+
+  for (const parityCase of testCases) {
+    for (const placement of PLACEMENTS) {
+      test(`matches direct output for ${parityCase.name} as ${placementLabel(placement)}`, () => {
+        const context = parityCase.context ?? CONTEXT;
+        const rust = new RustSourceRowConverter(context, rustModule);
+        const direct = new DirectSourceRowConverter(context);
+        const source = parityCase.buildBuffer(placement);
+        expect(captureOutput(rust, source)).toEqual(captureOutput(direct, source));
+      });
+    }
+  }
+
+  test('matches randomized documents across compatibility modes', () => {
+    const rng = makeRng(0x5eedc0de);
+    for (const { context } of DATE_COMPATIBILITY_CASES) {
+      const rust = new RustSourceRowConverter(context, rustModule);
+      const direct = new DirectSourceRowConverter(context);
+      for (let i = 0; i < 150; i++) {
+        const source = BSON.serialize(
+          {
+            _id: randomObjectId(rng),
+            [`root:${randomString(rng, 0, 5)}`]: randomSupportedValue(rng),
+            value: randomSupportedValue(rng)
+          },
+          { ignoreUndefined: false }
+        ) as Buffer;
+        expect(captureOutput(rust, source)).toEqual(captureOutput(direct, source));
+      }
+    }
+  });
+
+  test('preserves replica identities, including _id after other fields', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    for (const id of [objectId, 123n, 'text', 1.5, uuidBytes, { tenant: 'a', key: 42n }, new Date(0)]) {
+      const source = BSON.serialize({ before: 1, _id: id, after: true }) as Buffer;
+      expect(rust.rawToSqliteRow(source)).toEqual(directConverter.rawToSqliteRow(source));
+    }
+  });
+
+  test('widens integral doubles without truncating their integer value', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    for (const value of [0, -0, 1, -1, 2 ** 53, -(2 ** 64), 2 ** 128, Number.MAX_VALUE]) {
+      const source = BSON.serialize({ _id: 'double', value: new Double(value), nested: [new Double(value)] }) as Buffer;
+      expect(rust.rawToSqliteRow(source)).toEqual(directConverter.rawToSqliteRow(source));
+    }
+  });
+
+  test('preserves raw regex flags, invalid UTF-8, and raw DBRef documents', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    for (const placement of PLACEMENTS) {
+      const sources = [
+        rawCaseDocument('regex', placement, 0x0b, Buffer.concat([cstring(''), cstring('iix"\\')])),
+        rawCaseDocument('utf8', placement, 0x02, Buffer.concat([int32(5), Buffer.from([0xed, 0xa0, 0x80, 0xff, 0])])),
+        serializeCaseDocument('dbref', placement, new DBRef('collection', objectId, 'db', { foo: 'bar' }))
+      ];
+      for (const source of sources) {
+        expect(rust.rawToSqliteRow(source)).toEqual(directConverter.rawToSqliteRow(source));
+      }
+    }
+  });
+
+  test('matches dates at the JavaScript Date limits and around the Unix epoch', () => {
+    for (const { context } of DATE_COMPATIBILITY_CASES) {
+      const rust = new RustSourceRowConverter(context, rustModule);
+      const direct = new DirectSourceRowConverter(context);
+      for (const millis of [-8_640_000_000_000_000, -1001, -1, 0, 1, 1001, 8_640_000_000_000_000]) {
+        const source = BSON.serialize({
+          _id: 'date-limits',
+          value: new Date(millis),
+          nested: [new Date(millis)]
+        }) as Buffer;
+        expect(rust.rawToSqliteRow(source)).toEqual(direct.rawToSqliteRow(source));
+      }
+    }
+  });
+
+  test('handles large nested JSON and the maximum supported nesting depth', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    for (const value of [deepNestedObject(21), { nested: '\u0001"☃'.repeat(400_000) }]) {
+      const source = BSON.serialize({ _id: 'large', value }) as Buffer;
+      expect(rust.rawToSqliteRow(source)).toEqual(directConverter.rawToSqliteRow(source));
+    }
+  });
+
+  test('rejects missing identities, excessive nesting, and truncated BSON', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    expect(() => rust.rawToSqliteRow(BSON.serialize({ value: 1 }) as Buffer)).toThrow('without _id');
+    expect(() => rust.documentToSqliteRow({ _id: 'deep', value: deepNestedObject(22) })).toThrow('depth exceeds');
+    const source = BSON.serialize({ _id: 'truncated', value: { nested: 'value' } }) as Buffer;
+    for (let length = 0; length < source.length; length++) {
+      expect(() => rust.rawToSqliteRow(source.subarray(0, length))).toThrow();
+    }
+  });
+});
 
 describe('SourceRowConverter.rawToSqliteRow expected output', () => {
   for (const parityCase of testCases) {

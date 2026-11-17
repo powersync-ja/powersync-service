@@ -4,6 +4,7 @@ use napi_derive::napi;
 use powersync_service::PowerSyncService;
 
 mod log;
+mod mongo;
 
 #[napi(object)]
 pub struct RustInitializationOptions<'a> {

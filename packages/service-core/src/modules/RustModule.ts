@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { Logger } from '@powersync/lib-services-framework';
+import type { SqliteRow } from '@powersync/service-sync-rules';
 import { ServiceContextContainer } from '../system/ServiceContext.js';
 import { AbstractModule, AbstractModuleOptions, TearDownOptions } from './AbstractModule.js';
 
@@ -31,8 +32,18 @@ export class RustModule extends AbstractModule {
   }
 
   async loadRust(): Promise<InitializedRustModule> {
-    const addon = this.#require(path.resolve(this.#addonPath)) as RustAddon;
+    const addon = this.loadAddon();
     return addon.initializeRust({ logger: this.logger });
+  }
+
+  /** Creates the opt-in experimental MongoDB converter provided by the addon. */
+  createMongoSourceRowConverter(dateRenderMode: number, fixedBooleansInJson: boolean): RustMongoSourceRowConverter {
+    const addon = this.loadAddon();
+    return new addon.MongoSourceRowConverter(dateRenderMode, fixedBooleansInJson);
+  }
+
+  private loadAddon(): RustAddon {
+    return this.#require(path.resolve(this.#addonPath)) as RustAddon;
   }
 
   public override async teardown(_options: TearDownOptions): Promise<void> {}
@@ -44,6 +55,11 @@ interface RustInitializationOptions {
 
 interface RustAddon {
   initializeRust(options: RustInitializationOptions): InitializedRustModule;
+  MongoSourceRowConverter: new (dateRenderMode: number, fixedBooleansInJson: boolean) => RustMongoSourceRowConverter;
+}
+
+export interface RustMongoSourceRowConverter {
+  rawToSqliteRow(source: Buffer): { row: SqliteRow; idDocument: Buffer };
 }
 
 // We use external in napi-rs, https://napi.rs/docs/concepts/external

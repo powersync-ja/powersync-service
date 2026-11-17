@@ -39,6 +39,41 @@ future.
 
 ## Debugging
 
+### Experimental MongoDB row converter
+
+`RustSourceRowConverter` from `@powersync/service-module-mongodb` implements the
+same interface as `DirectSourceRowConverter`. It is opt-in; the replication
+paths still use the TypeScript converter. Create it with a compatibility context
+and the configured `RustModule`:
+
+```ts
+const converter = new RustSourceRowConverter(compatibilityContext, rustModule);
+const { row, replicaId } = converter.rawToSqliteRow(bsonBuffer);
+```
+
+Rust parses the BSON, renders nested JSON, and returns SQLite values through
+N-API. It extracts the first `_id` element during that pass and returns it as a
+small BSON document, which the Node BSON library decodes to preserve replica
+identity types. Date precision and nested boolean formatting follow the supplied
+compatibility context. Like the direct converter, it preserves raw regex flags,
+uses replacement characters for invalid UTF-8, and omits nested binary values
+except UUIDs. Malformed BSON is rejected, but exact error messages can differ.
+
+To compare performance, build the TypeScript packages and a release addon:
+
+```sh
+pnpm exec tsc -b modules/module-mongodb
+pnpm rust:build-addon --release
+POWERSYNC_RUST_ADDON=/absolute/path/to/open_edition_js_entrypoint.node \
+  node modules/module-mongodb/scripts/benchmark-change-document-json.mts
+```
+
+The build command prints the addon path. BSON conversion parity tests in
+`modules/module-mongodb/test/src/buffer_to_sqlite.test.ts` also exercise this
+implementation, using `POWERSYNC_RUST_ADDON` or building a debug addon automatically.
+
+### Attaching a debugger
+
 You can debug Rust code loaded as a Node addon via LLDB. Run `pnpm -w rust:build-addon`
 for a debug build of the addon, then launch the service with a `--rust-addon <path>`
 towards the emitted `.node` file.

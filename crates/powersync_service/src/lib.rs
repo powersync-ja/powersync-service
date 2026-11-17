@@ -1,5 +1,7 @@
 use log::info;
 
+pub mod mongo;
+
 // Just a stub for now.
 pub struct PowerSyncService {}
 

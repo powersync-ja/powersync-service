@@ -1,4 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import type { modules } from '@powersync/service-core';
 import { applyRowContext, CompatibilityContext, CompatibilityOption, SqliteRow } from '@powersync/service-sync-rules';
 import { bufferToSqlite, DateRenderMode, getDateRenderMode, parseDocumentId } from './bufferToSqlite.js';
 import { constructAfterRecord } from './MongoRelation.js';
@@ -63,5 +64,33 @@ export class DirectSourceRowConverter implements SourceRowConverter {
     // This is slow, but should not be used other than in tests
     const buffer = mongo.BSON.serialize(document) as Buffer;
     return this.rawToSqliteRow(buffer).row;
+  }
+}
+
+/**
+ * Experimental, opt-in Rust implementation of the direct converter.
+ *
+ * Supply a RustModule configured with a compiled addon. Snapshotting and change
+ * streams continue to use DirectSourceRowConverter by default.
+ */
+export class RustSourceRowConverter implements SourceRowConverter {
+  private readonly converter: modules.RustMongoSourceRowConverter;
+
+  constructor(compatibilityContext: CompatibilityContext, rustModule: modules.RustModule) {
+    this.converter = rustModule.createMongoSourceRowConverter(
+      getDateRenderMode(compatibilityContext),
+      compatibilityContext.isEnabled(CompatibilityOption.fixedBooleanInJson)
+    );
+  }
+
+  rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
+    const { row, idDocument } = this.converter.rawToSqliteRow(source);
+    const replicaId = mongo.BSON.deserialize(idDocument, { useBigInt64: true })._id;
+    return { row, replicaId };
+  }
+
+  documentToSqliteRow(document: mongo.Document): SqliteRow {
+    // This is slow, but should not be used other than in tests.
+    return this.rawToSqliteRow(mongo.BSON.serialize(document) as Buffer).row;
   }
 }
