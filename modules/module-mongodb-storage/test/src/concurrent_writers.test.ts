@@ -200,8 +200,6 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
       factoryGen,
       a.stream.replicationStreamId
     );
-    await insert(first, a.table, 'first');
-    await insert(last, lastTable, 'last');
 
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -225,6 +223,8 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     });
     const pending: Promise<unknown>[] = [];
     try {
+      await insert(first, a.table, 'first');
+      await insert(last, lastTable, 'last');
       pending.push(first.flush());
       await entered.promise;
       // The empty checkpoint must run before the later flush.
@@ -462,18 +462,12 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await writerB.flush();
     const higher = writerB.last_flushed_op!;
     await insert(writerA, a.table, 'c');
-    if (version >= 3) {
-      // Independent allocators on the same lease can reserve disjoint ranges in
-      // the opposite order from publication. The stale writer must stop.
-      await expect(writerA.flush()).rejects.toThrow('does not advance persisted stream head');
-      expect(writerA.last_flushed_op).toBeLessThan(higher);
-      await expect(writerA.commit('1/2')).rejects.toThrow('restart replication from persisted progress');
-    } else {
-      await writerA.flush();
-      expect(writerA.last_flushed_op).toBeGreaterThan(higher);
-      await writerA.commit('1/2');
-      expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(writerA.last_flushed_op);
-    }
+    // The v3/v4 coordinator also shares allocation across factories on the
+    // same lease, so reservation order cannot make a later publisher stale.
+    await writerA.flush();
+    expect(writerA.last_flushed_op).toBeGreaterThan(higher);
+    await writerA.commit('1/2');
+    expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(writerA.last_flushed_op);
   });
 
   test('lease takeover fences stale row, metadata, and checkpoint writes', async () => {
@@ -548,7 +542,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
   });
 });
 
-describe.each([1, 2])('legacy batch lifecycle v%s', (version) => {
+describe.each([1, 2])('v%s batch lifecycle', (version) => {
   test('clears a successful flush and can accumulate the next writes independently', async () => {
     await using factory = await factoryGen.factory();
     const context = await openStream(factory, version);

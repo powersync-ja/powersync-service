@@ -220,6 +220,12 @@ export enum ErrorCode {
    */
   PSYNC_S1146 = 'PSYNC_S1146',
 
+  /**
+   * Replication was requested with `slot_failover: true`, but we're connected to a PostgreSQL server without support
+   * for that.
+   */
+  PSYNC_S1147 = 'PSYNC_S1147',
+
   // ## PSYNC_S12xx: MySQL replication issues
 
   // ## PSYNC_S13xx: MongoDB replication issues
@@ -583,7 +589,9 @@ export enum ErrorCode {
   PSYNC_S4105 = 'PSYNC_S4105',
 
   /**
-   * Sync config reprocess is blocked because another sync config is deploying.
+   * Sync config reprocess is blocked.
+   *
+   * Another sync config is deploying, or the sync config in the service configuration is invalid.
    */
   PSYNC_S4106 = 'PSYNC_S4106'
 }

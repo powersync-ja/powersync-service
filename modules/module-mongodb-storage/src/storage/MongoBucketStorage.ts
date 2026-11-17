@@ -24,7 +24,12 @@ import {
 } from '@powersync/service-core';
 import { Semaphore } from 'async-mutex';
 import { ObjectId } from 'bson';
-import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE, normalizeChunkCompactionConcurrency } from '../types/types.js';
+import {
+  DEFAULT_CLEAR_BATCH_THROTTLE_RATE,
+  MongoReplicationBatchSize,
+  normalizeChunkCompactionConcurrency
+} from '../types/types.js';
+import { createCollectionSizeReader } from '../utils/collection-sizes.js';
 import { generateReplicationStreamName } from '../utils/util.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
@@ -34,6 +39,11 @@ import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { MongoOpIdAllocator } from './implementation/MongoOpIdAllocator.js';
 import { MongoPersistedReplicationStream } from './implementation/MongoPersistedReplicationStream.js';
 import { MongoSyncRulesLock } from './implementation/MongoSyncRulesLock.js';
+import {
+  DEFAULT_REPLICATION_BATCH_SIZE,
+  REPLICATION_BATCH_LIMITS,
+  ReplicationBatchLimits
+} from './implementation/ReplicationBatchLimits.js';
 import { stopReplicationStreamPipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { ObjectStorage } from './implementation/v3/object-storage/ObjectStorage.js';
@@ -42,6 +52,8 @@ import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyn
 import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
+  /** Coordinated replication limits. Default: medium. */
+  replicationBatchSize?: MongoReplicationBatchSize;
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
@@ -93,8 +105,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   private activeStorageCache: MongoSyncBucketStorage | undefined;
+  private readonly getCollectionSizes: ReturnType<typeof createCollectionSizeReader>;
 
   public readonly db: PowerSyncMongo;
+  public readonly replicationBatchLimits: ReplicationBatchLimits;
   public readonly chunkCompactionConcurrency: number;
   public readonly chunkCompactionSlots: Semaphore;
 
@@ -103,6 +117,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     private options: MongoBucketStorageOptions
   ) {
     super();
+    this.replicationBatchLimits =
+      REPLICATION_BATCH_LIMITS[options.replicationBatchSize ?? DEFAULT_REPLICATION_BATCH_SIZE];
     this.chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(
       options.chunkCompactionConcurrency,
       options.objectStorage != null
@@ -111,6 +127,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     this.chunkCompactionSlots = new Semaphore(this.chunkCompactionConcurrency);
     this.client = db.client;
     this.db = db;
+    this.getCollectionSizes = createCollectionSizeReader(db.db, options.statsReadPreference);
     this.replicationStreamNamePrefix = options.replicationStreamNamePrefix;
   }
 
@@ -907,35 +924,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         { nameOnly: true, readPreference: this.options.statsReadPreference }
       )
       .toArray();
-    const sizesByCollection = new Map<string, number>();
-    const statsPipeline: mongo.Document[] = [
-      { $collStats: { storageStats: {} } },
-      { $project: { ns: 1, size: '$storageStats.size' } }
-    ];
-    // MongoDB has a limit of 1000 stages per aggregation pipeline. Additionally, we want
-    // to avoid too much work per aggregation, so we limit the number of collections per batch.
-    const COLLECTIONS_PER_BATCH = 100;
-    // Query batches sequentially so metrics collection does not fill the connection pool on standby pods.
-    // If a collection disappears during aggregation, let the next metrics collection retry.
-    for (let offset = 0; offset < collections.length; offset += COLLECTIONS_PER_BATCH) {
-      const batch = collections.slice(offset, offset + COLLECTIONS_PER_BATCH);
-      const pipeline = [
-        ...statsPipeline,
-        ...batch.slice(1).map((collection) => ({
-          $unionWith: { coll: collection.name, pipeline: statsPipeline }
-        }))
-      ];
-      const stats = await this.db.db
-        .collection(batch[0].name)
-        .aggregate<{ ns: string; size: number | bigint }>(pipeline, {
-          readPreference: this.options.statsReadPreference
-        })
-        .toArray();
-      for (const stat of stats) {
-        const name = stat.ns.slice(this.db.db.databaseName.length + 1);
-        sizesByCollection.set(name, (sizesByCollection.get(name) ?? 0) + Number(stat.size));
-      }
-    }
+    const sizesByCollection = await this.getCollectionSizes(collections);
 
     const v3StorageConfig = getMongoStorageConfig(storage.STORAGE_VERSION_3) as StorageConfig & {
       incrementalReprocessing: true;

@@ -35,6 +35,7 @@ import {
 
 import { ReplicationMetric } from '@powersync/service-types';
 import { PostgresTypeResolver } from '../types/resolver.js';
+import { getServerVersion } from '../utils/postgres_version.js';
 import { MissingReplicationSlotError } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
@@ -67,6 +68,13 @@ export interface WalStreamOptions {
   snapshotChunkLength?: number;
 
   /**
+   * Minimum time between durable snapshot progress updates, checked between pages.
+   * Defaults to 10_000ms; 0 persists every page. Final progress is always persisted.
+   * Automatic size-based storage flushes are independent of this interval.
+   */
+  snapshotProgressIntervalMs?: number;
+
+  /**
    * Called after each snapshot chunk is flushed, for testing.
    * This allows tests to perform actions (like generating WAL) synchronously
    * with the snapshot's chunk processing.
@@ -79,6 +87,14 @@ export interface WalStreamOptions {
    * Defaults to 120_000 (2 minutes).
    */
   slotHealthCheckIntervalMs?: number;
+
+  /**
+   * Whether to include `FAILOVER true` in `CREATE_REPLICATION_SLOT` to enable
+   * {@link https://www.postgresql.org/docs/current/logical-replication-failover.html | Logical Replication Failover}.
+   *
+   * This is only supported on Postgres 17 or later, only affects new replication slots, and is disabled by default.
+   */
+  slotFailover?: boolean;
 }
 
 interface InitResult {
@@ -143,6 +159,7 @@ export class WalStream {
   private startedStreaming = false;
 
   private snapshotChunkLength: number;
+  private readonly snapshotProgressIntervalMs: number;
   private onSnapshotChunkFlushed?: () => Promise<void>;
 
   private replicationLag = new ReplicationLagTracker();
@@ -171,6 +188,7 @@ export class WalStream {
     this.slot_name = options.storage.replicationStreamName;
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
+    this.snapshotProgressIntervalMs = options.snapshotProgressIntervalMs ?? 10_000;
     this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
     this.slotHealthCheckIntervalMs = options.slotHealthCheckIntervalMs ?? 120_000;
 
@@ -566,7 +584,9 @@ WHERE  oid = $1::regclass`,
 
       // We use the replication connection here, not a pool.
       // The replication slot must be created before we start snapshotting tables.
-      await rquery(replicationConnection, `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
+      const useFailover = await this.#useFailoverSlot(db);
+      const optionsClause = useFailover ? ' (FAILOVER true)' : '';
+      await rquery(replicationConnection, `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput${optionsClause}`);
 
       this.logger.info(`Created replication slot ${slotName}`);
     }
@@ -576,14 +596,15 @@ WHERE  oid = $1::regclass`,
 
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
+    // Stop reading pages on source cancellation, then persist the last complete page.
+    // The replication lease still cancels storage work if ownership is lost.
     const flushResults = await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: ZERO_LSN,
         defaultSchema: POSTGRES_DEFAULT_SCHEMA,
         storeCurrentData: true,
-        skipExistingRows: true,
-        signal: this.abort_signal
+        skipExistingRows: true
       },
       async (batch) => {
         let tablesWithStatus: SourceTable[] = [];
@@ -741,6 +762,7 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
+    let lastProgressAt = performance.now();
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
@@ -781,17 +803,26 @@ WHERE  oid = $1::regclass`,
         this.touch();
       }
 
-      // Important: flush before marking progress
-      await batch.flush();
-      if (this.onSnapshotChunkFlushed) {
-        await this.onSnapshotChunkFlushed();
-      }
       const now = performance.now();
+      // Targeted repairs and test hooks retain their per-page flush contract.
+      // Ordinary snapshots drain only at progress boundaries, table completion
+      // or graceful shutdown. Automatic size-based flushes remain unchanged.
+      const persistProgress =
+        limited != null ||
+        this.onSnapshotChunkFlushed != null ||
+        now - lastProgressAt >= this.snapshotProgressIntervalMs ||
+        !hasRemainingData ||
+        this.abort_signal.aborted;
+      if (persistProgress) {
+        // Important: flush before marking progress
+        await batch.flush();
+        await this.onSnapshotChunkFlushed?.();
+      }
       if (now - this.lastSlotHealthCheckTime >= this.slotHealthCheckIntervalMs) {
         this.lastSlotHealthCheckTime = now;
         await this.checkSlotHealth();
       }
-      if (limited == null) {
+      if (limited == null && persistProgress) {
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {
           lastKey = q.getLastKeySerialized();
@@ -812,7 +843,8 @@ WHERE  oid = $1::regclass`,
         this.relationCache.update(table);
 
         this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
-      } else {
+        lastProgressAt = performance.now();
+      } else if (limited != null) {
         this.logger.info(`Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
       }
 
@@ -1324,6 +1356,39 @@ WHERE  oid = $1::regclass`,
   protected async checkLogicalMessageSupport() {
     const version = await this.connections.getServerVersion();
     return version ? version.compareMain('14.0.0') >= 0 : false;
+  }
+
+  /**
+   * Whether to create replication slots with failover support. Requires Postgres 17+ and the option to be enabled.
+   */
+  async #useFailoverSlot(connection: pgwire.PgConnection): Promise<boolean> {
+    if (!this.options.slotFailover) {
+      return false;
+    }
+
+    const version = await getServerVersion(connection);
+    if (!version || version.compareMain('17.0.0') < 0) {
+      throw new DatabaseConnectionError(
+        ErrorCode.PSYNC_S1147,
+        `The slot_failover option requires PostgreSQL 17 or later.`,
+        new Error()
+      );
+    }
+
+    // We can't fully validate the synchronized_standby_slots option because we don't know which slot is configured for
+    // the standby we'll connect to on failover. But as a quick check, we know that no slots being configured is
+    // definitely wrong (for consistent replication, the logical replication failover slot we use must not receive
+    // changes until they've been processed by failovers).
+    const standbySlots = pgwire.pgwireRows(await rquery(connection, 'SHOW synchronized_standby_slots'));
+    if (!standbySlots.length || standbySlots[0].synchronized_standby_slots == '') {
+      throw new DatabaseConnectionError(
+        ErrorCode.PSYNC_S1147,
+        `slot_failover enabled, but no synchronized_standby_slots are set.`,
+        new Error()
+      );
+    }
+
+    return true;
   }
 
   getReplicationLagMillis(): number | undefined {
