@@ -1,5 +1,11 @@
 # @powersync/service-jsonbig
 
+## 0.18.0
+
+### Minor Changes
+
+- 9bebc41: Fix JSON serialization of NaN and Infinity as null.
+
 ## 0.17.14
 
 ### Patch Changes

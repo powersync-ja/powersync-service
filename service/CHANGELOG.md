@@ -1,5 +1,30 @@
 # @powersync/service-image
 
+## 1.29.0
+
+### Minor Changes
+
+- 136f733: Add the `slot_failover` boolean option for PostgreSQL sources, allowing replication slots to sync to physical standbys during switchovers.
+
+### Patch Changes
+
+- Updated dependencies [de9deec]
+- Updated dependencies [f5feba2]
+- Updated dependencies [baea889]
+- Updated dependencies [136f733]
+- Updated dependencies [1f2c010]
+  - @powersync/service-core@1.29.0
+  - @powersync/service-module-mongodb-storage@0.26.0
+  - @powersync/service-module-postgres@0.23.9
+  - @powersync/service-module-mongodb@0.22.6
+  - @powersync/service-module-convex@0.4.9
+  - @powersync/service-module-core@0.3.4
+  - @powersync/service-module-mssql@0.10.10
+  - @powersync/service-module-mysql@0.16.10
+  - @powersync/service-module-postgres-storage@0.19.9
+  - @powersync/lib-services-framework@0.10.6
+  - @powersync/service-rsocket-router@0.3.1
+
 ## 1.28.3
 
 ### Patch Changes
