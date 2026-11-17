@@ -1,22 +1,47 @@
 import { execFile as execFileCallback } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import { copyFile, mkdtemp } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { test } from 'vitest';
-
 const execFile = promisify(execFileCallback);
 
 /**
- * A test context providing the Open Edition Rust addon.
+ * A test helper providing the Open Edition Rust addon.
  *
  * This uses the addon in `POWERSYNC_RUST_ADDON` if set (CI downloads a prebuilt one), or otherwise builds the addon
  * with `scripts/build-rust-addon.mts` in the Cargo workspace containing this package.
+ *
+ * A built addon is copied to a fresh temporary directory, the returned cleanup function deletes it. Node can't unload
+ * addons and reuses one that is already loaded from the same file, so a unique copy per call makes reloaded tests pick
+ * up Rust changes.
  */
-export const rustModuleTest = test.extend('rustAddonPath', { scope: 'worker' }, async ({}) => {
-  const addonPath = process.env.POWERSYNC_RUST_ADDON ?? (await buildRustAddon());
-  return addonPath;
-});
+export async function resolveRustAddonPath(): Promise<[string, () => void]> {
+  const prebuilt = process.env.POWERSYNC_RUST_ADDON;
+  if (prebuilt) {
+    return [prebuilt, () => {}];
+  }
+
+  const source = await buildRustAddon();
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'powersync-rust-addon-'));
+  const addonPath = path.join(directory, path.basename(source));
+  await copyFile(source, addonPath);
+  return [addonPath, () => removeAddonDirectory(directory)];
+}
+
+function removeAddonDirectory(directory: string) {
+  try {
+    rmSync(directory, { recursive: true, force: true });
+  } catch (e) {
+    // Windows doesn't allow deleting a DLL that is still loaded. The OS cleans up the temporary directory eventually.
+    if (process.platform == 'win32' && (e as NodeJS.ErrnoException).code == 'EPERM') {
+      return;
+    }
+    throw e;
+  }
+}
 
 async function buildRustAddon(): Promise<string> {
   const cwd = path.dirname(fileURLToPath(import.meta.url));
