@@ -1,8 +1,15 @@
 import { logger } from '@powersync/lib-services-framework';
-import { expect, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { modules } from '@/index.js';
-import { rustModuleTest } from '@powersync/service-core-tests';
+import { resolveRustAddonPath } from '@powersync/service-core-tests';
+
+const rustModuleTest = test.extend('rustAddonPath', { scope: 'worker' }, async ({}, { onCleanup }) => {
+  const [path, cleanup] = await resolveRustAddonPath();
+  onCleanup(cleanup);
+
+  return path;
+});
 
 rustModuleTest('can initialize rust module', async ({ rustAddonPath }) => {
   // The module's child logger inherits log() from the shared logger, so the Rust side binds this spy.
