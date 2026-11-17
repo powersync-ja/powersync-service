@@ -562,6 +562,34 @@ describe('RustSourceRowConverter', () => {
       expect(() => rust.rawToSqliteRow(source.subarray(0, length))).toThrow();
     }
   });
+
+  test('owns returned strings and binary after the input buffer changes', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    for (const value of ['x\0'.repeat(10_000), 'é☃🚀\n'.repeat(10_000)]) {
+      const source = BSON.serialize({
+        _id: 'ownership',
+        value,
+        nested: { value },
+        binary: new Binary(Buffer.from([1, 2, 3]))
+      }) as Buffer;
+      const expected = directConverter.rawToSqliteRow(source);
+      const actual = rust.rawToSqliteRow(source);
+      source.fill(0);
+      expect(actual).toEqual(expected);
+    }
+  });
+
+  test('omits nested binary without leaving separators between JSON properties', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    const binary = new Binary(Buffer.from([1, 2, 3]));
+    const source = BSON.serialize({
+      _id: 'omission',
+      object: { omittedFirst: binary, first: 1, omittedMiddle: binary, last: true, omittedLast: binary },
+      array: [binary, { omitted: binary }, 1, binary, true, binary],
+      code: new Code('return first;', { omitted: binary, first: 1, last: binary })
+    }) as Buffer;
+    expect(rust.rawToSqliteRow(source)).toEqual(directConverter.rawToSqliteRow(source));
+  });
 });
 
 describe('SourceRowConverter.rawToSqliteRow expected output', () => {

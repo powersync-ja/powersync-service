@@ -72,6 +72,24 @@ The build command prints the addon path. BSON conversion parity tests in
 `modules/module-mongodb/test/src/buffer_to_sqlite.test.ts` also exercise this
 implementation, using `POWERSYNC_RUST_ADDON` or building a debug addon automatically.
 
+The benchmark defaults to ASCII text in a top-level field. Use `--payload unicode`,
+`--payload nested`, or `--payload objects` to compare other workloads, and
+`--rows-only` to exclude change-event parsing. `--iterations 1000` overrides the
+automatically chosen iteration count for quick profiling runs. For example:
+
+```sh
+POWERSYNC_RUST_ADDON=/absolute/path/to/open_edition_js_entrypoint.node \
+  node modules/module-mongodb/scripts/benchmark-change-document-json.mts --rows-only --payload objects
+cargo run --release -p powersync_service --example mongo_conversion
+```
+
+The Rust example measures the parser without N-API or JavaScript conversion.
+Keep those measurements separate: copying strings into V8 and setting row
+properties can cost more than parsing BSON. The converter borrows valid BSON
+strings and binary during the synchronous call, writes nested JSON into one
+buffer, and uses ASCII/UTF-16 string constructors and scalar BigInt constructors
+at the N-API boundary. Returned JavaScript values own their data.
+
 ### Attaching a debugger
 
 You can debug Rust code loaded as a Node addon via LLDB. Run `pnpm -w rust:build-addon`

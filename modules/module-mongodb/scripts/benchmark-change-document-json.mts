@@ -2,6 +2,7 @@ import { modules } from '@powersync/service-core';
 import { CompatibilityContext } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { performance } from 'node:perf_hooks';
+import { parseArgs } from 'node:util';
 import {
   DirectSourceRowConverter,
   LegacySourceRowConverter,
@@ -12,6 +13,21 @@ import {
 // This is a synthetic benchmark to test performance of parseChangeDocument
 // versus the normal bson.deserialize().
 // Primarily AI-generated.
+
+const { values: options } = parseArgs({
+  options: {
+    'rows-only': { type: 'boolean', default: false },
+    payload: { type: 'string', default: 'ascii' },
+    iterations: { type: 'string' }
+  }
+});
+if (!['ascii', 'unicode', 'nested', 'objects'].includes(options.payload)) {
+  throw new Error('--payload must be ascii, unicode, nested, or objects');
+}
+const fixedIterations = options.iterations == null ? undefined : Number(options.iterations);
+if (fixedIterations != null && (!Number.isSafeInteger(fixedIterations) || fixedIterations < 1)) {
+  throw new Error('--iterations must be a positive integer');
+}
 
 const BSON_OPTIONS = { useBigInt64: true } as const;
 const OPERATION_TYPES = ['insert', 'update'] as const;
@@ -49,12 +65,12 @@ type FullDocument = {
     counters: number[];
     changedFields: string[];
   };
-  payload: string;
+  payload: string | { nested: string } | { label: string; value: number; active: boolean }[];
 };
 
 type UpdateDescription = {
   updatedFields: {
-    payload: string;
+    payload: FullDocument['payload'];
     metrics: FullDocument['metrics'];
     updatedAt: Date;
     version: number;
@@ -95,6 +111,7 @@ type Scenario = {
   targetBytes: number;
   fullDocumentBytes: number;
   eventBytes: number;
+  checksum: number;
   buffer: Buffer;
 };
 
@@ -107,18 +124,22 @@ type BenchmarkResult = {
 const rawConverter = new DirectSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
 const docConverter = new LegacySourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
 
+function fullDocumentBuffer(buffer: Buffer): Buffer {
+  if (options['rows-only']) {
+    return buffer;
+  }
+  const change = parseChangeDocument(buffer);
+  if (!('fullDocument' in change) || change.fullDocument == null) {
+    throw new Error('Expected fullDocument to be present');
+  }
+  return change.fullDocument;
+}
+
 const BENCHMARKS: Benchmark[] = [
   {
-    label: 'parseChangeDocument + rawToSqliteRow',
+    label: options['rows-only'] ? 'rawToSqliteRow' : 'parseChangeDocument + rawToSqliteRow',
     run: (buffer: Buffer) => {
-      const change = parseChangeDocument(buffer);
-      if (!('fullDocument' in change)) {
-        throw new Error('Unsupported change type: ' + change.operationType);
-      }
-      if (change.fullDocument == null) {
-        throw new Error('Expected fullDocument to be present');
-      }
-      const { row } = rawConverter.rawToSqliteRow(change.fullDocument);
+      const { row } = rawConverter.rawToSqliteRow(fullDocumentBuffer(buffer));
       return Number(row.checksum ?? 0);
     }
   },
@@ -126,7 +147,7 @@ const BENCHMARKS: Benchmark[] = [
     label: 'bson.deserialize + documentToSqliteRow',
     run: (buffer: Buffer) => {
       const change = bson.deserialize(buffer, BSON_OPTIONS) as { fullDocument?: { checksum?: number } };
-      const fullDocument = docConverter.documentToSqliteRow(change.fullDocument!);
+      const fullDocument = docConverter.documentToSqliteRow(options['rows-only'] ? change : change.fullDocument!);
       return Number(fullDocument.checksum ?? 0);
     }
   }
@@ -138,13 +159,9 @@ if (process.env.POWERSYNC_RUST_ADDON) {
   await rustModule.loadRust();
   const rustConverter = new RustSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY, rustModule);
   BENCHMARKS.push({
-    label: 'parseChangeDocument + Rust rawToSqliteRow',
+    label: options['rows-only'] ? 'Rust rawToSqliteRow' : 'parseChangeDocument + Rust rawToSqliteRow',
     run: (buffer) => {
-      const change = parseChangeDocument(buffer);
-      if (!('fullDocument' in change) || change.fullDocument == null) {
-        throw new Error('Expected fullDocument to be present');
-      }
-      return Number(rustConverter.rawToSqliteRow(change.fullDocument).row.checksum ?? 0);
+      return Number(rustConverter.rawToSqliteRow(fullDocumentBuffer(buffer)).row.checksum ?? 0);
     }
   });
 }
@@ -177,11 +194,11 @@ function createFullDocument(operationType: OperationType, targetBytes: number): 
       counters: [1, 2, 3, 5, 8, 13],
       changedFields: operationType === 'update' ? ['payload', 'metrics.itemCount', 'updatedAt'] : []
     },
-    payload: ''
+    payload: createPayload(0)
   };
 
   const payloadLength = findPayloadLength(baseDocument, targetBytes);
-  const payload = repeatCharacter('x', payloadLength);
+  const payload = createPayload(payloadLength);
   return {
     ...baseDocument,
     payload
@@ -256,15 +273,27 @@ function findPayloadLength(baseDocument: FullDocument, targetBytes: number): num
 function calculateSizedDocumentBytes(baseDocument: FullDocument, payloadLength: number): number {
   return bson.calculateObjectSize({
     ...baseDocument,
-    payload: repeatCharacter('x', payloadLength)
+    payload: createPayload(payloadLength)
   });
 }
 
-function repeatCharacter(character: string, count: number): string {
-  return character.repeat(Math.max(0, count));
+function createPayload(count: number): FullDocument['payload'] {
+  switch (options.payload) {
+    case 'unicode':
+      return 'é☃🚀'.repeat(count);
+    case 'nested':
+      return { nested: 'x'.repeat(count) };
+    case 'objects':
+      return Array.from({ length: count }, (_, i) => ({ label: `item-${i}`, value: i, active: i % 2 === 0 }));
+    default:
+      return 'x'.repeat(count);
+  }
 }
 
 function chooseIterations(eventBytes: number): number {
+  if (fixedIterations != null) {
+    return fixedIterations;
+  }
   const targetBytes = 256 * 1024 * 1024;
   return clamp(Math.floor(targetBytes / eventBytes), 200, 50_000);
 }
@@ -282,13 +311,14 @@ function median(values: number[]): number {
 function buildScenario(operationType: OperationType, sizeLabel: string, targetBytes: number): Scenario {
   const fullDocument = createFullDocument(operationType, targetBytes);
   const changeDocument = createChangeDocument(fullDocument, operationType);
-  const buffer = Buffer.from(bson.serialize(changeDocument));
+  const buffer = Buffer.from(bson.serialize(options['rows-only'] ? fullDocument : changeDocument));
   return {
     label: `${operationType} ${sizeLabel}`,
     operationType,
     targetBytes,
     fullDocumentBytes: bson.calculateObjectSize(fullDocument),
     eventBytes: buffer.byteLength,
+    checksum: fullDocument.checksum,
     buffer
   };
 }
@@ -337,17 +367,25 @@ function printRow(values: string[]): void {
   console.log(line);
 }
 
-printRow(['Scenario', 'Full doc', 'Event', 'Benchmark', 'Ops/s', 'MiB/s']);
+console.log(
+  `Payload: ${options.payload}; ${options['rows-only'] ? 'row conversion only' : 'change event + row conversion'}`
+);
+printRow(['Scenario', 'Full doc', options['rows-only'] ? 'Input' : 'Event', 'Benchmark', 'Ops/s', 'MiB/s']);
 printRow(['--------', '--------', '-----', '---------', '-----', '-----']);
 
 for (const operationType of OPERATION_TYPES) {
   for (const size of SIZE_TARGETS) {
     const scenario = buildScenario(operationType, size.label, size.bytes);
     const iterations = chooseIterations(scenario.eventBytes);
-    const results = BENCHMARKS.map((benchmark) => ({
-      label: benchmark.label,
-      ...runBenchmark(benchmark.label, benchmark.run, scenario.buffer, iterations)
-    }));
+    const results = BENCHMARKS.map((benchmark) => {
+      if (benchmark.run(scenario.buffer) !== scenario.checksum) {
+        throw new Error(`Unexpected checksum from ${benchmark.label}`);
+      }
+      return {
+        label: benchmark.label,
+        ...runBenchmark(benchmark.label, benchmark.run, scenario.buffer, iterations)
+      };
+    });
 
     let isFirstRow = true;
     for (const result of results) {
