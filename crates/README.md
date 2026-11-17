@@ -37,6 +37,18 @@ bindings.
 As we move more code to Rust, we might want to rely on `cargo test` in the
 future.
 
+## Debugging
+
+You can debug Rust code loaded as a Node addon via LLDB. Run `pnpm -w rust:build-addon`
+for a debug build of the addon, then launch the service with a `--rust-addon <path>`
+towards the emitted `.node` file.
+
+After launching the service, attach LLDB to the running Node process. After the
+Rust addon was loaded, you can set breakpoints in Rust sources.
+
+In VS Code, the [CodeLLDB extension](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb)
+may be useful for this.
+
 ## Publishing
 
 We don't publish compiled binaries to NPM. Instead:
