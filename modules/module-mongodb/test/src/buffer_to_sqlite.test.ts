@@ -590,6 +590,92 @@ describe('RustSourceRowConverter', () => {
     }) as Buffer;
     expect(rust.rawToSqliteRow(source)).toEqual(directConverter.rawToSqliteRow(source));
   });
+
+  test('preserves rows across cache hits, field reordering, and changing value types', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    const sources = [
+      { _id: 'cache', alpha: 1, bravo: 'text', charlie: true },
+      { _id: 'cache', alpha: null, bravo: new Binary(Buffer.from([1, 2])), charlie: new Date(0) },
+      { bravo: 'first', _id: 'reordered', alpha: 2 },
+      { _id: 'different', delta: 3 },
+      { _id: 'wide', ...Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`field${i}`, i])) },
+      { _id: 'large-key', ['x'.repeat(16_385)]: 'value' },
+      { _id: 'cache-again', alpha: 4, bravo: 'last', charlie: false }
+    ].map((row) => BSON.serialize(row) as Buffer);
+    for (const source of [...sources, ...sources.toReversed()]) {
+      // The second occurrence warms the cache; later occurrences use bulk creation.
+      for (let i = 0; i < 4; i++) {
+        const expected = directConverter.rawToSqliteRow(source);
+        const actual = rust.rawToSqliteRow(source);
+        expect(actual).toEqual(expected);
+        expect(Object.keys(actual.row)).toEqual(Object.keys(expected.row));
+        expect(Object.getPrototypeOf(actual.row)).toBe(Object.getPrototypeOf(expected.row));
+      }
+    }
+  });
+
+  test('preserves duplicate fields and defines __proto__ as data after warmup', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    const id = bsonElement(0x02, '_id', bsonString('special-keys'));
+    const sources = [
+      bsonDocument([id, bsonElement(0x10, 'duplicate', int32(1)), bsonElement(0x02, 'duplicate', bsonString('last'))]),
+      bsonDocument([id, bsonElement(0x02, '__proto__', bsonString('text'))]),
+      bsonDocument([id, bsonElement(0x0a, '__proto__'), bsonElement(0x02, '__proto__', bsonString('own value'))]),
+      bsonDocument([
+        id,
+        bsonElement(0x10, '2', int32(2)),
+        bsonElement(0x10, '0', int32(0)),
+        bsonElement(0x10, '1', int32(1))
+      ]),
+      bsonDocument([id, bsonElement(0x02, 'quote"\\☃', bsonString('unicode key'))])
+    ];
+    for (const source of sources) {
+      for (let i = 0; i < 4; i++) {
+        const expected = directConverter.rawToSqliteRow(source);
+        const actual = rust.rawToSqliteRow(source);
+        expect(actual).toEqual(expected);
+        expect(Object.getOwnPropertyDescriptors(actual.row)).toEqual(Object.getOwnPropertyDescriptors(expected.row));
+        expect(Object.getPrototypeOf(actual.row)).toBe(Object.getPrototypeOf(expected.row));
+        expect(Object.getPrototypeOf(actual.row)).toBe(Object.prototype);
+        if (Object.hasOwn(expected.row, '__proto__')) {
+          expect(Object.hasOwn(actual.row, '__proto__')).toBe(true);
+        }
+      }
+    }
+  });
+
+  test('__proto__ is an own data field and never changes the row prototype', () => {
+    const rust = new RustSourceRowConverter(CONTEXT, rustModule);
+    for (const value of [null, 'text', { nested: true }, ['item'], 42]) {
+      const source = BSON.serialize(
+        Object.fromEntries([
+          ['_id', 'proto'],
+          ['__proto__', value]
+        ])
+      ) as Buffer;
+      const expected =
+        value == null || typeof value === 'string'
+          ? value
+          : typeof value === 'number'
+            ? 42n
+            : Array.isArray(value)
+              ? '["item"]'
+              : '{"nested":1}';
+      for (const converter of [directConverter, rust]) {
+        for (let i = 0; i < 4; i++) {
+          const { row } = converter.rawToSqliteRow(source);
+          expect(Object.getPrototypeOf(row)).toBe(Object.prototype);
+          expect(Object.getOwnPropertyDescriptor(row, '__proto__')).toEqual({
+            value: expected,
+            enumerable: true,
+            configurable: true,
+            writable: true
+          });
+          expect(Object.keys(row)).toEqual(['_id', '__proto__']);
+        }
+      }
+    }
+  });
 });
 
 describe('SourceRowConverter.rawToSqliteRow expected output', () => {

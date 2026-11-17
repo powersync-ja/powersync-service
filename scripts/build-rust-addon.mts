@@ -6,7 +6,8 @@
  * `cargo build`. The path of the addon is printed to stdout, everything else is written to stderr.
  */
 import { spawn } from 'node:child_process';
-import { copyFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { copyFile, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -47,5 +48,17 @@ if (libraryPath == null) {
 }
 
 const addonPath = path.join(path.dirname(libraryPath), `${CRATE_NAME}.node`);
-await copyFile(libraryPath, addonPath);
+// A running Node process may have the previous addon mapped into memory.
+// Replace it atomically: copying over that file in place can crash the process.
+const stagingPath = `${addonPath}.${randomUUID()}.tmp`;
+try {
+  await copyFile(libraryPath, stagingPath);
+  await rename(stagingPath, addonPath);
+} finally {
+  await unlink(stagingPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  });
+}
 console.log(addonPath);

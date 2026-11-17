@@ -16,5 +16,5 @@ powersync_service = { path = "crates/powersync_service", version = "=1.28.3" }
 powersync_service_js_addon_shared = { path = "crates/js_addon", version = "=1.28.3" }
 
 log = { version = "0.4.35", features = ["kv"] }
-napi = { version = "3", features = ["napi6"] }
+napi = { version = "3", features = ["napi10", "experimental"] }
 napi-derive = "3"

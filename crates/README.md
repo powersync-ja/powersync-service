@@ -90,6 +90,16 @@ strings and binary during the synchronous call, writes nested JSON into one
 buffer, and uses ASCII/UTF-16 string constructors and scalar BigInt constructors
 at the N-API boundary. Returned JavaScript values own their data.
 
+The experimental converter uses `node_api_create_object_with_properties` from
+the repository's pinned Node version to construct rows in one operation. It
+retains optimized property keys for one row shape, bounded to 256 columns and
+16 KiB of key text. Two consecutive occurrences warm a new shape; changing
+documents use property descriptors until then. The reference holding the
+keys is released when the shape is replaced or the converter is collected.
+Oversized shapes and duplicate fields also use property descriptors. Both paths
+define own data properties, so fields named `__proto__` retain their values
+without changing the row's prototype.
+
 ### Attaching a debugger
 
 You can debug Rust code loaded as a Node addon via LLDB. Run `pnpm -w rust:build-addon`

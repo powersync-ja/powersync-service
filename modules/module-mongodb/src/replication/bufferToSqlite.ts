@@ -102,6 +102,12 @@ export function bufferToSqlite(bytes: Buffer, dateRenderMode: DateRenderMode, fi
     const { value: key, nextOffset: afterKey } = readCString(bytes, offset);
     offset = afterKey;
 
+    if (key === '__proto__') {
+      // Source fields are data, including __proto__. Create an own property so
+      // assigning the converted value cannot invoke Object.prototype's setter.
+      Object.defineProperty(row, key, { value: null, writable: true, enumerable: true, configurable: true });
+    }
+
     switch (type) {
       case BSON_TYPE_OBJECT_ID: {
         row[key] = hexLower(bytes, offset, 12);
