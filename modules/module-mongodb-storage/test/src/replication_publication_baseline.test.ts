@@ -2,8 +2,8 @@ import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { PerformanceTracer, Span, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { compactActive, getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test, vi } from 'vitest';
+import { MongoSyncRulesLock } from '../../src/storage/implementation/MongoSyncRulesLock.js';
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
-import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { PublicationCommandMonitor } from './helpers/PublicationCommandMonitor.js';
@@ -110,17 +110,15 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       await put(...args);
       sample.endedAt = performance.now();
     });
-    const flush = PersistedBatchV3.prototype.publish;
-    using _flushSpy = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementation(async function (
-      this: PersistedBatchV3,
-      ...args
-    ) {
-      // Inline batches have no PUT to pause. Compact after lookup/evaluation,
-      // immediately before the writer persists its bucket-state delta instead.
+    const fence = MongoSyncRulesLock.fence.bind(MongoSyncRulesLock);
+    using _fenceSpy = vi.spyOn(MongoSyncRulesLock, 'fence').mockImplementation(async (...args) => {
+      const stream = await fence(...args);
+      // Inline batches have no PUT to pause. Compact after the fence takes
+      // its snapshot, immediately before replication writes bucket state.
       if (!offloaded) {
         await compactOnce();
       }
-      return flush.apply(this, args);
+      return stream;
     });
 
     await save('c');
@@ -165,7 +163,7 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       // final data group now executes the independent head/checkpoint tail too.
       expect(summary.replicationAttempts.map((attempt) => attempt.commands)).toEqual([
         ...(conflict ? [{ findAndModify: 1, bulkWrite: 1, abortTransaction: 1 }] : []),
-        { findAndModify: 1, bulkWrite: 1, commitTransaction: 1 }
+        { findAndModify: 1, bulkWrite: 2, commitTransaction: 1 }
       ]);
     }
 

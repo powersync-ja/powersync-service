@@ -502,7 +502,16 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
               `Prepared operation ${lastOp} does not advance persisted stream head ${head}`
             );
           }
-          // Earlier groups may replace the same source record or bucket state.
+          // Acquire the bucket-state documents before bulk payload writes so a
+          // concurrent compactor waits, or a conflict aborts this attempt early.
+          // Groups can update the same bucket: apply their deltas in order.
+          const bucketStates = this.db.createWriteBatch(session, { ordered: true });
+          for (const publication of publications) {
+            publication.queueBucketStates(bucketStates);
+          }
+          await bucketStates.execute();
+
+          // Earlier groups may replace the same source record.
           // Preserve their execution order; only the final group's writes are
           // independent of the head/checkpoint tail built from this fresh fence.
           for (const publication of publications.slice(0, -1)) {

@@ -191,9 +191,6 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     if (this.currentData.size > 0) {
       this.queueCurrentData(writes);
     }
-    if (this.operations.bucketStates.size > 0) {
-      this.queueBucketStates(writes);
-    }
     await writes.execute();
     return this.operations.logFlush(startAt, this.currentData.size, options);
   }
@@ -490,7 +487,10 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     }
   }
 
-  private queueBucketStates(writes: MongoWriteBatch): void {
+  queueBucketStates(writes: MongoWriteBatch): void {
+    if (!this.payloadsReady) {
+      throw new ReplicationAssertionError('Pack payloads before publishing bucket statistics');
+    }
     writes.bulkWriteUnordered(this.db.bucketState(this.group_id), this.getBucketStateUpdates());
   }
 

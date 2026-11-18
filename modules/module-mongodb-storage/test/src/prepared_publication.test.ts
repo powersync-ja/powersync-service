@@ -139,6 +139,9 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
       let attempts = 0;
       await publication!.packAndUploadPayloads();
       await session.withTransaction(async () => {
+        const states = db.createWriteBatch(session, { ordered: true });
+        publication!.queueBucketStates(states);
+        await states.execute();
         expect(await publication!.publish(session)).toEqual({
           bucketDataCount: 6,
           parameterDataCount: 0,
@@ -307,7 +310,12 @@ streams:
       expect(await parameters.countDocuments()).toBe(0);
       await publication!.packAndUploadPayloads();
       await db.client.withSession(async (session) => {
-        await session.withTransaction(() => publication!.publish(session));
+        await session.withTransaction(async () => {
+          const states = db.createWriteBatch(session, { ordered: true });
+          publication!.queueBucketStates(states);
+          await states.execute();
+          await publication!.publish(session);
+        });
       });
       const documents = await parameters.find({}).sort({ _id: 1 }).toArray();
       expect(documents.map((doc) => doc._id)).toEqual([1n, 2n, 3n]);
@@ -419,6 +427,20 @@ streams:
       for (const op of this.batch) {
         yield [op];
       }
+    });
+    // Both read groups touch the same bucket. Its final delta must already
+    // be visible inside the transaction before the first payload write.
+    const publish = PersistedBatchV3.prototype.publish;
+    using _publish = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
+      this: PersistedBatchV3,
+      ...args
+    ) {
+      const states = context.bucketStorage.db.bucketState(context.stream.replicationStreamId);
+      expect(await states.findOne({}, { session: args[0] })).toMatchObject({
+        last_op: 2n,
+        bucket_stats: { count: 2, chunks: 2 }
+      });
+      return publish.apply(this, args);
     });
     for (const after of [
       { id: 'A', description: 'first' },
