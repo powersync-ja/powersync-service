@@ -11,3 +11,9 @@ homepage.workspace = true
 
 [dependencies]
 log = { workspace = true }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+bumpalo = { version = "3", features = ["collections", "std"] }
+string-interner = { version = "0.20", default-features = false, features = ["std", "inline-more", "backends"] }
+thiserror = "2"
