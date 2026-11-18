@@ -57,6 +57,8 @@ To allow configuring minimum and maximum intervals between compacts, we also sto
 
 To allow running concurrent compact jobs on different buckets, we store a renewable lease for each bucket. The compact job checks out a lease on a bucket before starting any compact work. The lease helps to avoid redundant work, but it is not the only correctness mechanism: the individual compact operations are also designed to be safe under concurrency.
 
+Scheduled chunk compaction claims buckets in groups of up to 16, or up to the configured worker count when it exceeds 16. Workers process the claimed buckets at the configured concurrency. Once the workers finish, the job publishes the completed buckets' statistics and releases their leases in an unordered bulk write. Grouping these writes gives replication longer intervals between updates to `bucket_state`. Lease renewal continues while buckets wait for a worker or for publication. Full compaction still claims and finalizes one bucket at a time.
+
 ## Statistics during concurrent writes
 
 Compaction must not hold a long transaction over bucket state, because replication must remain writable. At the same time, bucket stats must remain correct if there are new writes to a bucket while we compact it.

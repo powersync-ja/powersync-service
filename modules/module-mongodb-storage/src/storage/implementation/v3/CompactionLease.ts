@@ -42,6 +42,7 @@ export class CompactionLease implements AsyncDisposable {
   ) {
     this.startedAt = new Date(state.compact_lease!.expires_at.getTime() - durationMs);
     this.lastOp = state.last_op;
+    this.startRenewal();
   }
 
   static async claim(
@@ -70,7 +71,7 @@ export class CompactionLease implements AsyncDisposable {
     return state == null ? null : new CompactionLease(collection, state, id, durationMs);
   }
 
-  startRenewal() {
+  private startRenewal() {
     const interval = Math.max(1, Math.min(LEASE_RENEW_INTERVAL_MS, Math.floor(this.durationMs / 2)));
     this.timer = setInterval(() => {
       if (this.renewalInFlight) {
@@ -94,12 +95,57 @@ export class CompactionLease implements AsyncDisposable {
     }
   }
 
-  async reschedule(nextCompactCheck: mongo.Document) {
-    await this.finish([{ $set: { next_compact_check: nextCompactCheck } }, { $unset: 'compact_lease' }]);
+  async finalize(fields: mongo.Document) {
+    await this.throwIfLost();
+    this.finalizing = true;
+    const result = await this.collection.updateOne(this.filter, [{ $set: fields }, { $unset: 'compact_lease' }]);
+    if (result.matchedCount != 1) {
+      throw new CompactionLeaseLostError(`Lost compaction lease for bucket ${this.state._id.b}`);
+    }
+    this.finished = true;
   }
 
-  async finalize(update: mongo.Document) {
-    await this.finish([{ $set: update }, { $unset: 'compact_lease' }]);
+  /** Each update publishes and releases only the lease that produced it. */
+  static async finalizeBatch(
+    collection: mongo.Collection<BucketStateDocumentV3>,
+    updates: readonly { lease: CompactionLease; fields: mongo.Document }[],
+    rescheduleFailed: (lease: CompactionLease, error: unknown) => Promise<void>
+  ): Promise<number> {
+    if (updates.length === 0) {
+      return 0;
+    }
+    const operations = updates.map(({ lease, fields }) => {
+      lease.finalizing = true;
+      return { updateOne: { filter: lease.filter, update: [{ $set: fields }, { $unset: 'compact_lease' }] } };
+    });
+    let result: mongo.BulkWriteResult;
+    try {
+      result = await collection.bulkWrite(operations, { ordered: false });
+    } catch (error) {
+      // An unordered bulk can reject one bucket and still publish its siblings.
+      // Only handle identified per-update errors; propagate uncertain outcomes.
+      if (
+        !(error instanceof mongo.MongoBulkWriteError) ||
+        !Array.isArray(error.writeErrors) ||
+        error.writeErrors.length === 0 ||
+        error.result.getWriteConcernError() != null
+      ) {
+        throw error;
+      }
+      for (const failed of error.writeErrors) {
+        const { lease } = updates[failed.index];
+        await lease[Symbol.asyncDispose]();
+        await rescheduleFailed(lease, failed);
+      }
+      result = error.result;
+    }
+    // A miss means another worker owns the bucket. On a partial or ambiguous
+    // bulk error, disposal instead releases any leases we still own; it never
+    // replays a stats delta that may already have committed.
+    for (const { lease } of updates) {
+      lease.finished = true;
+    }
+    return result.matchedCount;
   }
 
   async [Symbol.asyncDispose]() {
@@ -138,15 +184,5 @@ export class CompactionLease implements AsyncDisposable {
     if (!(this.renewalError instanceof CompactionLeaseLostError)) {
       this.renewalError = undefined;
     }
-  }
-
-  private async finish(update: mongo.Document[]) {
-    await this.throwIfLost();
-    this.finalizing = true;
-    const result = await this.collection.updateOne(this.filter, update);
-    if (result.matchedCount != 1) {
-      throw new CompactionLeaseLostError(`Lost compaction lease for bucket ${this.state._id.b}`);
-    }
-    this.finished = true;
   }
 }

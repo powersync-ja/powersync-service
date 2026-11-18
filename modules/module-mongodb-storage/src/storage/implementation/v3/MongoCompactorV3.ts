@@ -49,6 +49,13 @@ const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
 const SCHEDULED_COMPACTION_BATCH_SIZE = 100;
+const MIN_CHUNK_LEASE_GROUP_SIZE = 16;
+
+interface BucketCompactionUpdate {
+  fields: mongo.Document;
+  /** Present when the bucket was compacted, absent for a reschedule. */
+  completedMessage?: string;
+}
 
 interface CompactionGroupResult {
   documentId: BucketDataKey;
@@ -156,7 +163,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           continue;
         }
         const decision = chooseCompactionKind(lease.state, lease.startedAt, this);
-        await this.compactClaimedBucket(lease, CompactionKind.Full, decision);
+        const update = await this.compactClaimedBucket(lease, CompactionKind.Full, decision);
+        await this.publishSingleBucket(lease, update);
       }
     }
   }
@@ -191,6 +199,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       { length: this.storage.factory.chunkCompactionConcurrency },
       () => new ObjectStorageUsage(this.db, this.group_id, createObjectStorageUsageWriterId())
     );
+    const groupSize = Math.max(MIN_CHUNK_LEASE_GROUP_SIZE, workerUsage.length);
     while (true) {
       this.signal?.throwIfAborted();
       const states = await this.findScheduledBucketBatch(dueBefore);
@@ -224,58 +233,145 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       }
       await this.rescheduleUnclaimedBuckets(noOpStates, rescheduleNotBefore);
 
-      const processBucket = async (
-        state: BucketStateDocumentV3,
-        objectStorageUsage: ObjectStorageUsage,
-        chunksOnly = false
-      ) => {
+      // One group can use every configured worker. Publish and release its
+      // leases before claiming the next group.
+      for (let i = 0; i < chunkBuckets.length; i += groupSize) {
+        await this.compactChunkGroup(
+          chunkBuckets.slice(i, i + groupSize),
+          workerUsage,
+          dueBefore,
+          requestedKind,
+          rescheduleNotBefore
+        );
+      }
+      // Full compaction cannot overlap chunk workers from this job, and only
+      // one full bucket is processed at a time.
+      for (const state of sequentialBuckets) {
         try {
+          this.signal?.throwIfAborted();
           await using lease = await this.claimBucket({ _id: state._id, next_compact_check: { $lte: dueBefore } });
           if (lease == null) {
-            return;
+            continue;
           }
-          const claimedDecision = chooseCompactionKind(lease.state, lease.startedAt, this);
-          const claimedKind =
-            requestedKind == null
-              ? claimedDecision.kind
-              : chooseRequestedCompactionKind(lease.state, requestedKind, this);
-          if (chunksOnly && claimedKind === CompactionKind.Full) {
-            // The decision changed after scanning. Release the lease without
-            // rescheduling; the next batch will classify it with a fresh timestamp.
-            return;
-          }
-          if (claimedKind == null) {
-            await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
-          } else if (this.isCompactionTargetCovered(lease.state, claimedKind)) {
-            // The run cannot advance this kind's watermark without regressing
-            // already-published progress. Keep any newer work scheduled.
-            await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
-          } else {
-            await this.compactClaimedBucket(
-              lease,
-              claimedKind,
-              claimedDecision,
-              rescheduleNotBefore,
-              objectStorageUsage
-            );
+          const update = await this.processScheduledLease(
+            lease,
+            requestedKind,
+            rescheduleNotBefore,
+            this.objectStorageUsage,
+            false
+          );
+          if (update != null) {
+            await this.publishSingleBucket(lease, update);
           }
         } catch (error) {
           if (this.signal?.aborted) {
-            // When aborted, stop completely, rather than logging and re-scheduling individual buckets.
-            // The lease on the current bucket is still released automatically.
             throw error;
           }
           await this.rescheduleFailedBucket(state, rescheduleNotBefore, error);
         }
-      };
+      }
+    }
+  }
 
-      await this.runChunkCompactionWorkers(chunkBuckets, workerUsage, (state, usage) =>
-        processBucket(state, usage, true)
-      );
-      // Full compaction cannot overlap chunk workers from this job, and only
-      // one full bucket is processed at a time.
-      for (const state of sequentialBuckets) {
-        await processBucket(state, this.objectStorageUsage);
+  private async processScheduledLease(
+    lease: CompactionLease,
+    requestedKind: CompactionKind | undefined,
+    rescheduleNotBefore: Date,
+    usage: ObjectStorageUsage,
+    chunksOnly: boolean
+  ): Promise<BucketCompactionUpdate | undefined> {
+    await lease.throwIfLost();
+    const decision = chooseCompactionKind(lease.state, lease.startedAt, this);
+    const kind =
+      requestedKind == null ? decision.kind : chooseRequestedCompactionKind(lease.state, requestedKind, this);
+    if (chunksOnly && kind === CompactionKind.Full) {
+      // The decision changed after scanning. Release without rescheduling so
+      // the next batch can classify it with a fresh timestamp.
+      return;
+    }
+    if (kind == null || this.isCompactionTargetCovered(lease.state, kind)) {
+      // The run cannot advance this kind's watermark. Keep any newer work scheduled.
+      return {
+        fields: { next_compact_check: this.rescheduleAtOrAfter(decision.nextCompactCheck, rescheduleNotBefore) }
+      };
+    }
+    return this.compactClaimedBucket(lease, kind, decision, rescheduleNotBefore, usage);
+  }
+
+  private async publishSingleBucket(lease: CompactionLease, update: BucketCompactionUpdate) {
+    await lease.finalize(update.fields);
+    if (update.completedMessage != null) {
+      this.compactedBucketCount++;
+      this.logger.info(update.completedMessage);
+    }
+  }
+
+  private async compactChunkGroup(
+    states: BucketStateDocumentV3[],
+    workerUsage: ObjectStorageUsage[],
+    dueBefore: Date,
+    requestedKind: CompactionKind | undefined,
+    rescheduleNotBefore: Date
+  ) {
+    this.signal?.throwIfAborted();
+    await using owned = new AsyncDisposableStack();
+    // Each claim returns the state it actually acquired. Renew immediately,
+    // including while waiting for sibling claims, a worker slot, or publication.
+    const claims = await Promise.allSettled(
+      states.map(async (state) => {
+        const lease = await this.claimBucket({ _id: state._id, next_compact_check: { $lte: dueBefore } });
+        return owned.use(lease);
+      })
+    );
+    const leases: CompactionLease[] = [];
+    for (const [i, claim] of claims.entries()) {
+      this.signal?.throwIfAborted();
+      if (claim.status === 'rejected') {
+        await this.rescheduleFailedBucket(states[i], rescheduleNotBefore, claim.reason);
+      } else if (claim.value != null) {
+        leases.push(claim.value);
+      }
+    }
+
+    const updates: (BucketCompactionUpdate & { lease: CompactionLease })[] = [];
+    try {
+      await this.runChunkCompactionWorkers(leases, workerUsage, async (lease, usage) => {
+        try {
+          const update = await this.processScheduledLease(lease, requestedKind, rescheduleNotBefore, usage, true);
+          await lease.throwIfLost();
+          if (update != null) {
+            updates.push({ lease, ...update });
+          }
+        } catch (error) {
+          if (this.signal?.aborted) {
+            throw error;
+          }
+          // Release before the snapshot-conditional reschedule. Concurrent
+          // replication or takeover must be able to invalidate that update.
+          await lease[Symbol.asyncDispose]();
+          await this.rescheduleFailedBucket(lease.state, rescheduleNotBefore, error);
+        }
+      });
+    } finally {
+      // Workers have drained, even on cancellation. Publish completed work
+      // before disposing unused leases.
+      const collection = this.db.bucketState(this.group_id);
+      const rescheduleFailed = (lease: CompactionLease, error: unknown) =>
+        this.rescheduleFailedBucket(lease.state, rescheduleNotBefore, error);
+      const completed = updates.filter((update) => update.completedMessage != null);
+      const matched = await CompactionLease.finalizeBatch(collection, updates, rescheduleFailed);
+      // A partial match in a mixed batch only gives an upper bound on published compactions.
+      this.compactedBucketCount += Math.min(completed.length, matched);
+      if (matched === updates.length) {
+        for (const update of completed) {
+          this.logger.info(update.completedMessage!);
+        }
+      } else {
+        // This happens when the job lost ownership of a bucket or MongoDB rejected an update.
+        // If this repeats, check for competing compaction jobs and earlier per-bucket errors.
+        this.logger.warn(
+          `Published ${matched} of ${updates.length} compaction updates to bucket_state. Remaining work will be retried when due.`
+        );
       }
     }
   }
@@ -306,7 +402,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           const bucket = buckets[nextBucket++];
 
           // This pool bounds one job; the factory semaphore bounds all jobs together.
-          // Acquire before claiming the bucket lease, and hold until it is released.
+          // The group owns its leases; only active chunk work needs a slot.
           const acquired = await acquireSemaphoreAbortable(this.storage.factory.chunkCompactionSlots, signal);
           if (acquired === 'aborted') {
             signal?.throwIfAborted();
@@ -315,7 +411,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           const [, releaseSlot] = acquired;
           try {
             // A sibling may have failed while this worker waited for a slot.
-            if (failed) return;
+            if (failed) {
+              return;
+            }
             signal?.throwIfAborted();
             await processBucket(bucket, usage);
           } finally {
@@ -335,9 +433,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     // Reuse one writer for each worker instead of creating one per bucket.
     const workers = workerUsage.map(runWorker);
 
-    // Do not release the caller's replication lock or run cleanup while a
-    // sibling worker still owns a bucket lease or is finishing a replacement.
-    // Wait for every worker even on failure, then propagate the first error.
+    // Drain every sibling before releasing leases, including on failure.
     const results = await Promise.allSettled(workers);
     for (const result of results) {
       if (result.status === 'rejected') {
@@ -425,12 +521,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       rescheduleNotBefore,
       this.compactionTarget(lease.state)
     );
-    lease.startRenewal();
-    await this.compactSingleBucket(context, objectStorageUsage);
-  }
-
-  private async rescheduleClaimedBucket(lease: CompactionLease, decision: CompactionDecision, notBefore?: Date) {
-    await lease.reschedule(this.rescheduleAtOrAfter(decision.nextCompactCheck, notBefore));
+    return this.compactSingleBucket(context, objectStorageUsage);
   }
 
   private rescheduleAtOrAfter(nextCompactCheck: mongo.Document, notBefore: Date | undefined): mongo.Document {
@@ -605,8 +696,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     }
 
     if (compactedOpId == null) {
-      await this.finalizeSkippedBucket(context);
-      return;
+      return this.skippedBucketUpdate(context);
     }
 
     const compactedState =
@@ -622,11 +712,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       bucketStats: tailStats == null ? compactedState : combineAdjacentStats(compactedState, tailStats)
     };
 
-    await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: 0 });
-    this.compactedBucketCount++;
-    this.logger.info(
-      `Compacted bucket chunks ${bucket}: ${result.bucketStats.count} ops, ${result.bucketStats.chunks} chunks, ${formatBytes(result.bucketStats.bytes)}`
-    );
+    return {
+      fields: this.compactedBucketFields({ context, compactedOpId, compactionResult: result, puts: 0 }),
+      completedMessage: `Compacted bucket chunks ${bucket}: ${result.bucketStats.count} ops, ${result.bucketStats.chunks} chunks, ${formatBytes(result.bucketStats.bytes)}`
+    };
   }
 
   private async flushChunkMerge(
@@ -687,7 +776,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     }
   }
 
-  private async finalizeCompactedBucket({
+  private compactedBucketFields({
     context,
     compactedOpId,
     compactionResult,
@@ -698,7 +787,6 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     compactionResult: CompactionResult;
     puts: number;
   }) {
-    await context.lease.throwIfLost();
     const startedStats = bucketStats(context.state);
     const delta = {
       count: compactionResult.bucketStats.count - startedStats.count,
@@ -762,25 +850,25 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       };
     }
 
-    await context.lease.finalize(update);
+    return update;
   }
 
-  private async finalizeSkippedBucket(context: CompactionContext) {
+  private skippedBucketUpdate(context: CompactionContext): BucketCompactionUpdate {
     // A maxOpId cap can exclude the first remaining document entirely. Avoid
     // immediately claiming the same no-progress bucket again in this run.
-    await this.rescheduleClaimedBucket(
-      context.lease,
-      {
-        ...context.decision,
-        nextCompactCheck: {
-          $max: [
-            context.decision.nextCompactCheck,
-            { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
-          ]
-        }
-      },
-      context.rescheduleNotBefore
-    );
+    return {
+      fields: {
+        next_compact_check: this.rescheduleAtOrAfter(
+          {
+            $max: [
+              context.decision.nextCompactCheck,
+              { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
+            ]
+          },
+          context.rescheduleNotBefore
+        )
+      }
+    };
   }
 
   /**
@@ -1041,8 +1129,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       }
     }
     if (compactedOpId == null) {
-      await this.finalizeSkippedBucket(context);
-      return;
+      return this.skippedBucketUpdate(context);
     }
 
     // --- Clear: collapse leading MOVE/REMOVE/CLEAR sequence ---
@@ -1073,12 +1160,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     };
 
     // --- Finalize: update bucket checksums and state ---
-    await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: putCount });
-
-    this.compactedBucketCount++;
-    this.logger.info(
-      `Compacted bucket ${bucket}: ${totalOpCount} ops, ${result.bucketStats.chunks} chunks, ${formatBytes(result.bucketStats.bytes)}`
-    );
+    return {
+      fields: this.compactedBucketFields({ context, compactedOpId, compactionResult: result, puts: putCount }),
+      completedMessage: `Compacted bucket ${bucket}: ${totalOpCount} ops, ${result.bucketStats.chunks} chunks, ${formatBytes(result.bucketStats.bytes)}`
+    };
   }
 
   /**
