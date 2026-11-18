@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.29.1
+
+### Patch Changes
+
+- 9b0fce0: [MongoDB Storage] Reduce write conflicts between replication and compaction.
+
 ## 1.29.0
 
 ### Minor Changes
