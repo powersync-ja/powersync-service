@@ -50,22 +50,8 @@ pub struct ProcessorGroup<E: ReplicationEmbedder> {
     pub input_schema_name: Option<Slot>,
     pub inputs_table_suffix: Vec<TableSuffixInput>,
 
-    /// If a data source in this group uses `*` projections, an index of columns appearing after the
-    /// `*`.
-    ///
-    /// This is used as an optimization to skip decoding fields if we know they're not used. If a
-    /// column isn't used as an input, and there's no star projection (or there is one but the
-    /// column is shadowed), we can safely ignore it.
-    pub star: Option<StarUsage>,
-}
-
-#[derive(Debug)]
-pub struct StarUsage {
-    /// Columns written after the `*` in every data source using a `*` projection.
-    ///
-    /// Since these overwrite fields of the source row, a field in this set only needs to be
-    /// decoded if an expression references it.
-    pub shadowed: HashSet<Symbol>,
+    /// Whether any processor in this group has a `*` projection.
+    pub has_star_projection: bool,
 }
 
 /// A reference to a value used while evaluating a [ProcessorGroup].
@@ -243,7 +229,7 @@ impl<E: ReplicationEmbedder> Default for ProcessorGroup<E> {
             input_columns: HashMap::new(),
             input_schema_name: None,
             inputs_table_suffix: Vec::new(),
-            star: None,
+            has_star_projection: false,
         }
     }
 }
@@ -262,18 +248,7 @@ impl<E: ReplicationEmbedder> ProcessorGroup<E> {
             slot: translator.lower(&column.expr).slot,
         }));
         let common = translator.finish(parameters);
-
-        if projection.columns.has_star() {
-            let after = &projection.after_aliases;
-            match &mut self.star {
-                Some(star) => star.shadowed.retain(|alias| after.contains(alias)),
-                None => {
-                    self.star = Some(StarUsage {
-                        shadowed: after.clone(),
-                    })
-                }
-            }
-        }
+        self.has_star_projection = self.has_star_projection || projection.columns.has_star();
 
         self.processors
             .push(ProcessedGroupMember::Data(ProcessedDataSource {

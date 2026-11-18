@@ -1,10 +1,12 @@
 use std::{
+    borrow::Cow,
     ops::{Index, IndexMut},
     sync::Arc,
 };
 
+use bson::RawDocument;
 use bumpalo::{Bump, collections::Vec};
-use serde::{Serialize, ser::SerializeMap};
+use serde::{Deserializer, Serialize, de::Visitor, ser::SerializeMap};
 
 use crate::sync_plan::{
     CompatibilityContext, EvaluationError, HydratedSyncConfig, ReplicationEmbedder, SqliteValue,
@@ -14,6 +16,10 @@ use crate::sync_plan::{
     processor_group::{
         EvaluatorInstruction, PreparedProjection, ProcessedGroupMember, ProcessorGroup,
         ScalarOperation, Slot,
+    },
+    sources::{
+        bson::SqliteValueFromBson,
+        json::{ScalarSqliteValueOrText, SqliteValueFromJson},
     },
     table_pattern::SourceTableRef,
 };
@@ -80,26 +86,87 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
     /// Returns [None] if the field is not used by any processor, so that it doesn't have to be
     /// decoded. Otherwise, the value should be set with [PreparedField::set] or
     /// [PreparedField::set_converted].
-    pub fn prepare_field(&mut self, name: &'a str) -> Option<PreparedField<'_, 'a>> {
+    pub fn prepare_field(&mut self, name: &Cow<'a, str>) -> Option<PreparedField<'_, 'a>> {
         let symbol = self.config.interner.get(name);
         let slot = symbol.and_then(|symbol| self.group.input_columns.get(&symbol).copied());
-        let star = match &self.group.star {
-            None => false,
-            // Names that were never interned can't be shadowed.
-            Some(star) => symbol.is_none_or(|symbol| !star.shadowed.contains(&symbol)),
+        let name_for_star = if self.group.has_star_projection {
+            Some(match name {
+                Cow::Borrowed(name) => *name,
+                // This is used for e.g. JSON inputs with control characters, we need to copy
+                // the column name into the buffer.
+                Cow::Owned(name) => self.frame.arena.alloc_str(&name),
+            })
+        } else {
+            None
         };
 
-        if slot.is_none() && !star {
+        if slot.is_none() && name_for_star.is_none() {
             return None;
         }
 
         Some(PreparedField {
             frame: &mut self.frame,
-            name,
+            name_for_star,
             symbol,
             slot,
-            star,
         })
+    }
+
+    /// Push a BSON source row into the evaluator.
+    ///
+    /// This iterates through and decodes BSON bytes where needed.
+    pub fn push_bson(&mut self, bson: &'a [u8]) -> Result<(), bson::error::Error> {
+        let bson = RawDocument::from_bytes(bson)?;
+        let from_bson = SqliteValueFromBson::from(&self.frame);
+
+        for element in bson.iter_elements() {
+            let element = element?;
+            let Some(field) = self.prepare_field(&Cow::Borrowed(element.key().as_str())) else {
+                // No `*` column, and no reference to this field, ignore it.
+                continue;
+            };
+
+            let parsed_value = from_bson.parse_top_level_value(element.value()?)?;
+            field.set(parsed_value);
+        }
+
+        Ok(())
+    }
+
+    /// Reads a row through the serde deserializer.
+    ///
+    /// This is designed for JSON, other formats will likely error.
+    pub fn push_json<D: Deserializer<'a>>(&mut self, deserializer: D) -> Result<(), D::Error> {
+        struct ProcessRecord<'a, 'b, E: ReplicationEmbedder>(&'b mut RowEvaluation<'a, E>);
+
+        impl<'a, 'b, E: ReplicationEmbedder> Visitor<'a> for ProcessRecord<'a, 'b, E> {
+            type Value = ();
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "a JSON object")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'a>,
+            {
+                while let Some(key) = map.next_key::<Cow<'a, str>>()? {
+                    let Some(field) = self.0.prepare_field(&key) else {
+                        // No `*` column, and no reference to this field, ignore it.
+                        continue;
+                    };
+
+                    let parsed_value = map.next_value_seed(ScalarSqliteValueOrText(
+                        SqliteValueFromJson::from(&*field.frame),
+                    ))?;
+                    field.set(parsed_value);
+                }
+
+                Ok(())
+            }
+        }
+
+        deserializer.deserialize_map(ProcessRecord(self))
     }
 
     /// Evaluates all processors matching the row, reporting results to the `sink`.
@@ -177,10 +244,9 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
 /// A field of the source row that is used by at least one processor.
 pub struct PreparedField<'r, 'a> {
     frame: &'r mut Frame<'a>,
-    name: &'a str,
+    name_for_star: Option<&'a str>,
     symbol: Option<Symbol>,
     slot: Option<Slot>,
-    star: bool,
 }
 
 impl<'a> PreparedField<'_, 'a> {
@@ -190,10 +256,10 @@ impl<'a> PreparedField<'_, 'a> {
             frame[slot] = value;
         }
 
-        if self.star {
+        if let Some(name) = self.name_for_star {
             if value.is_json_compatible() {
                 frame.star_columns.push(StarColumn {
-                    name: self.name,
+                    name,
                     symbol: self.symbol,
                     value,
                 });
@@ -439,14 +505,14 @@ struct PendingValueSlice<'a> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
+    use std::{borrow::Cow, sync::Arc};
 
     use serde_json::{Value, json, to_value};
 
     use super::{EvaluationSink, Evaluator, ProjectedRow};
     use crate::sync_plan::{
         CompatibilityContext, HydratedSource, HydratedSyncConfig, ReplicationEmbedder, SqliteValue,
-        expression::{LiteralExpression, SqlExpression},
+        expression::SqlExpression,
         plan::{
             ColumnSource, RowProjection, StreamDataSource, StreamParameterIndexLookupCreator,
             TableProcessor, TableProcessorData, TableProcessorExpression,
@@ -605,7 +671,7 @@ mod test {
         let mut requested = vec![];
         let mut row = evaluator.evaluate(table(table_name)).unwrap();
         for (name, value) in fields {
-            if let Some(field) = row.prepare_field(name) {
+            if let Some(field) = row.prepare_field(&Cow::Borrowed(name)) {
                 requested.push(*name);
                 field.set(*value);
             }
@@ -666,46 +732,6 @@ mod test {
     }
 
     #[test]
-    fn skips_shadowed_fields() {
-        let shadowing = || {
-            data_source(
-                "users",
-                RowProjection::Star {
-                    before: vec![],
-                    after: vec![alias(
-                        "a",
-                        SqlExpression::Literal(LiteralExpression::Integer(1)),
-                    )],
-                },
-            )
-        };
-        let fields = [
-            ("a", SqliteValue::Integer(2)),
-            ("b", SqliteValue::Integer(3)),
-        ];
-
-        let sources = [shadowing()];
-        let mut evaluator = create_evaluator(&[bucket("b", &sources)]);
-        let mut sink = RecordingSink::default();
-        assert_eq!(
-            evaluate_row(&mut evaluator, "users", &fields, &mut sink),
-            ["b"]
-        );
-        assert_eq!(sink.rows[0].columns, json!({"b": 3, "a": 1}));
-
-        // Another star projection not shadowing a needs the field.
-        let sources = [shadowing(), data_source("users", star())];
-        let mut evaluator = create_evaluator(&[bucket("b", &sources)]);
-        let mut sink = RecordingSink::default();
-        assert_eq!(
-            evaluate_row(&mut evaluator, "users", &fields, &mut sink),
-            ["a", "b"]
-        );
-        assert_eq!(sink.rows[0].columns, json!({"b": 3, "a":1}));
-        assert_eq!(sink.rows[1].columns, json!({"a":2,"b":3}));
-    }
-
-    #[test]
     fn projection_order() {
         let mut source = data_source(
             "users",
@@ -739,6 +765,7 @@ mod test {
 
     #[test]
     fn emits_columns_once() {
+        // SELECT row.a AS x, row.a AS y, *, row.b AS z FROM users
         let sources = [data_source(
             "users",
             RowProjection::Star {
@@ -764,7 +791,7 @@ mod test {
         // The x column is shadowed by the source row, the z field by the z column.
         assert_eq!(
             sink.rows[0].columns,
-            json!({"y": 1, "a": 1, "b": 2, "x":3, "z":2})
+            json!({"y": 1, "a": 1, "b": 2, "x": 3, "z" :2})
         );
 
         // Without an x field in the source row, the column before the star is emitted.
