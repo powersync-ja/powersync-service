@@ -183,7 +183,7 @@ mod test {
 
     fn json_each(source: &str) -> Vec<(String, String)> {
         let arena = Bump::new();
-        let compatibility = CompatibilityContext::default_for_tests();
+        let compatibility = CompatibilityContext::default();
         json_each_with(&arena, &compatibility, SqliteValue::Text(source))
             .into_iter()
             .map(|(k, v)| (format!("{k:?}"), format!("{v:?}")))
@@ -199,7 +199,7 @@ mod test {
     #[test]
     fn null_input() {
         let arena = Bump::new();
-        let compatibility = CompatibilityContext::default_for_tests();
+        let compatibility = CompatibilityContext::default();
         assert!(json_each_with(&arena, &compatibility, SqliteValue::Null).is_empty());
     }
 
@@ -262,7 +262,7 @@ mod test {
     #[test]
     fn legacy_null_behavior() {
         let arena = Bump::new();
-        let mut compatibility = CompatibilityContext::default_for_tests();
+        let mut compatibility = CompatibilityContext::default();
         compatibility.fixed_json_extract = false;
 
         let rows = json_each_with(&arena, &compatibility, SqliteValue::Text("[null]"));
@@ -272,7 +272,7 @@ mod test {
     #[test]
     fn invalid_json() {
         let arena = Bump::new();
-        let compatibility = CompatibilityContext::default_for_tests();
+        let compatibility = CompatibilityContext::default();
         let mut frame = Frame::new(&arena, &compatibility, 1, 2);
 
         for source in ["[1,", "{} trailing", ""] {

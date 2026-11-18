@@ -94,7 +94,7 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                 Cow::Borrowed(name) => *name,
                 // This is used for e.g. JSON inputs with control characters, we need to copy
                 // the column name into the buffer.
-                Cow::Owned(name) => self.frame.arena.alloc_str(&name),
+                Cow::Owned(name) => self.frame.arena.alloc_str(name),
             })
         } else {
             None
@@ -256,14 +256,14 @@ impl<'a> PreparedField<'_, 'a> {
             frame[slot] = value;
         }
 
-        if let Some(name) = self.name_for_star {
-            if value.is_json_compatible() {
-                frame.star_columns.push(StarColumn {
-                    name,
-                    symbol: self.symbol,
-                    value,
-                });
-            }
+        if let Some(name) = self.name_for_star
+            && value.is_json_compatible()
+        {
+            frame.star_columns.push(StarColumn {
+                name,
+                symbol: self.symbol,
+                value,
+            });
         }
     }
 }
@@ -643,7 +643,7 @@ mod test {
     }
 
     fn create_evaluator(sources: &[HydratedSource<TestEmbedder>]) -> Evaluator<TestEmbedder> {
-        let config = HydratedSyncConfig::new(CompatibilityContext::default_for_tests(), sources);
+        let config = HydratedSyncConfig::new(CompatibilityContext::default(), sources);
 
         Evaluator::new(Arc::new(config))
     }

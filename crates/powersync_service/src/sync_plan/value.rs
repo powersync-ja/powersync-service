@@ -56,8 +56,8 @@ impl Serialize for SqliteValue<'_> {
             SqliteValue::Null => serializer.serialize_unit(),
             SqliteValue::Float(f) => serializer.serialize_f64(*f),
             SqliteValue::Integer(i) => serializer.serialize_i64(*i),
-            SqliteValue::Blob(items) => serializer.serialize_bytes(*items),
-            SqliteValue::Text(str) => serializer.serialize_str(*str),
+            SqliteValue::Blob(items) => serializer.serialize_bytes(items),
+            SqliteValue::Text(str) => serializer.serialize_str(str),
         }
     }
 }
