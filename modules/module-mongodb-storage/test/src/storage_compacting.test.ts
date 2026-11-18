@@ -486,6 +486,44 @@ bucket_definitions:
     }
   });
 
+  test('a covered chunk target skips the lease but a full compact at the same op can advance', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
+    const id = { d: ctx.definitionId, b: BUCKET };
+    const documents = Array.from({ length: 9 }, (_, i) =>
+      serializeBucketData(BUCKET, [makeOp(i + 1, 'A', 'data', ctx, sourceTableId)])
+    );
+    await collection.insertMany(documents);
+    const prefix = documents[0];
+    await bucketStateCollection.insertOne({
+      _id: id,
+      last_op: 9n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(),
+      bucket_stats: { count: 9, bytes: BigInt(documents.reduce((sum, doc) => sum + doc.size, 0)), chunks: 9 },
+      compacted_state: {
+        op_id: 1n,
+        checksum: prefix.checksum,
+        count: 1,
+        bytes: BigInt(prefix.size),
+        chunks: 1,
+        at: new Date(0)
+      }
+    });
+
+    using claim = vi.spyOn(CompactionLease, 'claim');
+    await bucketStorage.compact({ maxOpId: 1n });
+    expect(claim).not.toHaveBeenCalled();
+    const deferred = await bucketStateCollection.findOne({ _id: id });
+    expect(deferred?.next_compact_check!.getTime()).toBeGreaterThan(Date.now());
+    expect(deferred?.compacted_state?.op_id).toBe(1n);
+
+    // The checksum cache covers the cap, but the prefix has never been fully compacted.
+    await bucketStateCollection.updateOne({ _id: id }, { $set: { next_compact_check: new Date(0) } });
+    await bucketStorage.compact({ maxOpId: 1n, maxCompactFullIntervalMs: 0 });
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect((await bucketStateCollection.findOne({ _id: id }))?.last_full_compact?.op_id).toBe(1n);
+  });
+
   test('a successful lease renewal clears a transient renewal error', async () => {
     const { bucketStateCollection, ctx } = await setupV3Storage();
     await insertBucketState(bucketStateCollection, ctx.definitionId, 1n);
@@ -1330,7 +1368,9 @@ bucket_definitions:
       { $set: { first_uncompacted_write: new Date(0), next_compact_check: new Date(0) } }
     );
 
+    using claim = vi.spyOn(CompactionLease, 'claim');
     await bucketStorage.compact({ maxOpId: 1n });
+    expect(claim).not.toHaveBeenCalled();
 
     const rescheduledState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
     expect(rescheduledState?.last_full_compact?.at).toEqual(lastFullCompactAt);

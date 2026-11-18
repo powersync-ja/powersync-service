@@ -201,38 +201,34 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       // server time so buckets that age into full compaction can advance.
       const batchStartedAt = await this.readCompactionTime();
 
-      const scheduled: {
-        state: BucketStateDocumentV3;
-        decision: CompactionDecision;
-        selectedKind: CompactionKind | null;
-      }[] = [];
+      const noOpStates: { state: BucketStateDocumentV3; decision: CompactionDecision }[] = [];
+      const chunkBuckets: BucketStateDocumentV3[] = [];
+      const sequentialBuckets: BucketStateDocumentV3[] = [];
       for (const state of states) {
         try {
-          scheduled.push({
-            state,
-            decision: chooseCompactionKind(state, batchStartedAt, this),
-            selectedKind: chooseRequestedCompactionKind(state, requestedKind, this)
-          });
+          const decision = chooseCompactionKind(state, batchStartedAt, this);
+          const kind =
+            requestedKind == null ? decision.kind : chooseRequestedCompactionKind(state, requestedKind, this);
+          // A due bucket may already cover this run's checkpoint. Reschedule
+          // from the snapshot unless an expired lease needs to be reclaimed.
+          if (state.compact_lease == null && (kind == null || this.isCompactionTargetCovered(state, kind))) {
+            noOpStates.push({ state, decision });
+          } else if (kind === CompactionKind.Chunks) {
+            chunkBuckets.push(state);
+          } else {
+            sequentialBuckets.push(state);
+          }
         } catch (error) {
           await this.rescheduleFailedBucket(state, rescheduleNotBefore, error);
         }
       }
-      const noOpStates = scheduled.filter(
-        ({ state, decision, selectedKind }) =>
-          state.compact_lease == null && (requestedKind == null ? decision.kind : selectedKind) == null
-      );
       await this.rescheduleUnclaimedBuckets(noOpStates, rescheduleNotBefore);
 
       const processBucket = async (
-        { state, decision, selectedKind }: (typeof scheduled)[number],
+        state: BucketStateDocumentV3,
         objectStorageUsage: ObjectStorageUsage,
         chunksOnly = false
       ) => {
-        const kind = requestedKind == null ? decision.kind : selectedKind;
-        if (state.compact_lease == null && kind == null) {
-          return;
-        }
-
         try {
           await using lease = await this.claimBucket({ _id: state._id, next_compact_check: { $lte: dueBefore } });
           if (lease == null) {
@@ -273,19 +269,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         }
       };
 
-      const chunkBuckets = scheduled.filter(
-        ({ decision, selectedKind }) => (requestedKind == null ? decision.kind : selectedKind) === CompactionKind.Chunks
-      );
-      const sequentialBuckets = scheduled.filter(
-        ({ decision, selectedKind }) => (requestedKind == null ? decision.kind : selectedKind) !== CompactionKind.Chunks
-      );
-      await this.runChunkCompactionWorkers(chunkBuckets, workerUsage, (entry, usage) =>
-        processBucket(entry, usage, true)
+      await this.runChunkCompactionWorkers(chunkBuckets, workerUsage, (state, usage) =>
+        processBucket(state, usage, true)
       );
       // Full compaction cannot overlap chunk workers from this job, and only
       // one full bucket is processed at a time.
-      for (const entry of sequentialBuckets) {
-        await processBucket(entry, this.objectStorageUsage);
+      for (const state of sequentialBuckets) {
+        await processBucket(state, this.objectStorageUsage);
       }
     }
   }
