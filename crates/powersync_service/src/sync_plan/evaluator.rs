@@ -1,12 +1,15 @@
 use std::{
-    borrow::Cow,
     ops::{Index, IndexMut},
     sync::Arc,
 };
 
 use bson::RawDocument;
 use bumpalo::{Bump, collections::Vec};
-use serde::{Deserializer, Serialize, de::Visitor, ser::SerializeMap};
+use serde::{
+    Deserializer, Serialize,
+    de::{DeserializeSeed, Visitor},
+    ser::SerializeMap,
+};
 
 use crate::sync_plan::{
     CompatibilityContext, EvaluationError, HydratedSyncConfig, ReplicationEmbedder, SqliteValue,
@@ -86,16 +89,11 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
     /// Returns [None] if the field is not used by any processor, so that it doesn't have to be
     /// decoded. Otherwise, the value should be set with [PreparedField::set] or
     /// [PreparedField::set_converted].
-    pub fn prepare_field(&mut self, name: &Cow<'a, str>) -> Option<PreparedField<'_, 'a>> {
+    pub fn prepare_field(&mut self, name: &'a str) -> Option<PreparedField<'_, 'a>> {
         let symbol = self.config.interner.get(name);
         let slot = symbol.and_then(|symbol| self.group.input_columns.get(&symbol).copied());
         let name_for_star = if self.group.has_star_projection {
-            Some(match name {
-                Cow::Borrowed(name) => *name,
-                // This is used for e.g. JSON inputs with control characters, we need to copy
-                // the column name into the buffer.
-                Cow::Owned(name) => self.frame.arena.alloc_str(name),
-            })
+            Some(name)
         } else {
             None
         };
@@ -121,7 +119,7 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
 
         for element in bson.iter_elements() {
             let element = element?;
-            let Some(field) = self.prepare_field(&Cow::Borrowed(element.key().as_str())) else {
+            let Some(field) = self.prepare_field(element.key().as_str()) else {
                 // No `*` column, and no reference to this field, ignore it.
                 continue;
             };
@@ -137,6 +135,10 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
     ///
     /// This is designed for JSON, other formats will likely error.
     pub fn push_json<D: Deserializer<'a>>(&mut self, deserializer: D) -> Result<(), D::Error> {
+        struct JsonKeyVisitor<'a> {
+            alloc: &'a Bump,
+        }
+
         struct ProcessRecord<'a, 'b, E: ReplicationEmbedder>(&'b mut RowEvaluation<'a, E>);
 
         impl<'a, 'b, E: ReplicationEmbedder> Visitor<'a> for ProcessRecord<'a, 'b, E> {
@@ -150,8 +152,10 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
             where
                 A: serde::de::MapAccess<'a>,
             {
-                while let Some(key) = map.next_key::<Cow<'a, str>>()? {
-                    let Some(field) = self.0.prepare_field(&key) else {
+                while let Some(key) = map.next_key_seed(JsonKeyVisitor {
+                    alloc: self.0.frame.arena,
+                })? {
+                    let Some(field) = self.0.prepare_field(key) else {
                         // No `*` column, and no reference to this field, ignore it.
                         continue;
                     };
@@ -163,6 +167,39 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                 }
 
                 Ok(())
+            }
+        }
+
+        impl<'a> DeserializeSeed<'a> for JsonKeyVisitor<'a> {
+            type Value = &'a str;
+
+            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'a>,
+            {
+                deserializer.deserialize_str(self)
+            }
+        }
+
+        impl<'a> Visitor<'a> for JsonKeyVisitor<'a> {
+            type Value = &'a str;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "a JSON key")
+            }
+
+            fn visit_borrowed_str<E>(self, v: &'a str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v)
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(self.alloc.alloc_str(v))
             }
         }
 
