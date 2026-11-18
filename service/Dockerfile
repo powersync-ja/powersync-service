@@ -1,5 +1,24 @@
 ARG ALPINE_VERSION=3.24
 
+# Keep this in sync with rust-toolchain.toml.
+FROM rust:1.100.0-alpine${ALPINE_VERSION} AS rust-builder
+ARG TARGETPLATFORM
+WORKDIR /app
+
+# Build the Rust Node addon for the service.
+# This step is mostly inspired from https://docs.docker.com/guides/rust/.
+# Caches are per platform, since multi-platform builds would otherwise share the same target directory.
+RUN --mount=type=bind,source=crates,target=crates \
+    --mount=type=bind,source=Cargo.toml,target=Cargo.toml \
+    --mount=type=bind,source=Cargo.lock,target=Cargo.lock \
+    --mount=type=bind,source=rust-toolchain.toml,target=rust-toolchain.toml \
+    --mount=type=bind,source=.cargo,target=.cargo \
+    --mount=type=cache,id=rust-target-${TARGETPLATFORM},target=/app/target,sharing=locked \
+    --mount=type=cache,id=cargo-home-${TARGETPLATFORM},target=/var/cache/cargo,sharing=locked \
+    CARGO_HOME=/var/cache/cargo cargo build --locked --release -p open_edition_js_entrypoint && \
+    mkdir -p rust && \
+    cp target/release/libopen_edition_js_entrypoint.so rust/open_edition_js_entrypoint.node
+
 FROM node:24.22.3-alpine${ALPINE_VERSION} AS builder
 WORKDIR /app
 
@@ -68,6 +87,7 @@ WORKDIR /app
 # Copy only Node.js so package managers stay in the builder image.
 COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 COPY --from=builder /app/ ./
+COPY --from=rust-builder /app/rust/ rust/
 
 ARG SHA
 ENV SHA=${SHA}
@@ -84,7 +104,7 @@ RUN mkdir -p .probes && chown -R web:web .probes
 
 USER 901
 
-ENTRYPOINT ["node", "service/lib/entry.js"]
+ENTRYPOINT ["node", "service/lib/entry.js", "--rust-addon", "rust/open_edition_js_entrypoint.node"]
 
 # This starts the unified service by default. 
 CMD ["start"]
