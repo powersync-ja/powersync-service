@@ -27,6 +27,8 @@ import {
   CompactTargetConfig,
   emptyBucketStats,
   firstUncompactedWrite,
+  FULL_COMPACT_RESCHEDULE_MARGIN_MS,
+  fullCompactionCheckAt,
   PendingCompactionGroup,
   readCompactionBatch,
   ScheduledCompactionOptions,
@@ -720,15 +722,24 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } },
       context.rescheduleNotBefore
     );
-    const nextCheckForUncompactedWork = this.rescheduleAtOrAfter(
-      {
-        $min: [
-          new Date(firstUncompactedWrite(context.state).getTime() + this.maxCompactFullIntervalMs),
-          { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
+    let nextChunkCheck: mongo.Document = {
+      $min: [
+        new Date(firstUncompactedWrite(context.state).getTime() + this.maxCompactFullIntervalMs),
+        { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
+      ]
+    };
+    if (context.kind === CompactionKind.Chunks && coveredClaimedHead) {
+      // If the head still matches at finalization, every chunk is covered.
+      // A later replication write will bring the check forward again.
+      const fullCheckAt = fullCompactionCheckAt({ ...context.state, bucket_stats: compactionResult.bucketStats }, this);
+      nextChunkCheck = {
+        $cond: [
+          { $eq: ['$last_op', context.lastOp] },
+          new Date(fullCheckAt.getTime() + FULL_COMPACT_RESCHEDULE_MARGIN_MS),
+          nextChunkCheck
         ]
-      },
-      context.rescheduleNotBefore
-    );
+      };
+    }
     const update: mongo.Document = {
       compacted_state: {
         op_id: compactedOpId,
@@ -750,7 +761,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       next_compact_check:
         context.kind == CompactionKind.Full
           ? { $cond: [remainingFullWorkCheck, nextAfterPartialFullCompact, '$$REMOVE'] }
-          : nextCheckForUncompactedWork
+          : this.rescheduleAtOrAfter(nextChunkCheck, context.rescheduleNotBefore)
     };
     if (context.kind == CompactionKind.Full) {
       update.last_full_compact = {

@@ -2,6 +2,7 @@ import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataD
 import { MongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
 import { loadBucketDataDocument, serializeBucketData } from '@module/storage/implementation/v3/bucket-format.js';
 import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/v3/chunking.js';
+import { FULL_COMPACT_RESCHEDULE_MARGIN_MS } from '@module/storage/implementation/v3/compact-utils.js';
 import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from '@module/storage/implementation/v3/compaction-constants.js';
 import { CompactionLease } from '@module/storage/implementation/v3/CompactionLease.js';
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
@@ -1888,6 +1889,57 @@ bucket_definitions:
     expect(state?.compacted_state).toMatchObject({ op_id: 8n, count: 8, checksum: 252n });
     expect(state?.last_full_compact).toBeUndefined();
   });
+
+  test.each(['caught up', 'capped', 'concurrent append'])(
+    'schedules the next check after a %s chunk pass',
+    async (mode) => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+      const id = { d: ctx.definitionId, b: BUCKET };
+      const firstWrite = new Date();
+      const documents = Array.from({ length: 8 }, (_, i) =>
+        serializeBucketData(BUCKET, [makeOp(i + 1, 'A', 'data', ctx, sourceTableId)])
+      );
+      await insertDocs(collection, documents);
+      await bucketStateCollection.insertOne({
+        _id: id,
+        last_op: 8n,
+        first_uncompacted_write: firstWrite,
+        next_compact_check: new Date(0),
+        bucket_stats: { count: 8, chunks: 8, bytes: BigInt(documents.reduce((sum, doc) => sum + doc.size, 0)) }
+      });
+      const minCompactFullIntervalMs = 60 * 60 * 1000;
+      const minCompactChunkIntervalMs = 60 * 1000;
+      const compactor = bucketStorage.createMongoCompactor({
+        maxOpId: mode === 'capped' ? 7n : 8n,
+        minCompactChunkIntervalMs,
+        minCompactFullIntervalMs
+      });
+      const finalize = CompactionLease.prototype.finalize;
+      using finalizeSpy = vi.spyOn(CompactionLease.prototype, 'finalize');
+      if (mode === 'concurrent append') {
+        finalizeSpy.mockImplementationOnce(async function (this: CompactionLease, update) {
+          const doc = serializeBucketData(BUCKET, [makeOp(9, 'A', 'new', ctx, sourceTableId)]);
+          await collection.insertOne(doc);
+          await bucketStateCollection.updateOne(
+            { _id: id },
+            {
+              $set: { last_op: 9n },
+              $inc: { 'bucket_stats.count': 1, 'bucket_stats.chunks': 1, 'bucket_stats.bytes': BigInt(doc.size) }
+            }
+          );
+          await finalize.call(this, update);
+        });
+      }
+      expect(await compactor.compact()).toBe(1);
+      const state = await bucketStateCollection.findOne({ _id: id });
+      expect(state?.compacted_state?.op_id).toBe(mode === 'capped' ? 7n : 8n);
+      expect(state?.next_compact_check?.getTime()).toBe(
+        mode === 'caught up'
+          ? firstWrite.getTime() + minCompactFullIntervalMs + FULL_COMPACT_RESCHEDULE_MARGIN_MS
+          : state!.compacted_state!.at.getTime() + minCompactChunkIntervalMs
+      );
+    }
+  );
 
   test('initial compaction merges small chunks and refreshes bucket metadata', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
