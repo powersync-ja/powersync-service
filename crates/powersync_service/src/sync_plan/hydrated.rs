@@ -193,7 +193,7 @@ mod test {
         let users = [pattern("user%"), pattern("users")];
 
         let config = HydratedSyncConfig::<TestEmbedder>::new(
-            CompatibilityContext::default_for_tests(),
+            CompatibilityContext::default(),
             &[
                 HydratedSource::Event {
                     id: Arc::new("all"),

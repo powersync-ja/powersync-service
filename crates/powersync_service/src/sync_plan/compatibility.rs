@@ -21,9 +21,8 @@ pub enum TimeValuePrecision {
     Nanoseconds,
 }
 
-impl CompatibilityContext {
-    #[cfg(test)]
-    pub fn default_for_tests() -> Self {
+impl Default for CompatibilityContext {
+    fn default() -> Self {
         Self {
             max_time_value_precision: None,
             timestamps_iso8601: true,

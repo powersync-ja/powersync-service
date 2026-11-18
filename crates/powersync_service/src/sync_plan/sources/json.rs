@@ -25,7 +25,7 @@ impl<'a> SqliteValueFromJson<'a> {
     ///
     /// This avoids allocating where possible, but allocations are required for JSON strings with
     /// escape sequences.
-    pub fn from_validated_json(self, json: &'a RawValue) -> SqliteValue<'a> {
+    pub fn map_validated_json(self, json: &'a RawValue) -> SqliteValue<'a> {
         match ScalarSqliteValueOrFail(self).deserialize(json) {
             Ok(value) => value,
             Err(_) => {
@@ -73,7 +73,7 @@ impl<'a> DeserializeSeed<'a> for ScalarSqliteValueOrText<'a> {
         D: serde::Deserializer<'a>,
     {
         let validated: &'a RawValue = Deserialize::deserialize(deserializer)?;
-        Ok(self.0.from_validated_json(validated))
+        Ok(self.0.map_validated_json(validated))
     }
 }
 
@@ -269,7 +269,7 @@ mod test {
         let arena = Bump::new();
         let validated = |json| {
             let raw: &RawValue = serde_json::from_str(json).unwrap();
-            source(&arena, true).from_validated_json(raw)
+            source(&arena, true).map_validated_json(raw)
         };
 
         assert_eq!(validated("1.5"), Float(1.5));

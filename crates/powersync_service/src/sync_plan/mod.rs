@@ -12,8 +12,11 @@ mod value;
 
 pub use compatibility::*;
 pub use error::EvaluationError;
-pub use evaluator::{ErrorSource, EvaluationSink, Evaluator};
+pub use evaluator::{ErrorSource, EvaluationSink, Evaluator, ProjectedRow};
+pub use expression::*;
 pub use hydrated::*;
+pub use plan::*;
+pub use table_pattern::{SourceTableRef, TablePattern};
 pub use value::*;
 
 /// Interns column names and aliases referenced by processors in a [HydratedSyncConfig].

@@ -31,6 +31,19 @@ pub struct TablePattern {
     pub table: NameMatcher,
 }
 
+impl TablePattern {
+    pub fn new(connection_tag: &str, schema: &str, table: &str) -> Self {
+        let Ok(schema) = NameMatcher::from_str(schema);
+        let Ok(table) = NameMatcher::from_str(table);
+
+        Self {
+            connection_tag: connection_tag.to_string(),
+            schema,
+            table,
+        }
+    }
+}
+
 /// Reference to a source table associated with a replicated row.
 #[derive(Clone, Copy, Debug)]
 pub struct SourceTableRef<'a> {
@@ -42,6 +55,8 @@ pub struct SourceTableRef<'a> {
     pub name: &'a str,
 }
 
+type NestedNameIndex<T> = NameIndex<Arc<NameIndex<Option<Arc<T>>>>>;
+
 /// A static index resolving source tables to values associated with the set of [TablePattern]s
 /// matching them.
 ///
@@ -50,7 +65,7 @@ pub struct SourceTableRef<'a> {
 /// tables resolving to that combination.
 #[derive(Debug)]
 pub struct TablePatternIndex<T> {
-    by_connection_tag: HashMap<Box<str>, NameIndex<Arc<NameIndex<Option<Arc<T>>>>>>,
+    by_connection_tag: HashMap<Box<str>, NestedNameIndex<T>>,
 }
 
 impl<T> TablePatternIndex<T> {
@@ -68,7 +83,7 @@ impl<T> TablePatternIndex<T> {
         }
 
         let mut values: HashMap<Vec<usize>, Arc<T>> = HashMap::new();
-        let mut table_indexes: HashMap<Vec<usize>, Arc<NameIndex<Option<Arc<T>>>>> = HashMap::new();
+        let mut table_indexes = HashMap::new();
 
         let by_connection_tag = patterns_by_tag
             .into_iter()

@@ -100,6 +100,13 @@ pub struct ColumnSource {
 }
 
 impl<Column> RowProjection<Column> {
+    pub fn star() -> Self {
+        Self::Star {
+            before: Default::default(),
+            after: Default::default(),
+        }
+    }
+
     pub fn has_star(&self) -> bool {
         matches!(self, Self::Star { .. })
     }
