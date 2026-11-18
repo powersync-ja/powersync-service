@@ -1,9 +1,15 @@
-use crate::sync_plan::{EvaluationError, SqliteValue, evaluator::Frame, processor_group::Slot};
-use bumpalo::{
-    Bump,
-    collections::{String as ArenaString, Vec as ArenaVec},
+use crate::sync_plan::{
+    EvaluationError, SqliteValue,
+    evaluator::Frame,
+    processor_group::Slot,
+    sources::json::{ScalarSqliteValueOrFail, ScalarSqliteValueOrText},
 };
-use serde_json::Value as JsonValue;
+use bumpalo::collections::Vec;
+use serde::{
+    Deserializer,
+    de::{DeserializeSeed, Visitor},
+};
+use serde_json::Deserializer as JsonDeserializer;
 
 pub struct TableValuedFunctionEvaluation<'a> {
     outputs: &'a [Slot],
@@ -34,10 +40,8 @@ impl<'a> TableValuedFunctionEvaluation<'a> {
         let state = match value {
             SqliteValue::Null => FunctionState::JsonEach(Default::default()),
             SqliteValue::Text(src) => {
-                let mut state = JsonEachState::default();
-                // serde_json::from_str allocates outside of the frame. We could avoid most
-                // allocations by using a visitor, but that is substantially more code.
-                state.add_from_json(serde_json::from_str(src)?, frame);
+                let src: &'a str = src;
+                let state = JsonEachState::parse_json(src, frame)?;
 
                 FunctionState::JsonEach(state)
             }
@@ -81,51 +85,70 @@ struct JsonEachState<'a> {
 }
 
 impl<'a> JsonEachState<'a> {
-    fn add_from_json(&mut self, value: JsonValue, frame: &Frame<'a>) {
-        let arena = frame.arena();
-        let fixed_json_extract = frame.compatibility().fixed_json_extract;
-        let convert = |value| json_value_to_sqlite(arena, fixed_json_extract, value);
+    fn parse_json(json: &'a str, frame: &Frame<'a>) -> Result<Self, EvaluationError<'a>> {
+        // First, is this a scalar value?
+        if let Ok(value) =
+            ScalarSqliteValueOrFail(frame.into()).deserialize(&mut JsonDeserializer::from_str(json))
+        {
+            let entries = frame
+                .arena()
+                .alloc_slice_copy(&[(SqliteValue::Null, value)]);
 
-        self.entries = match value {
-            JsonValue::Array(values) => arena.alloc_slice_fill_iter(
-                values
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, value)| (SqliteValue::Integer(index as i64), convert(value))),
-            ),
-            JsonValue::Object(entries) => arena.alloc_slice_fill_iter(
-                entries
-                    .into_iter()
-                    .map(|(key, value)| (SqliteValue::Text(arena.alloc_str(&key)), convert(value))),
-            ),
-            scalar => std::slice::from_ref(arena.alloc((SqliteValue::Null, convert(scalar)))),
-        };
-    }
-}
-
-/// Converts a JSON value into a SQLite value, like `jsonValueToSqlite` in the TypeScript
-/// implementation.
-///
-/// Strings are copied into the arena, nested arrays and objects are encoded as JSON text.
-fn json_value_to_sqlite<'a>(
-    arena: &'a Bump,
-    fixed_json_extract: bool,
-    value: JsonValue,
-) -> SqliteValue<'a> {
-    match value {
-        JsonValue::Null if fixed_json_extract => SqliteValue::Null,
-        JsonValue::Bool(value) => SqliteValue::Integer(value as i64),
-        JsonValue::Number(number) => match number.as_i64() {
-            Some(value) => SqliteValue::Integer(value),
-            None => SqliteValue::Float(number.as_f64().unwrap_or(f64::NAN)),
-        },
-        JsonValue::String(value) => SqliteValue::Text(arena.alloc_str(&value)),
-        JsonValue::Null | JsonValue::Array(_) | JsonValue::Object(_) => {
-            let mut buffer = ArenaVec::new_in(arena);
-            serde_json::to_writer(&mut buffer, &value).expect("writing to a buffer can't fail");
-            let text = ArenaString::from_utf8(buffer).expect("serde_json emits valid UTF-8");
-            SqliteValue::Text(text.into_bump_str())
+            return Ok(Self { index: 0, entries });
         }
+
+        // Ok, it isn't. Handle maps and sequences then.
+        let mut deserializer = JsonDeserializer::from_str(json);
+
+        struct DeserializeToEntries<'a, 'b> {
+            frame: &'b Frame<'a>,
+        }
+
+        /// Handles the three top-level cases for `json_each`: An array reports numeric keys, an
+        /// object reports real keys, a scalar value is reported as a single entry with a null key.
+        impl<'a, 'b> Visitor<'a> for DeserializeToEntries<'a, 'b> {
+            type Value = &'a [(SqliteValue<'a>, SqliteValue<'a>)];
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "any JSON value")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'a>,
+            {
+                let mut vec = Vec::new_in(self.frame.arena());
+                let mut i = 0;
+                while let Some(value) =
+                    seq.next_element_seed(ScalarSqliteValueOrText(self.frame.into()))?
+                {
+                    vec.push((SqliteValue::Integer(i), value));
+                    i += 1;
+                }
+
+                Ok(vec.into_bump_slice())
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'a>,
+            {
+                let mut vec = Vec::new_in(self.frame.arena());
+                while let Some(entry) = map.next_entry_seed(
+                    ScalarSqliteValueOrFail(self.frame.into()),
+                    ScalarSqliteValueOrText(self.frame.into()),
+                )? {
+                    vec.push(entry);
+                }
+
+                Ok(vec.into_bump_slice())
+            }
+        }
+
+        let entries = deserializer.deserialize_any(DeserializeToEntries { frame })?;
+        deserializer.end()?;
+
+        Ok(Self { index: 0, entries })
     }
 }
 
@@ -218,7 +241,7 @@ mod test {
     }
 
     #[test]
-    fn nested_values_are_stringified() {
+    fn nested_values_are_preserved() {
         use SqliteValue::*;
 
         assert_eq!(
@@ -228,10 +251,10 @@ mod test {
             rows(&[
                 (
                     Integer(0),
-                    Text(r#"{"z":[1,2.0,1e+300,1e-7,"\u0001\"\n"],"a":{}}"#)
+                    Text(r#"{"z": [1, 2.0, 1e300, 1e-7, "\u0001\"\n"], "a": {} }"#)
                 ),
                 (Integer(1), Text("[]")),
-                (Integer(2), Text("[null,true]")),
+                (Integer(2), Text("[null, true]")),
             ])
         );
     }

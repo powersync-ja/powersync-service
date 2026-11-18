@@ -6,6 +6,7 @@ mod hydrated;
 mod operators;
 mod plan;
 mod processor_group;
+mod sources;
 mod table_pattern;
 mod value;
 

@@ -17,4 +17,7 @@ pub enum EvaluationError<'a> {
     },
     #[error("Error parsing JSON")]
     FromJson(#[from] serde_json::Error),
+
+    #[error("Error parsing BSON")]
+    FromBsn(#[from] bson::error::Error),
 }
