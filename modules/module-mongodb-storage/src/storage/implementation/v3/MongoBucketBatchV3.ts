@@ -482,7 +482,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     // gate also handles synchronous flushes and truncate/drop, which start their
     // payload work here. Every upload must finish before opening the transaction.
     let attempts = 0;
-    const retryDeadline = Date.now() + 90_000;
+    const startedAt = Date.now();
     try {
       for (const publication of publications) {
         await publication.packAndUploadPayloads();
@@ -490,10 +490,14 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       await this.withFencedTransaction(
         () => this.fence(session, projection),
         async (document) => {
-          attempts++;
-          if (attempts > 20 && Date.now() > retryDeadline) {
-            throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
+          const elapsedMs = Date.now() - startedAt;
+          if (attempts >= 20 && elapsedMs > 90_000) {
+            throw new ServiceError(
+              ErrorCode.PSYNC_S1402,
+              `Publication retry limit reached after ${attempts} attempts (${elapsedMs} ms since publication started)`
+            );
           }
+          attempts++;
           const stream = document as ReplicationStreamDocumentV3;
           this.assertPreparationContext(stream);
           const head = this.persistedOpHead(stream);

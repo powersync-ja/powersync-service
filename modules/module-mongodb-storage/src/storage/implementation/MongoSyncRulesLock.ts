@@ -95,6 +95,10 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       try {
         await this.refresh();
       } catch (e) {
+        // An in-flight refresh can finish after publication failed or teardown released the lock.
+        if (this.signal.aborted) {
+          return;
+        }
         this.invalidate(e);
         this.logger.error('Failed to refresh lock', e);
       }
@@ -115,7 +119,7 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       );
       if (result.modifiedCount == 0) {
         // Log and ignore
-        this.logger.warn(`Lock already released: ${this.sync_rules_id}/${this.lock_id}`);
+        this.logger.warn(`Replication lock ${this.sync_rules_id}/${this.lock_id} was no longer owned during cleanup`);
       }
     } finally {
       // Let an active operation finish/abort before ending its session. Queued
