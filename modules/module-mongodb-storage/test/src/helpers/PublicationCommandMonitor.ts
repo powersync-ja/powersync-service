@@ -74,13 +74,20 @@ export class PublicationCommandMonitor implements Disposable {
         transaction = { key, startedAt, replication: false, commands: [] };
         this.transactions.set(key, transaction);
       }
-      // A publication can abort on bucket state before it reaches the stream
-      // fence. Compaction claims and finalizes bucket state outside transactions.
+      // A publication can abort on bucket state before reaching the fence.
+      // Replication advances last_op, while compaction updates the lease and stats.
       transaction.replication ||=
         (event.commandName === 'findAndModify' && command.findAndModify === 'sync_rules') ||
-        (event.commandName === 'update' && command.update.startsWith('bucket_state_')) ||
+        (event.commandName === 'update' &&
+          command.update.startsWith('bucket_state_') &&
+          command.updates.some(({ u }: { u: unknown }) => advancesBucketHead(u))) ||
         (event.commandName === 'bulkWrite' &&
-          command.nsInfo.some(({ ns }: { ns: string }) => ns.split('.')[1]?.startsWith('bucket_state_')));
+          command.ops.some(
+            ({ update, updateMods }: { update?: number; updateMods?: unknown }) =>
+              update != null &&
+              command.nsInfo[update].ns.split('.')[1]?.startsWith('bucket_state_') &&
+              advancesBucketHead(updateMods)
+          ));
     }
     const sample: CommandSample = { name: event.commandName, startedAt, transaction };
     this.commands.push(sample);
@@ -120,4 +127,8 @@ export class PublicationCommandMonitor implements Disposable {
     this.client.off('commandSucceeded', this.succeeded);
     this.client.off('commandFailed', this.failed);
   }
+}
+
+function advancesBucketHead(update: unknown) {
+  return Array.isArray(update) && update.some((stage) => Object.hasOwn(stage.$set ?? {}, 'last_op'));
 }

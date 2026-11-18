@@ -37,7 +37,7 @@ import {
   unclaimedSnapshotFilter
 } from './compact-utils.js';
 import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
-import { AVAILABLE_LEASE_EXPR, CompactionLease } from './CompactionLease.js';
+import { AVAILABLE_LEASE_EXPR, CompactionLease, withBucketStateTransaction } from './CompactionLease.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { BucketDataObjectStorage, hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
@@ -471,14 +471,15 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     if (states.length == 0) {
       return;
     }
-    await this.db.bucketState(this.group_id).bulkWrite(
-      states.map(({ state, decision }) => ({
-        updateOne: {
-          filter: unclaimedSnapshotFilter(state),
-          update: [{ $set: { next_compact_check: this.rescheduleAtOrAfter(decision.nextCompactCheck, notBefore) } }]
-        }
-      })),
-      { ordered: false }
+    const collection = this.db.bucketState(this.group_id);
+    const operations = states.map(({ state, decision }) => ({
+      updateOne: {
+        filter: unclaimedSnapshotFilter(state),
+        update: [{ $set: { next_compact_check: this.rescheduleAtOrAfter(decision.nextCompactCheck, notBefore) } }]
+      }
+    }));
+    await withBucketStateTransaction(collection, (session) =>
+      collection.bulkWrite(operations, { ordered: false, session })
     );
   }
 

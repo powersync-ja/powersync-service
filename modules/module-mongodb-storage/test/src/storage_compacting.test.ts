@@ -2015,11 +2015,12 @@ bucket_definitions:
     });
   });
 
-  test.each(['lease takeover', 'partial bulk error', 'invalid update'])(
+  test.each(['lease takeover', 'partial bulk error', 'invalid update', 'write conflict'])(
     'publishes chunk groups safely after %s',
     async (failure) => {
       const { bucketStorage, bucketStateCollection, collection, db, ctx, sourceTableId } = await setupV3();
-      const bucketCount = 18;
+      const groupSize = 32;
+      const bucketCount = groupSize + 2;
       for (let index = 0; index < bucketCount; index++) {
         const bucket = `batch[${index}]`;
         const docs = [1, 2].map((op) =>
@@ -2039,13 +2040,21 @@ bucket_definitions:
       const bulkWrite = bucketStateCollection.bulkWrite.bind(bucketStateCollection);
       const replacement = new bson.ObjectId();
       using bulk = vi.spyOn(bucketStateCollection, 'bulkWrite').mockImplementationOnce(async (operations, options) => {
-        expect(operations).toHaveLength(16);
+        expect(operations).toHaveLength(groupSize);
         expect(options?.ordered).toBe(false);
-        expect(await bucketStateCollection.countDocuments({ compact_lease: { $exists: true } })).toBe(16);
+        expect(options?.session?.inTransaction()).toBe(true);
+        expect(await bucketStateCollection.countDocuments({ compact_lease: { $exists: true } })).toBe(groupSize);
         expect(await bucketStateCollection.countDocuments({ compacted_state: { $exists: true } })).toBe(0);
         if (failure === 'partial bulk error') {
           await bulkWrite(operations.slice(0, 1), options);
           throw new Error('partial bulk error');
+        }
+        if (failure === 'write conflict') {
+          const filter = { compact_lease: { $exists: true } };
+          // Pin the transaction snapshot, then change the first bucket outside it.
+          const state = await bucketStateCollection.findOne(filter, { session: options?.session });
+          await bucketStateCollection.updateOne({ _id: state!._id }, { $set: { next_compact_check: new Date(1) } });
+          return bulkWrite(operations, options);
         }
         if (failure === 'invalid update') {
           const first = operations[0];
@@ -2071,14 +2080,22 @@ bucket_definitions:
       if (failure === 'partial bulk error') {
         await expect(run()).rejects.toThrow('partial bulk error');
         expect(await bucketStateCollection.countDocuments({ compact_lease: { $exists: true } })).toBe(0);
-        expect(await bucketStateCollection.countDocuments({ 'compacted_state.op_id': 2n })).toBe(1);
-        await expect(run()).resolves.toEqual({ buckets: bucketCount - 1 });
+        expect(await bucketStateCollection.countDocuments({ 'compacted_state.op_id': 2n })).toBe(0);
+        await expect(run()).resolves.toEqual({ buckets: bucketCount });
+        expect(await bucketStateCollection.countDocuments({ 'bucket_stats.chunks': 1, 'bucket_stats.count': 2 })).toBe(
+          bucketCount
+        );
+      } else if (failure === 'write conflict') {
+        await expect(run()).resolves.toEqual({ buckets: bucketCount });
+        expect(bulk.mock.calls.map(([ops]) => ops.length)).toEqual([groupSize, groupSize, 2]);
         expect(await bucketStateCollection.countDocuments({ 'bucket_stats.chunks': 1, 'bucket_stats.count': 2 })).toBe(
           bucketCount
         );
       } else {
         await expect(run()).resolves.toEqual({ buckets: bucketCount - 1 });
-        expect(bulk.mock.calls.map(([ops]) => ops.length)).toEqual([16, 2]);
+        expect(bulk.mock.calls.map(([ops]) => ops.length)).toEqual(
+          failure === 'invalid update' ? [groupSize, groupSize - 1, 2] : [groupSize, 2]
+        );
         if (failure === 'lease takeover') {
           expect(await bucketStateCollection.findOne({ 'compact_lease.id': replacement })).toMatchObject({
             bucket_stats: { chunks: 2 }

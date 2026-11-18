@@ -109,8 +109,8 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       await put(...args);
       sample.endedAt = performance.now();
     });
-    const createWriteBatch = bucketStorage.db.createWriteBatch.bind(bucketStorage.db);
-    using _writeSpy = vi.spyOn(bucketStorage.db, 'createWriteBatch').mockImplementation((session, options) => {
+    const createWriteBatch = factory.db.createWriteBatch.bind(factory.db);
+    using _writeSpy = vi.spyOn(factory.db, 'createWriteBatch').mockImplementation((session, options) => {
       const batch = createWriteBatch(session, options);
       if (options.ordered && compaction && !offloaded) {
         const execute = batch.execute.bind(batch);

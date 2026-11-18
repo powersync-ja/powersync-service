@@ -1,9 +1,40 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId } from '@powersync/service-core';
+import { setTimeout } from 'node:timers/promises';
 import { CompactionLeaseLostError } from '../MongoCompactor.js';
 import { BucketStateDocumentV3 } from './models.js';
 
 const LEASE_RENEW_INTERVAL_MS = 60 * 1000;
+
+/**
+ * We wrap bulk bucket_state updates in a transaction.
+ *
+ * This is not needed for consistency purposes. Instead, we use this to deprioritize these updates
+ * against replication bucket_state updates. If we update concurrently with replication with individual
+ * operations, each operation can race the replication transaction individually, and any operation
+ * winning can abort the replication transaction. While if we combine it into a transaction, it gives
+ * the replication transaction a fair chance to compete.
+ */
+export function withBucketStateTransaction<T>(
+  collection: mongo.Collection<BucketStateDocumentV3>,
+  write: (session: mongo.ClientSession) => Promise<T>
+): Promise<T> {
+  return collection.db.client.withSession((session) => {
+    let retry = false;
+    return session.withTransaction(
+      async () => {
+        // After a write conflict, give replication time to finish before retrying.
+        // The first MongoDB command opens the transaction on the server.
+        if (retry) {
+          await setTimeout(Math.random() * 150);
+        }
+        retry = true;
+        return write(session);
+      },
+      { readPreference: 'primary', readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } }
+    );
+  });
+}
 
 /**
  * Filters for buckets that have no lease or an expired lease.
@@ -114,38 +145,47 @@ export class CompactionLease implements AsyncDisposable {
     if (updates.length === 0) {
       return 0;
     }
-    const operations = updates.map(({ lease, fields }) => {
-      lease.finalizing = true;
-      return { updateOne: { filter: lease.filter, update: [{ $set: fields }, { $unset: 'compact_lease' }] } };
-    });
-    let result: mongo.BulkWriteResult;
-    try {
-      result = await collection.bulkWrite(operations, { ordered: false });
-    } catch (error) {
-      // An unordered bulk can reject one bucket and still publish its siblings.
-      // Only handle identified per-update errors; propagate uncertain outcomes.
-      if (
-        !(error instanceof mongo.MongoBulkWriteError) ||
-        !Array.isArray(error.writeErrors) ||
-        error.writeErrors.length === 0 ||
-        error.result.getWriteConcernError() != null
-      ) {
-        throw error;
-      }
-      for (const failed of error.writeErrors) {
-        const { lease } = updates[failed.index];
-        await lease[Symbol.asyncDispose]();
-        await rescheduleFailed(lease, failed);
-      }
-      result = error.result;
-    }
-    // A miss means another worker owns the bucket. On a partial or ambiguous
-    // bulk error, disposal instead releases any leases we still own; it never
-    // replays a stats delta that may already have committed.
     for (const { lease } of updates) {
-      lease.finished = true;
+      lease.finalizing = true;
     }
-    return result.matchedCount;
+    let pending = updates;
+    while (pending.length > 0) {
+      const operations = pending.map(({ lease, fields }) => ({
+        updateOne: { filter: lease.filter, update: [{ $set: fields }, { $unset: 'compact_lease' }] }
+      }));
+      try {
+        const result = await withBucketStateTransaction(collection, (session) =>
+          collection.bulkWrite(operations, { ordered: false, session })
+        );
+        // A miss means another worker owns the bucket. Any remaining leases
+        // still owned by this run are released by disposal if publication throws.
+        for (const { lease } of pending) {
+          lease.finished = true;
+        }
+        return result.matchedCount;
+      } catch (error) {
+        // A rejected update aborts the transaction. Retry the siblings only
+        // when the server identified the invalid updates and the abort is known.
+        if (
+          !(error instanceof mongo.MongoBulkWriteError) ||
+          error.hasErrorLabel('TransientTransactionError') ||
+          !Array.isArray(error.writeErrors) ||
+          error.writeErrors.length === 0 ||
+          error.result.getWriteConcernError() != null
+        ) {
+          throw error;
+        }
+        const failed = new Set<number>();
+        for (const writeError of error.writeErrors) {
+          const { lease } = pending[writeError.index];
+          failed.add(writeError.index);
+          await lease[Symbol.asyncDispose]();
+          await rescheduleFailed(lease, writeError);
+        }
+        pending = pending.filter((_, index) => !failed.has(index));
+      }
+    }
+    return 0;
   }
 
   async [Symbol.asyncDispose]() {
