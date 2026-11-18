@@ -482,18 +482,34 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     // gate also handles synchronous flushes and truncate/drop, which start their
     // payload work here. Every upload must finish before opening the transaction.
     let attempts = 0;
-    const retryDeadline = Date.now() + 90_000;
+    const startedAt = Date.now();
     try {
       for (const publication of publications) {
         await publication.packAndUploadPayloads();
       }
+      // Groups can update the same bucket. Preserve the order of their deltas
+      // and reuse the same write models on every transaction attempt.
+      const bucketStates = this.db.createWriteBatch(session, { ordered: true });
+      for (const publication of publications) {
+        publication.queueBucketStates(bucketStates);
+      }
       await this.withFencedTransaction(
-        () => this.fence(session, projection),
-        async (document) => {
-          attempts++;
-          if (attempts > 20 && Date.now() > retryDeadline) {
-            throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
+        async () => {
+          const elapsedMs = Date.now() - startedAt;
+          if (attempts >= 20 && elapsedMs > 90_000) {
+            throw new ServiceError(
+              ErrorCode.PSYNC_S1402,
+              `Publication retry limit reached after ${attempts} attempts (${elapsedMs} ms since publication started)`
+            );
           }
+          attempts++;
+          // Start with the bucket writes to minimize the time compaction has
+          // to modify them after the transaction starts. The fence still
+          // protects the entire transaction, including these writes.
+          await tracer.span('storage', 'publish_bucket_state').with(() => bucketStates.execute());
+          return tracer.span('storage', 'publish_fence').with(() => this.fence(session, projection));
+        },
+        async (document) => {
           const stream = document as ReplicationStreamDocumentV3;
           this.assertPreparationContext(stream);
           const head = this.persistedOpHead(stream);
@@ -502,7 +518,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
               `Prepared operation ${lastOp} does not advance persisted stream head ${head}`
             );
           }
-          // Earlier groups may replace the same source record or bucket state.
+          // Earlier groups may replace the same source record.
           // Preserve their execution order; only the final group's writes are
           // independent of the head/checkpoint tail built from this fresh fence.
           for (const publication of publications.slice(0, -1)) {

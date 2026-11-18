@@ -74,9 +74,20 @@ export class PublicationCommandMonitor implements Disposable {
         transaction = { key, startedAt, replication: false, commands: [] };
         this.transactions.set(key, transaction);
       }
-      // The writer's first command is the conditional stream fence. Compaction
-      // shares the client but does not fence the replication stream document.
-      transaction.replication ||= event.commandName === 'findAndModify' && command.findAndModify === 'sync_rules';
+      // A publication can abort on bucket state before reaching the fence.
+      // Replication advances last_op, while compaction updates the lease and stats.
+      transaction.replication ||=
+        (event.commandName === 'findAndModify' && command.findAndModify === 'sync_rules') ||
+        (event.commandName === 'update' &&
+          command.update.startsWith('bucket_state_') &&
+          command.updates.some(({ u }: { u: unknown }) => advancesBucketHead(u))) ||
+        (event.commandName === 'bulkWrite' &&
+          command.ops.some(
+            ({ update, updateMods }: { update?: number; updateMods?: unknown }) =>
+              update != null &&
+              command.nsInfo[update].ns.split('.')[1]?.startsWith('bucket_state_') &&
+              advancesBucketHead(updateMods)
+          ));
     }
     const sample: CommandSample = { name: event.commandName, startedAt, transaction };
     this.commands.push(sample);
@@ -116,4 +127,8 @@ export class PublicationCommandMonitor implements Disposable {
     this.client.off('commandSucceeded', this.succeeded);
     this.client.off('commandFailed', this.failed);
   }
+}
+
+function advancesBucketHead(update: unknown) {
+  return Array.isArray(update) && update.some((stage) => Object.hasOwn(stage.$set ?? {}, 'last_op'));
 }

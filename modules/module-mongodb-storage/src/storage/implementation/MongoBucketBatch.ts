@@ -549,10 +549,11 @@ export abstract class MongoBucketBatch
 
   /**
    * Internal transaction helper: the caller serializes use of its session, via
-   * the writer mutex or the v3/v4 publication FIFO. The first operation must
-   * modify the stream document conditional on
-   * lease ownership. This database fence is required on every retry even though
-   * local writers are serialized; another process may have taken over the lease.
+   * the writer mutex or the v3/v4 publication FIFO. Before invoking cb(),
+   * acquireFence() must modify the stream document conditional on lease
+   * ownership. Any writes before the fence must use the same transaction so
+   * they roll back if another process has taken over the lease. This database
+   * fence is required on every retry even though local writers are serialized.
    */
   protected async withFencedTransaction<S, T>(
     acquireFence: () => Promise<S>,

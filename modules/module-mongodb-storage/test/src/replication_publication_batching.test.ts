@@ -102,6 +102,10 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     await writer.commit('1/3');
     expect(reads.count).toBe(0);
     expect(registration).toHaveBeenCalledTimes(mode === 'offloaded' ? 1 : 0);
+    expect(monitor.replicationAttempts[0].commands.slice(0, 2).map((command) => command.name)).toEqual([
+      clientBulks ? 'bulkWrite' : 'update',
+      'findAndModify'
+    ]);
     expect(monitor.summary().replicationAttempts.map((attempt) => attempt.commands)).toEqual([
       !clientBulks
         ? {
@@ -112,7 +116,7 @@ describe.each([3, 4])('publication batching v%s', (version) => {
             ...(mode === 'offloaded' ? { delete: 1 } : {}),
             commitTransaction: 1
           }
-        : { findAndModify: 1, bulkWrite: 1, commitTransaction: 1 }
+        : { findAndModify: 1, bulkWrite: 2, commitTransaction: 1 }
     ]);
     const checkpoint = await context.bucketStorage.getCheckpoint();
     expect(checkpoint).toMatchObject({ checkpoint: 3n, lsn: '1/3' });
@@ -204,7 +208,7 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     expect(put).toHaveBeenCalledTimes(1);
     expect(monitor.summary().replicationAttempts.map((attempt) => attempt.commands)).toEqual([
       clientBulks
-        ? { findAndModify: 1, bulkWrite: 1, commitTransaction: 1 }
+        ? { findAndModify: 1, bulkWrite: 2, commitTransaction: 1 }
         : { findAndModify: 1, update: 5, delete: 1, insert: 1, commitTransaction: 1 }
     ]);
     expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(1002n);

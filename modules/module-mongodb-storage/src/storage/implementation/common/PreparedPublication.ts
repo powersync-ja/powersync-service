@@ -39,8 +39,12 @@ export interface PreparedPublication {
    */
   packAndUploadPayloads(): Promise<void>;
   /**
-   * Commit the MongoDB portion of the publishing stage. Packing and uploads must
-   * finish before starting the transaction.
+   * Queue this group's bucket-state updates after packing. Execute them for all
+   * groups in preparation order before publishing any group's remaining writes.
+   */
+  queueBucketStates(writes: MongoWriteBatch): void;
+  /**
+   * Publish the remaining MongoDB writes in the same transaction as bucket state.
    * An optional batch supplies independent head/checkpoint writes to execute
    * together with this group's data. This method owns execution of that batch;
    * callers must not execute it again or include another group's dependent writes.

@@ -80,7 +80,9 @@ export abstract class AbstractReplicationJob {
     }
     if (error instanceof ReplicationAbortedError) {
       if (error.cause != null) {
-        this.logger.warn('Replication aborted', error);
+        const message =
+          error.cause instanceof Error ? `Replication aborted because ${error.cause.message}` : 'Replication aborted';
+        this.logger.warn(message, error);
       } else {
         this.logger.info('Replication aborted', error);
       }
