@@ -262,8 +262,10 @@ mod test {
     #[test]
     fn legacy_null_behavior() {
         let arena = Bump::new();
-        let mut compatibility = CompatibilityContext::default();
-        compatibility.fixed_json_extract = false;
+        let compatibility = CompatibilityContext {
+            fixed_json_extract: false,
+            ..Default::default()
+        };
 
         let rows = json_each_with(&arena, &compatibility, SqliteValue::Text("[null]"));
         assert_eq!(rows, [(SqliteValue::Integer(0), SqliteValue::Text("null"))]);
