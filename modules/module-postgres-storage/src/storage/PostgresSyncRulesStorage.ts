@@ -22,8 +22,10 @@ import {
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
+import { orNull } from '@powersync/service-types';
+import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
-import { bigint, BIGINT_MAX } from '../types/codecs.js';
+import { bigint, BIGINT_MAX, hexBuffer } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
@@ -53,6 +55,12 @@ export type PostgresSyncRulesStorageOptions = {
  * Number of rows deleted per batch when clearing storage for a replication stream.
  */
 export const CLEAR_BATCH_LIMIT = 50_000;
+
+/**
+ * Optional index used to find changed data buckets between checkpoints:
+ * CREATE INDEX CONCURRENTLY bucket_data_op_id_index ON bucket_data (group_id, op_id)
+ */
+export const BUCKET_DATA_OP_ID_INDEX = 'bucket_data_op_id_index';
 
 export class PostgresSyncRulesStorage
   extends framework.BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -570,7 +578,8 @@ export class PostgresSyncRulesStorage
         snapshot_done = FALSE,
         last_checkpoint_lsn = NULL,
         last_checkpoint = NULL,
-        no_checkpoint_before = NULL
+        no_checkpoint_before = NULL,
+        checkpoint_changes_invalid_before = nextval('op_id_sequence')
       WHERE
         id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
@@ -710,7 +719,7 @@ export class PostgresSyncRulesStorage
   }
 
   async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
-    let lastCheckpoint: utils.InternalOpId | null = null;
+    let lastCheckpoint: storage.ReplicationCheckpoint | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
     const { signal, user_id } = options;
@@ -732,7 +741,7 @@ export class PostgresSyncRulesStorage
         }
       });
 
-      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
+      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint?.checkpoint) {
         // No change - wait for next one
         // In some cases, many LSNs may be produced in a short time.
         // Add a delay to throttle the write checkpoint lookup a bit.
@@ -740,13 +749,20 @@ export class PostgresSyncRulesStorage
         continue;
       }
 
+      let update: CheckpointChanges;
+      if (lastCheckpoint == null || checkpoint < lastCheckpoint.checkpoint) {
+        update = CHECKPOINT_INVALIDATE_ALL;
+      } else {
+        update = await this.getCheckpointChanges({ lastCheckpoint, nextCheckpoint: cp });
+      }
+
       lastWriteCheckpoint = currentWriteCheckpoint;
-      lastCheckpoint = checkpoint;
+      lastCheckpoint = cp;
 
       yield {
         base: cp,
         writeCheckpoint: currentWriteCheckpoint,
-        update: CHECKPOINT_INVALIDATE_ALL
+        update
       };
     }
   }
@@ -841,9 +857,184 @@ export class PostgresSyncRulesStorage
     }
   }
 
+  /**
+   * Shared between all connections: every connection waking up on the same checkpoint asks for the same pair.
+   */
+  private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
+    max: 50,
+    maxSize: 12 * 1024 * 1024,
+    // When we have more fetches than the cache size, complete the fetches instead
+    // of failing with Error('evicted').
+    ignoreFetchAbort: true,
+    sizeCalculation: (value: CheckpointChanges) => {
+      const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
+      const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
+      return 100 + paramSize + bucketSize;
+    },
+    fetchMethod: async (_key, _staleValue, options) => {
+      return this.getCheckpointChangesInternal(options.context.options);
+    }
+  });
+
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    // We do not track individual changes yet
-    return CHECKPOINT_INVALIDATE_ALL;
+    const { lastCheckpoint, nextCheckpoint } = options;
+    if (nextCheckpoint.checkpoint < lastCheckpoint.checkpoint) {
+      return CHECKPOINT_INVALIDATE_ALL;
+    }
+    const key = `${lastCheckpoint.checkpoint}__${nextCheckpoint.checkpoint}`;
+    const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
+    return result!;
+  }
+
+  private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    if (await this.clearedSince(options.lastCheckpoint)) {
+      return CHECKPOINT_INVALIDATE_ALL;
+    }
+    return {
+      ...(await this.getDataBucketChanges(options)),
+      ...(await this.getParameterBucketChanges(options))
+    };
+  }
+
+  /**
+   * Whether the storage was cleared (and possibly re-snapshotted) since the given checkpoint.
+   *
+   * Unlike MongoDB storage, op_id_sequence is not reset by clear(), so the next checkpoint does not go backwards. The
+   * range queries would then only see the recreated rows, and lookups or buckets that disappeared would never be
+   * reported. clear() stores a fence in checkpoint_changes_invalid_before: the next value of op_id_sequence, which is
+   * above every checkpoint made before the clear and below every op_id written after it. Changes cannot be derived
+   * for a checkpoint below the fence.
+   */
+  private async clearedSince(lastCheckpoint: storage.ReplicationCheckpoint): Promise<boolean> {
+    const row = await this.db.sql`
+      SELECT
+        checkpoint_changes_invalid_before AS fence
+      FROM
+        sync_rules
+      WHERE
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
+    `
+      .decoded(t.object({ fence: orNull(bigint) }))
+      .first();
+    return row?.fence != null && lastCheckpoint.checkpoint < row.fence;
+  }
+
+  private opIdIndexCheckedAt = 0;
+  private opIdIndexReady = false;
+  private opIdIndexWarned = false;
+
+  /**
+   * Data bucket changes need an index on bucket_data (group_id, op_id). The migration only creates it while
+   * bucket_data is small, because it cannot build it concurrently. Without it, all data buckets are invalidated as
+   * before, and a warning asks to create it manually. Checked again every minute, so a manually created index is
+   * used without a restart.
+   */
+  private async hasOpIdIndex(): Promise<boolean> {
+    const now = Date.now();
+    if (now - this.opIdIndexCheckedAt > 60_000) {
+      this.opIdIndexCheckedAt = now;
+      const row = await this.db.sql`
+        SELECT
+          i.indisvalid AS valid
+        FROM
+          pg_index i
+        WHERE
+          i.indexrelid = to_regclass(${{ type: 'varchar', value: BUCKET_DATA_OP_ID_INDEX }})
+      `
+        .decoded(t.object({ valid: t.boolean }))
+        .first();
+      this.opIdIndexReady = row?.valid === true;
+      if (!this.opIdIndexReady && !this.opIdIndexWarned) {
+        this.opIdIndexWarned = true;
+        this.logger.warn(
+          `Index ${BUCKET_DATA_OP_ID_INDEX} is missing, so every checkpoint re-checks all data buckets of connected clients. ` +
+            `Create it in the storage schema with: CREATE INDEX CONCURRENTLY ${BUCKET_DATA_OP_ID_INDEX} ON bucket_data (group_id, op_id)`
+        );
+      }
+    }
+    return this.opIdIndexReady;
+  }
+
+  /**
+   * Data buckets with operations between the two checkpoints.
+   *
+   * Compaction keeps the highest op_id of each bucket (MOVE in place, CLEAR at the last removed op). If it removes
+   * operations of a bucket in this range, a later op_id of that bucket exists and is reported for a later
+   * checkpoint, so the connection only sees the change one checkpoint later.
+   */
+  private async getDataBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    if (!(await this.hasOpIdIndex())) {
+      return { invalidateDataBuckets: true, updatedDataBuckets: new Set<string>() };
+    }
+    // Bounds the rows read for a connection that skipped many checkpoints.
+    const limit = 10_000;
+    const rows = await this.db.sql`
+      SELECT
+        bucket_name
+      FROM
+        bucket_data
+      WHERE
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
+        AND op_id > ${{ type: 'int8', value: options.lastCheckpoint.checkpoint }}
+        AND op_id <= ${{ type: 'int8', value: options.nextCheckpoint.checkpoint }}
+      ORDER BY
+        op_id
+      LIMIT
+        ${{ type: 'int4', value: limit + 1 }}
+    `.rows<{ bucket_name: string }>();
+
+    if (rows.length > limit) {
+      return { invalidateDataBuckets: true, updatedDataBuckets: new Set<string>() };
+    }
+    return { invalidateDataBuckets: false, updatedDataBuckets: new Set(rows.map((r) => r.bucket_name)) };
+  }
+
+  /**
+   * Parameter lookups changed between the two checkpoints.
+   *
+   * bucket_parameters ids come from op_id_sequence, like bucket_data op_ids. Every row with an id up to a
+   * checkpoint is committed before the checkpoint is persisted (getParameterSets relies on the same property),
+   * so the rows in (lastCheckpoint, nextCheckpoint] are exactly the lookups written in between. REMOVE entries
+   * ('[]') get a new id as well.
+   *
+   * This depends on parameter rows never being deleted within that range. Postgres storage does not compact
+   * bucket_parameters yet; once it does, it needs an invalidation fence like MongoDB storage
+   * (parameterChangesInvalidBefore).
+   */
+  private async getParameterBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    const limit = 1000;
+    const rows = await this.db.sql`
+      SELECT DISTINCT
+        lookup
+      FROM
+        bucket_parameters
+      WHERE
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
+        AND id > ${{ type: 'int8', value: options.lastCheckpoint.checkpoint }}
+        AND id <= ${{ type: 'int8', value: options.nextCheckpoint.checkpoint }}
+      LIMIT
+        ${{ type: 'int4', value: limit + 1 }}
+    `
+      .decoded(changedLookupRow)
+      .rows();
+
+    if (rows.length > limit) {
+      return {
+        invalidateParameterBuckets: true,
+        updatedParameterLookups: new Set<string>()
+      };
+    }
+
+    return {
+      invalidateParameterBuckets: false,
+      updatedParameterLookups: new Set<string>(
+        rows.map((row) => JSONBig.stringify(storage.deserializeBson(row.lookup).l))
+      )
+    };
   }
 
   private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {
@@ -865,6 +1056,10 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
     return this.storage.getParameterSets(this, lookups, limit);
   }
 }
+
+const changedLookupRow = t.object({
+  lookup: hexBuffer
+});
 
 const parameterSetsRow = t.object({
   index: bigint,
