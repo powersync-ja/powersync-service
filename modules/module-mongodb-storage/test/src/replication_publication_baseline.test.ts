@@ -2,7 +2,6 @@ import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { PerformanceTracer, Span, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { compactActive, getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test, vi } from 'vitest';
-import { MongoSyncRulesLock } from '../../src/storage/implementation/MongoSyncRulesLock.js';
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
@@ -110,15 +109,22 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       await put(...args);
       sample.endedAt = performance.now();
     });
-    const fence = MongoSyncRulesLock.fence.bind(MongoSyncRulesLock);
-    using _fenceSpy = vi.spyOn(MongoSyncRulesLock, 'fence').mockImplementation(async (...args) => {
-      const stream = await fence(...args);
-      // Inline batches have no PUT to pause. Compact after the fence takes
-      // its snapshot, immediately before replication writes bucket state.
-      if (!offloaded) {
-        await compactOnce();
+    const createWriteBatch = bucketStorage.db.createWriteBatch.bind(bucketStorage.db);
+    using _writeSpy = vi.spyOn(bucketStorage.db, 'createWriteBatch').mockImplementation((session, options) => {
+      const batch = createWriteBatch(session, options);
+      if (options.ordered && compaction && !offloaded) {
+        const execute = batch.execute.bind(batch);
+        batch.execute = async () => {
+          if (!compacted) {
+            // Pin the snapshot with a test-only read so compaction can commit
+            // before the first bucket write and force that write to retry.
+            await bucketStates.findOne({ _id: stateBefore!._id }, { session });
+            await compactOnce();
+          }
+          await execute();
+        };
       }
-      return stream;
+      return batch;
     });
 
     await save('c');
@@ -126,7 +132,7 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
     const summary = monitor.summary();
     const attempts = monitor.replicationAttempts;
     // Compaction during an offloaded PUT now finishes before replication opens
-    // its transaction. Inline work still injects compaction after the fence.
+    // its transaction. The test-only read makes the inline attempt stale.
     const conflict = compaction && !offloaded;
     expect(compacted).toBe(compaction);
     expect(attempts).toHaveLength(conflict ? 2 : 1);
@@ -149,7 +155,7 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
     expect(tracer.stack).toHaveLength(0);
     expect(uploads).toHaveLength(offloaded ? 1 : 0);
     // Real compaction can run throughout a replication PUT without extending or
-    // invalidating a replication transaction: the fence has not started yet.
+    // invalidating a replication transaction: publication has not started yet.
     for (const upload of uploads) {
       expect(upload.transactions).toHaveLength(0);
       expect(attempts[0].startedAt).toBeGreaterThanOrEqual(upload.endedAt);
@@ -162,7 +168,7 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       // commit but adds an abort command; replay sends no source reads. The
       // final data group now executes the independent head/checkpoint tail too.
       expect(summary.replicationAttempts.map((attempt) => attempt.commands)).toEqual([
-        ...(conflict ? [{ findAndModify: 1, bulkWrite: 1, abortTransaction: 1 }] : []),
+        ...(conflict ? [{ find: 1, bulkWrite: 1, abortTransaction: 1 }] : []),
         { findAndModify: 1, bulkWrite: 2, commitTransaction: 1 }
       ]);
     }
@@ -176,7 +182,13 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
           compaction,
           ...summary,
           uploads: uploads.map((upload) => ({ bytes: upload.bytes, durationMs: upload.endedAt - upload.startedAt })),
-          transactionBodyMs: bodies.map((span) => (span.endAt - span.startAt) / 1000)
+          transactionBodyMs: bodies.map((span) => (span.endAt - span.startAt) / 1000),
+          bucketStateMs: spans
+            .filter((span) => span.name === 'storage:publish_bucket_state')
+            .map((span) => (span.endAt - span.startAt) / 1000),
+          fenceMs: spans
+            .filter((span) => span.name === 'storage:publish_fence')
+            .map((span) => (span.endAt - span.startAt) / 1000)
         })
       );
     }

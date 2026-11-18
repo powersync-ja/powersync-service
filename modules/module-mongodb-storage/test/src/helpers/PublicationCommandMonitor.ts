@@ -74,9 +74,13 @@ export class PublicationCommandMonitor implements Disposable {
         transaction = { key, startedAt, replication: false, commands: [] };
         this.transactions.set(key, transaction);
       }
-      // The writer's first command is the conditional stream fence. Compaction
-      // shares the client but does not fence the replication stream document.
-      transaction.replication ||= event.commandName === 'findAndModify' && command.findAndModify === 'sync_rules';
+      // A publication can abort on bucket state before it reaches the stream
+      // fence. Compaction claims and finalizes bucket state outside transactions.
+      transaction.replication ||=
+        (event.commandName === 'findAndModify' && command.findAndModify === 'sync_rules') ||
+        (event.commandName === 'update' && command.update.startsWith('bucket_state_')) ||
+        (event.commandName === 'bulkWrite' &&
+          command.nsInfo.some(({ ns }: { ns: string }) => ns.split('.')[1]?.startsWith('bucket_state_')));
     }
     const sample: CommandSample = { name: event.commandName, startedAt, transaction };
     this.commands.push(sample);

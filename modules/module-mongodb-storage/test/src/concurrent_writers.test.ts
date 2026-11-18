@@ -12,6 +12,7 @@ import { MongoPersistedReplicationStream } from '../../src/storage/implementatio
 import { PersistedBatchV1 } from '../../src/storage/implementation/v1/PersistedBatchV1.js';
 import { VersionedPowerSyncMongoV1 } from '../../src/storage/implementation/v1/VersionedPowerSyncMongoV1.js';
 import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
+import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { mongoTestStorageFactoryGenerator } from '../../src/utils/test-utils.js';
 import { env } from './env.js';
 
@@ -497,8 +498,20 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await insert(nextWriter, nextTable, 'new');
     await nextWriter.commit('1/2');
     expect(nextWriter.last_flushed_op).toBeGreaterThan(abandonedEnd);
+    const db = factory.db.versioned(stream.getStorageConfig());
+    const bucketState =
+      db instanceof VersionedPowerSyncMongoV3 ? db.bucketState(stream.replicationStreamId) : undefined;
+    const stateBefore = await bucketState?.findOne({});
+    if (bucketState != null) {
+      expect(stateBefore).not.toBeNull();
+    }
     await insert(oldWriter, oldTable, 'stale');
     await expect(oldWriter.flush()).rejects.toThrow('no longer owns');
+    if (bucketState != null) {
+      // The stale publication wrote bucket state inside its transaction before
+      // the fence rejected it. Neither its counters nor its head may leak.
+      expect(await bucketState.findOne({})).toEqual(stateBefore);
+    }
     await expect(oldWriter.setResumeLsn('9/9')).rejects.toBeInstanceOf(ReplicationAbortedError);
     await expect(oldWriter.markAllSnapshotDone('9/9')).rejects.toBeInstanceOf(ReplicationAbortedError);
     await expect(oldWriter.markTableSnapshotRequired(oldTable)).rejects.toBeInstanceOf(ReplicationAbortedError);
