@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { acquireSemaphoreAbortable, addChecksums, formatBytes, InternalOpId, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
-import { setImmediate } from 'node:timers/promises';
+import { setImmediate, setTimeout } from 'node:timers/promises';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataKey } from '../models.js';
 import { ConcurrentCompactionError, MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
@@ -49,7 +49,8 @@ const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
 const SCHEDULED_COMPACTION_BATCH_SIZE = 100;
-const MIN_CHUNK_LEASE_GROUP_SIZE = 16;
+const MIN_CHUNK_LEASE_GROUP_SIZE = 32;
+const MAX_CHUNK_GROUP_PAUSE_MS = 50;
 
 interface BucketCompactionUpdate {
   fields: mongo.Document;
@@ -243,6 +244,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           requestedKind,
           rescheduleNotBefore
         );
+        // Give replication a window to update bucket state after releasing the group's leases.
+        await setTimeout(Math.random() * MAX_CHUNK_GROUP_PAUSE_MS, undefined, { signal: this.signal });
       }
       // Full compaction cannot overlap chunk workers from this job, and only
       // one full bucket is processed at a time.
