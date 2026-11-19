@@ -18,28 +18,26 @@ use crate::sync_plan::{
 
 /// A prepared group of processors all operating on compatible table patterns.
 ///
-/// We build one group per unique combination of matched table patterns. In a Sync Config defining
-/// streams selecting from tables `%`, `user%` and `users` for example, we'd end up with three
-/// processor groups:
-///
-///  1. One containing all three processors, used for tables named `users`.
-///  2. One containing `%` and `user%`, used for tables names beginning with `user` but not `users`.
-///  3. One containing only `%`, used for table names not beginning with `user`.
-///
 /// In each group, processors can share decoded values. For example, if one stream has a
 /// `SELECT * FROM users WHERE id = ...` and another has `SELECT id FROM users WHERE ...`, we'd
 /// share a slot for the decoded `users.id` column instead of extracing them multiple times.
+///
+/// By assignings slots to inputs, we can efficiently skip past unused fields in source data and can
+/// lookup values very efficiently.
 #[derive(Debug)]
 pub struct ProcessorGroup<E: ReplicationEmbedder> {
     pub processors: Vec<ProcessedGroupMember<E>>,
 
     /// The maximum amount of [Slot::Input] slots used by a processor.
+    ///
+    /// Input slots are readonly while evaluating instructions, and can be shared by all processors
+    /// in this group.
     pub num_input_slots: u32,
+
     /// The maximum amount of [Slot::Internal] slots used by any processor.
     ///
-    /// Since processors are evaluated one after another and only read internal slots they have
-    /// written before, internal slots are shared between processors. This is the maximum amount
-    /// needed by any processor of the group.
+    /// Internal slots are cleared between processors, but we allocate a shared buffer ahead of
+    /// time.
     pub num_internal_slots: u32,
 
     /// For each column name used as input by any processor, the input slot to store it in when
@@ -145,16 +143,22 @@ pub struct ProcessedParameterSource<E: ReplicationEmbedder> {
 pub struct CommonProcessedSource {
     /// Instructions to run for each row.
     ///
-    /// After running all instructions without a filter failing, the slots referenced by
-    /// [Self::parameters] and source-specific outputs contain the values for a match. Since
-    /// [EvaluatorInstruction::ExpandTableValuedFunction] runs the remaining instructions once per
-    /// row of the function, a source row can have multiple matches.
+    /// After running all instructions without an [EvaluatorInstruction::CheckFilter] failing, the
+    /// slots referenced by [Self::parameters] and source-specific outputs contain the values for a
+    /// match. Since [EvaluatorInstruction::ExpandTableValuedFunction] runs the remaining
+    /// instructions once per row of the function, a source row can have multiple matches.
     pub instructions: Vec<EvaluatorInstruction>,
     /// The slots storing bucket parameters (for data sources) or lookup inputs (for parameter
     /// sources).
     pub parameters: Vec<Slot>,
 }
 
+/// An instruction to evaluate this processor.
+///
+/// We use instructions instead of direct [SqlExpression]s to save memory: Instead of evaluating an
+/// AST (which requires allocating a slice representing inputs for each function call), we assign
+/// [Slot]s for inputs once. This allows evaluator to allocate a sufficiently large buffer ahead of
+/// time.
 #[derive(Debug)]
 pub enum EvaluatorInstruction {
     /// Evaluate a scalar operation, writing its output into the given slot.
