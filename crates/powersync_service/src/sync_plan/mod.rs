@@ -5,6 +5,10 @@
 //! bucket data (via [EvaluationSink::row]), parameters ([EvaluationSink::parameter_lookup]) and
 //! potential event matches ([EvaluationSink::event]).
 //!
+//! Emitted outputs are not guaranteed to match the TS implementation exactly on all inputs, but
+//! should be functionally equivalent (modulo minor things like whitespace in JSON or the order of
+//! keys in projections).
+//!
 //! To start evaluating plans, begin by deserializing the structures emitted by
 //! `createTableProcessorSerializer` in TypeScript by using [DeserializeSyncPlan]. When
 //! deserializing elements, also implement [ReplicationEmbedder] to assign tags to buckets,
@@ -35,7 +39,7 @@
 //!
 //! ## Evaluation
 //!
-//! To evaluate rows, create an [Evaluator] and pass the hydrated Sync Config. For each row to
+//! To evaluate rows, create an [Evaluator] and pass the hydrated sync config. For each row to
 //! process, [Evaluator::evaluate] finds a matching group (if none is found, we can safely ignore
 //! the row).
 //!

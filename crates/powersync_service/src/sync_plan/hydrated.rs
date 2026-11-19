@@ -8,7 +8,7 @@ use crate::sync_plan::{
     table_pattern::TablePatternIndex,
 };
 
-/// A hydrated Sync Config.
+/// A hydrated sync config.
 ///
 /// This consists of all bucket data sources and parameter index lookup creators to evaluate. These
 /// may come from multiple sync plans originally (the rest of the service calls that mixing
