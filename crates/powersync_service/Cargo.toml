@@ -11,3 +11,19 @@ homepage.workspace = true
 
 [dependencies]
 log = { workspace = true }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+bumpalo = { version = "3", features = ["collections", "std"] }
+string-interner = { version = "0.20", default-features = false, features = ["std", "inline-more", "backends"] }
+thiserror = "2"
+bson = "3.1.0"
+
+[dev-dependencies]
+bson = { version = "3.1.0", features = ["serde"] }
+criterion = { version = "0.8", features = ["html_reports"] }
+fake = { version = "5.1.0", features = ["chrono", "uuid"] }
+
+[[bench]]
+name = "evaluate_sync_plan"
+harness = false

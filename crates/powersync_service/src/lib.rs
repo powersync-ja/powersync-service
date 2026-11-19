@@ -1,5 +1,7 @@
 use log::info;
 
+pub mod sync_plan;
+
 // Just a stub for now.
 pub struct PowerSyncService {}
 
