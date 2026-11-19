@@ -23,7 +23,7 @@ const USERS: usize = 10_000;
 
 /// Evaluates two simple Sync Streams on an in-memory data set.
 ///
-/// This uses the following Sync Config as a fixture:
+/// This uses the following sync config as a fixture:
 ///
 /// ```yaml
 /// config:

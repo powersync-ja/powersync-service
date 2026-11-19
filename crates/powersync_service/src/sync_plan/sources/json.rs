@@ -21,6 +21,17 @@ impl<'a> From<&Frame<'a>> for SqliteValueFromJson<'a> {
 }
 
 impl<'a> SqliteValueFromJson<'a> {
+    /// A converter for top-level values of a source row.
+    ///
+    /// Unlike values from `json_extract` or `json_each`, `null` values of the source row are always
+    /// [SqliteValue::Null], regardless of the `fixed_json_extract` option.
+    pub fn for_source_row(frame: &Frame<'a>) -> Self {
+        Self {
+            arena: frame.arena(),
+            fixed_json_extract: true,
+        }
+    }
+
     /// Converts a string known to hold a valid JSON value to a SQLite value.
     ///
     /// This avoids allocating where possible, but allocations are required for JSON strings with

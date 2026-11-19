@@ -7,7 +7,7 @@ use bson::RawDocument;
 use bumpalo::{Bump, collections::Vec};
 use serde::{
     Deserializer, Serialize,
-    de::{DeserializeSeed, Visitor},
+    de::{DeserializeSeed, IgnoredAny, Visitor},
     ser::SerializeMap,
 };
 
@@ -157,11 +157,12 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                 })? {
                     let Some(field) = self.0.prepare_field(key) else {
                         // No `*` column, and no reference to this field, ignore it.
+                        map.next_value::<IgnoredAny>()?;
                         continue;
                     };
 
                     let parsed_value = map.next_value_seed(ScalarSqliteValueOrText(
-                        SqliteValueFromJson::from(&*field.frame),
+                        SqliteValueFromJson::for_source_row(field.frame),
                     ))?;
                     field.set(parsed_value);
                 }
@@ -253,7 +254,9 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                             },
                         };
                         let parameters = frame.read_values(&mut parameters);
-                        sink.row(&source.id, parameters, output_table, &row);
+                        if Self::parameters_valid(parameters) {
+                            sink.row(&source.id, parameters, output_table, &row);
+                        }
                     });
                     (ErrorSource::Data(source.id.as_ref()), result)
                 }
@@ -264,7 +267,9 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                     let result = frame.run(&source.common.instructions, &mut |frame| {
                         let lookup = &frame.read_values(&mut lookup);
                         let outputs = &frame.read_values(&mut output);
-                        sink.parameter_lookup(&source.id, lookup, outputs);
+                        if Self::parameters_valid(*lookup) && Self::parameters_valid(*outputs) {
+                            sink.parameter_lookup(&source.id, lookup, outputs);
+                        }
                     });
                     (ErrorSource::Parameter(source.id.as_ref()), result)
                 }
@@ -278,6 +283,10 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
             // read values they haven't written, but playing it safe doesn't cost much.
             frame.internals.fill(SqliteValue::Null);
         }
+    }
+
+    fn parameters_valid(values: &[SqliteValue]) -> bool {
+        values.iter().all(|v| v.is_json_compatible())
     }
 }
 
@@ -296,9 +305,7 @@ impl<'a> PreparedField<'_, 'a> {
             frame[slot] = value;
         }
 
-        if let Some(name) = self.name_for_star
-            && value.is_json_compatible()
-        {
+        if let Some(name) = self.name_for_star {
             frame.star_columns.push(StarColumn {
                 name,
                 symbol: self.symbol,

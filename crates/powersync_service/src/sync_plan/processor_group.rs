@@ -99,7 +99,8 @@ pub struct PreparedColumn {
 /// A [RowProjection] with an index of shadowed source row fields, used to emit every output
 /// column at most once.
 ///
-/// Since explicit columns have unique aliases, a column can only be shadowed by a field of the
+/// Since explicit columns have unique aliases (duplicates are removed when deserializing the
+/// plan), a column can only be shadowed by a field of the
 /// source row or vice-versa:
 ///
 ///  1. Fields of the source row with the same name as a column after the `*` are not emitted.

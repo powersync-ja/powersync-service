@@ -197,6 +197,10 @@ impl<'de> SerializedDataSource<'de> {
                     saw_star = true;
                 }
                 SerializedColumnSource::Column { expr, alias } => {
+                    // Like for JavaScript objects, the last column with a given alias wins.
+                    before.retain(|c: &ColumnSource| c.alias != alias);
+                    after.retain(|c: &ColumnSource| c.alias != alias);
+
                     let column = ColumnSource {
                         alias,
                         expr: functions.resolve_expression(expr)?,

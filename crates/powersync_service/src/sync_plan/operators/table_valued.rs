@@ -87,9 +87,10 @@ struct JsonEachState<'a> {
 impl<'a> JsonEachState<'a> {
     fn parse_json(json: &'a str, frame: &Frame<'a>) -> Result<Self, EvaluationError<'a>> {
         // First, is this a scalar value?
-        if let Ok(value) =
-            ScalarSqliteValueOrFail(frame.into()).deserialize(&mut JsonDeserializer::from_str(json))
-        {
+        let mut deserializer = JsonDeserializer::from_str(json);
+        if let Ok(value) = ScalarSqliteValueOrFail(frame.into()).deserialize(&mut deserializer) {
+            deserializer.end()?;
+
             // It is, we report that as a single (null, scalar value) entry.
             let entries = frame
                 .arena()
