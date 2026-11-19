@@ -2,6 +2,7 @@ use thiserror::Error;
 
 use crate::sync_plan::SqliteValue;
 
+/// An error that occurs while evaluating rows (after decoding them).
 #[derive(Error, Debug)]
 pub enum EvaluationError<'a> {
     #[error("{name} expects {expected} arguments, got {actual}")]
@@ -19,5 +20,5 @@ pub enum EvaluationError<'a> {
     FromJson(#[from] serde_json::Error),
 
     #[error("Error parsing BSON")]
-    FromBsn(#[from] bson::error::Error),
+    FromBson(#[from] bson::error::Error),
 }

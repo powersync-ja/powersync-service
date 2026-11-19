@@ -48,6 +48,9 @@ pub struct ProcessorGroup<E: ReplicationEmbedder> {
 
     /// The input slot in which to write the schema name of the replicated row.
     pub input_schema_name: Option<Slot>,
+    /// The input slot in which to write the full table name of the replicated row.
+    pub input_table_name: Option<Slot>,
+    /// Input slots in which to write prefixes of the table name.
     pub inputs_table_suffix: Vec<TableSuffixInput>,
 
     /// Whether any processor in this group has a `*` projection.
@@ -83,7 +86,7 @@ pub struct ProcessedDataSource<E: ReplicationEmbedder> {
     /// The name of the output table for evaluated rows.
     ///
     /// When [None], the name of the table being evaluated should be used instead.
-    pub output_table_name: Option<Arc<String>>,
+    pub output_table_name: Option<Symbol>,
     pub common: CommonProcessedSource,
 }
 
@@ -228,6 +231,7 @@ impl<E: ReplicationEmbedder> Default for ProcessorGroup<E> {
             num_internal_slots: 0,
             input_columns: HashMap::new(),
             input_schema_name: None,
+            input_table_name: None,
             inputs_table_suffix: Vec::new(),
             has_star_projection: false,
         }
@@ -254,7 +258,10 @@ impl<E: ReplicationEmbedder> ProcessorGroup<E> {
             .push(ProcessedGroupMember::Data(ProcessedDataSource {
                 id,
                 projection,
-                output_table_name: source.output_table_name.clone(),
+                output_table_name: source
+                    .output_table_name
+                    .as_deref()
+                    .map(|name| interner.get_or_intern(name)),
                 common,
             }));
     }
@@ -491,6 +498,9 @@ impl<'a, E: ReplicationEmbedder> ProcessorTranslator<'a, E> {
             TableProcessorData::SchemaName => *group
                 .input_schema_name
                 .get_or_insert_with(|| Slot::Input(next_slot(&mut group.num_input_slots))),
+            TableProcessorData::TableName => *group
+                .input_table_name
+                .get_or_insert_with(|| Slot::Input(next_slot(&mut group.num_input_slots))),
             TableProcessorData::TableSuffix => {
                 let prefix_length = self.processor.source_table.table.name.len();
 
@@ -546,7 +556,7 @@ mod test {
             TableProcessorExpression, TableProcessorTableValuedFunction,
             TableProcessorTableValuedFunctionOutput,
         },
-        table_pattern::TablePattern,
+        test::table_pattern,
     };
 
     struct TestEmbedder;
@@ -558,21 +568,12 @@ mod test {
     }
 
     fn column(name: &str) -> TableProcessorExpression {
-        SqlExpression::ExternalData(TableProcessorData::ColumnInSourceRow(Arc::new(
-            name.to_string(),
-        )))
+        SqlExpression::ExternalData(TableProcessorData::ColumnInSourceRow(name.to_string()))
     }
 
     fn processor() -> TableProcessor {
-        let Ok(schema) = "public".parse();
-        let Ok(table) = "users".parse();
-
         TableProcessor {
-            source_table: TablePattern {
-                connection_tag: "tag".to_string(),
-                schema,
-                table,
-            },
+            source_table: table_pattern("users"),
             filters: vec![],
             parameters: vec![],
             table_valued_functions: vec![],

@@ -90,6 +90,7 @@ impl<'a> JsonEachState<'a> {
         if let Ok(value) =
             ScalarSqliteValueOrFail(frame.into()).deserialize(&mut JsonDeserializer::from_str(json))
         {
+            // It is, we report that as a single (null, scalar value) entry.
             let entries = frame
                 .arena()
                 .alloc_slice_copy(&[(SqliteValue::Null, value)]);
@@ -104,13 +105,13 @@ impl<'a> JsonEachState<'a> {
             frame: &'b Frame<'a>,
         }
 
-        /// Handles the three top-level cases for `json_each`: An array reports numeric keys, an
-        /// object reports real keys, a scalar value is reported as a single entry with a null key.
+        /// Parses sequences and maps for `json_each`. Scalar values are parsed, nested JSON
+        /// elements are preserved as strings.
         impl<'a, 'b> Visitor<'a> for DeserializeToEntries<'a, 'b> {
             type Value = &'a [(SqliteValue<'a>, SqliteValue<'a>)];
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(formatter, "any JSON value")
+                write!(formatter, "an array or object")
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -135,6 +136,8 @@ impl<'a> JsonEachState<'a> {
             {
                 let mut vec = Vec::new_in(self.frame.arena());
                 while let Some(entry) = map.next_entry_seed(
+                    // The key must be a string, values can be nested (in which case we don't parse
+                    // them).
                     ScalarSqliteValueOrFail(self.frame.into()),
                     ScalarSqliteValueOrText(self.frame.into()),
                 )? {

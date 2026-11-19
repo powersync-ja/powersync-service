@@ -1,3 +1,8 @@
+//! Defines compatibility options, derived from `compatibility.ts`.
+//!
+//! These options influence how some SQL functions are evaluated, and how we decode source rows from
+//! BSON.
+
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
