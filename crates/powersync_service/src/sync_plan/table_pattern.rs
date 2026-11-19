@@ -84,20 +84,39 @@ pub struct TablePatternIndex<T> {
 
 impl<T: Default> TablePatternIndex<T> {
     /// Builds an index for the given sources, each of which is associated with the
-    /// [TablePattern] returned by `pattern`.
+    /// [TablePattern]s returned by `patterns`.
     ///
-    /// For each unique, non-empty combination of sources whose patterns match a table, a value is
-    /// created by starting from [Default::default] and invoking `add` with each source of that
-    /// combination, in the order they appear in `sources`.
-    pub fn build<S>(
-        sources: &[S],
-        pattern: impl Fn(&S) -> &TablePattern,
-        mut add: impl FnMut(&mut T, &S),
-    ) -> Self {
-        // Created groups. The Arc<T> is the group, Vec<usize> is the unique set of overlapping
-        // source table patterns forming the group.
+    /// For each unique, non-empty combination of sources with a pattern matching a table, a value
+    /// is created by starting from [Default::default] and invoking `add` with each source of that
+    /// combination, in the order they appear in `sources`. Sources are added once, even if
+    /// multiple of their patterns match.
+    pub fn build<'a, S, P>(
+        sources: &'a [S],
+        patterns: impl Fn(&'a S) -> P,
+        mut add: impl FnMut(&mut T, &'a S),
+    ) -> Self
+    where
+        P: IntoIterator<Item = &'a TablePattern>,
+    {
+        // All patterns, along with the index of the source they belong to. Since sources are
+        // visited in order, the source indices are sorted.
+        let entries: Vec<(usize, &TablePattern)> = sources
+            .iter()
+            .enumerate()
+            .flat_map(|(i, source)| patterns(source).into_iter().map(move |p| (i, p)))
+            .collect();
+
+        // Created groups. The Arc<T> is the group, Vec<usize> is the unique set of sources with
+        // overlapping table patterns forming the group.
         let mut created_groups: HashMap<Vec<usize>, Arc<T>> = HashMap::new();
-        let mut group_for = |matches: Vec<usize>| -> Arc<T> {
+        let mut group_for = |mut matches: Vec<usize>| -> Arc<T> {
+            // Resolve matching patterns to their sources. Patterns of the same source are
+            // adjacent, so this only needs to remove consecutive duplicates.
+            for i in &mut matches {
+                *i = entries[*i].0;
+            }
+            matches.dedup();
+
             let group = created_groups.entry(matches).or_insert_with_key(|matches| {
                 let mut group = T::default();
                 for &i in matches {
@@ -114,29 +133,25 @@ impl<T: Default> TablePatternIndex<T> {
             let index = table_indexes
                 .entry(schema_matches)
                 .or_insert_with_key(|schema_matches| {
-                    let tables = schema_matches
-                        .iter()
-                        .map(|&i| (i, &pattern(&sources[i]).table));
+                    let tables = schema_matches.iter().map(|&i| (i, &entries[i].1.table));
                     Arc::new(NameIndex::build(tables, &mut group_for))
                 });
             Arc::clone(index)
         };
 
         // Finally, group by connection tags as the outermost layer.
-        let mut sources_by_tag: HashMap<&str, Vec<usize>> = HashMap::new();
-        for (i, source) in sources.iter().enumerate() {
-            sources_by_tag
-                .entry(&pattern(source).connection_tag)
+        let mut entries_by_tag: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (i, (_, pattern)) in entries.iter().enumerate() {
+            entries_by_tag
+                .entry(&pattern.connection_tag)
                 .or_default()
                 .push(i);
         }
 
-        let by_connection_tag = sources_by_tag
+        let by_connection_tag = entries_by_tag
             .into_iter()
-            .map(|(tag, sources_in_tag)| {
-                let schemas = sources_in_tag
-                    .iter()
-                    .map(|&i| (i, &pattern(&sources[i]).schema));
+            .map(|(tag, entries_in_tag)| {
+                let schemas = entries_in_tag.iter().map(|&i| (i, &entries[i].1.schema));
                 let index = NameIndex::build(schemas, &mut table_index_for);
                 (tag.into(), index)
             })
@@ -295,7 +310,7 @@ mod test {
         let sources: Vec<_> = patterns.iter().enumerate().collect();
         TablePatternIndex::build(
             &sources,
-            |(_, pattern)| pattern,
+            |(_, pattern)| [*pattern],
             |ids: &mut Vec<usize>, (id, _)| ids.push(*id),
         )
     }
