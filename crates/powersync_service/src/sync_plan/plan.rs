@@ -16,7 +16,7 @@ pub struct StreamDataSource {
     /// The name of the output table for evaluated rows.
     ///
     /// When [None], the name of the table being evaluated should be used instead.
-    pub output_table_name: Option<Arc<String>>,
+    pub output_table_name: Option<String>,
 }
 
 /// A data source creating parameter lookup values that can be queried when fetching buckets
@@ -26,6 +26,16 @@ pub struct StreamParameterIndexLookupCreator {
     pub processor: TableProcessor,
     /// Outputs to persist in the lookup.
     pub outputs: Vec<TableProcessorExpression>,
+}
+
+/// An event triggered by changes to rows in matching tables.
+///
+/// Events are evaluated outside of the sync plan evaluator, so we only need to know which tables
+/// they're interested in.
+#[derive(Debug)]
+pub struct EventDescriptor {
+    pub name: String,
+    pub patterns: Vec<TablePattern>,
 }
 
 /// Something that processes a source row if it matches filters.
@@ -54,9 +64,11 @@ pub type TableProcessorExpression = SqlExpression<TableProcessorData>;
 #[derive(Debug)]
 pub enum TableProcessorData {
     /// Evaluates to the value of a column in the row to process.
-    ColumnInSourceRow(Arc<String>),
+    ColumnInSourceRow(String),
     /// Evaluates to a string representing the schema name of the row to process.
     SchemaName,
+    /// Evaluates to a string representing the name of the table of the row to process.
+    TableName,
     /// Evaluates to a string representing the table suffix (where the prefix is the wildcard
     /// [TablePattern]).
     TableSuffix,
@@ -94,7 +106,7 @@ pub struct TableProcessorTableValuedFunctionOutput {
 #[derive(Debug)]
 pub struct ColumnSource {
     /// The name of the output column in the generated object.
-    pub alias: Arc<String>,
+    pub alias: String,
     /// The expression to evaluate for this.
     pub expr: TableProcessorExpression,
 }

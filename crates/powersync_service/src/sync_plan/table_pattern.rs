@@ -1,5 +1,7 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
+use serde::Deserialize;
+
 /// Matches a table or schema name.
 #[derive(Clone, Debug)]
 pub struct NameMatcher {
@@ -7,20 +9,37 @@ pub struct NameMatcher {
     pub wildcard: bool,
 }
 
+impl NameMatcher {
+    pub fn from_string(mut src: String) -> Self {
+        let wildcard = if src.ends_with('%') {
+            src.pop();
+            true
+        } else {
+            false
+        };
+
+        Self {
+            name: src,
+            wildcard,
+        }
+    }
+}
+
+impl<'a> Deserialize<'a> for NameMatcher {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        let name: String = String::deserialize(deserializer)?;
+        Ok(Self::from_string(name))
+    }
+}
+
 impl FromStr for NameMatcher {
     type Err = !;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (name, wildcard) = if s.ends_with('%') {
-            (&s[0..s.len() - 1], true)
-        } else {
-            (s, false)
-        };
-
-        Ok(Self {
-            name: name.to_string(),
-            wildcard,
-        })
+        Ok(Self::from_string(s.to_owned()))
     }
 }
 
@@ -29,19 +48,6 @@ pub struct TablePattern {
     pub connection_tag: String,
     pub schema: NameMatcher,
     pub table: NameMatcher,
-}
-
-impl TablePattern {
-    pub fn new(connection_tag: &str, schema: &str, table: &str) -> Self {
-        let Ok(schema) = NameMatcher::from_str(schema);
-        let Ok(table) = NameMatcher::from_str(table);
-
-        Self {
-            connection_tag: connection_tag.to_string(),
-            schema,
-            table,
-        }
-    }
 }
 
 /// Reference to a source table associated with a replicated row.
@@ -55,7 +61,8 @@ pub struct SourceTableRef<'a> {
     pub name: &'a str,
 }
 
-type NestedNameIndex<T> = NameIndex<Arc<NameIndex<Option<Arc<T>>>>>;
+/// Resolves table names in a schema to the value for patterns matching them.
+type TableIndex<T> = NameIndex<Arc<T>>;
 
 /// A static index resolving source tables to values associated with the set of [TablePattern]s
 /// matching them.
@@ -63,104 +70,132 @@ type NestedNameIndex<T> = NameIndex<Arc<NameIndex<Option<Arc<T>>>>>;
 /// The index is built upfront for a fixed list of patterns. For every unique combination of
 /// patterns that can match a source table, a single value is created and shared between all
 /// tables resolving to that combination.
+///
+/// For example, source patterns `foo`, `bar` and `%` create three groups: One with an empty key for
+/// `%`, one with key `foo` containing `foo` and `%`, and one with key `bar` containing `bar` and
+/// `%`.
+///
+/// The index is built in stages, with exact matches over connection tags and either prefix or
+/// exact matches for schema and table names.
 #[derive(Debug)]
 pub struct TablePatternIndex<T> {
-    by_connection_tag: HashMap<Box<str>, NestedNameIndex<T>>,
+    by_connection_tag: HashMap<Box<str>, NameIndex<Arc<TableIndex<T>>>>,
 }
 
-impl<T> TablePatternIndex<T> {
-    /// Builds an index for the given patterns.
+impl<T: Default> TablePatternIndex<T> {
+    /// Builds an index for the given sources, each of which is associated with the
+    /// [TablePattern] returned by `pattern`.
     ///
-    /// `create` is invoked once for each unique, non-empty combination of matching patterns,
-    /// receiving the sorted indices of those patterns in `patterns`.
-    pub fn build(patterns: &[TablePattern], mut create: impl FnMut(&[usize]) -> T) -> Self {
-        let mut patterns_by_tag: HashMap<&str, Vec<usize>> = HashMap::new();
-        for (i, pattern) in patterns.iter().enumerate() {
-            patterns_by_tag
-                .entry(&pattern.connection_tag)
+    /// For each unique, non-empty combination of sources whose patterns match a table, a value is
+    /// created by starting from [Default::default] and invoking `add` with each source of that
+    /// combination, in the order they appear in `sources`.
+    pub fn build<S>(
+        sources: &[S],
+        pattern: impl Fn(&S) -> &TablePattern,
+        mut add: impl FnMut(&mut T, &S),
+    ) -> Self {
+        // Created groups. The Arc<T> is the group, Vec<usize> is the unique set of overlapping
+        // source table patterns forming the group.
+        let mut created_groups: HashMap<Vec<usize>, Arc<T>> = HashMap::new();
+        let mut group_for = |matches: Vec<usize>| -> Arc<T> {
+            let group = created_groups.entry(matches).or_insert_with_key(|matches| {
+                let mut group = T::default();
+                for &i in matches {
+                    add(&mut group, &sources[i]);
+                }
+                Arc::new(group)
+            });
+            Arc::clone(group)
+        };
+
+        // Do the same thing one level higher up, forming groups of overlapping schema patterns.
+        let mut table_indexes: HashMap<Vec<usize>, Arc<TableIndex<T>>> = HashMap::new();
+        let mut table_index_for = |schema_matches: Vec<usize>| -> Arc<TableIndex<T>> {
+            let index = table_indexes
+                .entry(schema_matches)
+                .or_insert_with_key(|schema_matches| {
+                    let tables = schema_matches
+                        .iter()
+                        .map(|&i| (i, &pattern(&sources[i]).table));
+                    Arc::new(NameIndex::build(tables, &mut group_for))
+                });
+            Arc::clone(index)
+        };
+
+        // Finally, group by connection tags as the outermost layer.
+        let mut sources_by_tag: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (i, source) in sources.iter().enumerate() {
+            sources_by_tag
+                .entry(&pattern(source).connection_tag)
                 .or_default()
                 .push(i);
         }
 
-        let mut values: HashMap<Vec<usize>, Arc<T>> = HashMap::new();
-        let mut table_indexes = HashMap::new();
-
-        let by_connection_tag = patterns_by_tag
+        let by_connection_tag = sources_by_tag
             .into_iter()
-            .map(|(tag, ids)| {
-                let schema_index = NameIndex::build(
-                    ids.iter().map(|&i| (i, &patterns[i].schema)),
-                    |schema_matches| {
-                        table_indexes
-                            .entry(schema_matches)
-                            .or_insert_with_key(|schema_matches| {
-                                Arc::new(NameIndex::build(
-                                    schema_matches.iter().map(|&i| (i, &patterns[i].table)),
-                                    |matches| {
-                                        if matches.is_empty() {
-                                            return None;
-                                        }
-
-                                        Some(
-                                            values
-                                                .entry(matches)
-                                                .or_insert_with_key(|k| Arc::new(create(k)))
-                                                .clone(),
-                                        )
-                                    },
-                                ))
-                            })
-                            .clone()
-                    },
-                );
-
-                (tag.into(), schema_index)
+            .map(|(tag, sources_in_tag)| {
+                let schemas = sources_in_tag
+                    .iter()
+                    .map(|&i| (i, &pattern(&sources[i]).schema));
+                let index = NameIndex::build(schemas, &mut table_index_for);
+                (tag.into(), index)
             })
             .collect();
 
         Self { by_connection_tag }
     }
+}
 
+impl<T> TablePatternIndex<T> {
     /// Returns the value for the patterns matching the given table, or [None] if no pattern
     /// matches it.
     pub fn lookup(&self, table: SourceTableRef) -> Option<&Arc<T>> {
         self.by_connection_tag
             .get(table.connection_tag)?
-            .lookup(table.schema)
+            .lookup(table.schema)?
             .lookup(table.name)
-            .as_ref()
     }
 }
 
 /// Resolves a schema or table name to a value associated with all [NameMatcher]s matching it.
 ///
-/// Nodes exist for the empty name and every name used in a matcher. For each node, we precompute
+/// Nodes exist for every name used in a matcher (and the empty name). For each node, we precompute
 /// the value for the name itself and for names that extend it, so resolving a name only requires
 /// finding the longest node that is a prefix of the name.
+///
+/// For example, a name index built on `foo`, `bar` and `%` has lengths `3, 0` and the following
+/// entries in nodes:
+///
+/// | Key |  Exact | Prefix |
+/// |-----|--------|--------|
+/// | foo | foo, % |      % |
+/// | bar | bar, % |      % |
+/// |   % |      % |      % |
 #[derive(Debug)]
 struct NameIndex<T> {
-    /// Distinct lengths of node names, in descending order. Always ends with `0`.
+    /// Distinct lengths of node names, in descending order.
     lengths: Box<[usize]>,
     nodes: HashMap<Box<str>, NameNode<T>>,
 }
 
 #[derive(Debug)]
 struct NameNode<T> {
-    /// The value for a name equal to the name of this node.
-    exact: T,
-    /// The value for a name that this node is a strict prefix of.
-    prefix: T,
+    /// The value for a name equal to the name of this node, or [None] if no matcher matches it.
+    exact: Option<T>,
+    /// The value for a name that this node is a strict prefix of, or [None] if no matcher
+    /// matches such names.
+    prefix: Option<T>,
 }
 
 impl<T> NameIndex<T> {
     /// Builds an index for `(id, matcher)` pairs.
     ///
-    /// `resolve` is invoked with the sorted ids of matchers matching a node.
+    /// `resolve` is invoked with the sorted, non-empty ids of matchers matching a node.
     fn build<'a>(
-        matchers: impl Iterator<Item = (usize, &'a NameMatcher)>,
+        matchers: impl IntoIterator<Item = (usize, &'a NameMatcher)>,
         mut resolve: impl FnMut(Vec<usize>) -> T,
     ) -> Self {
-        let mut matchers: Vec<_> = matchers.collect();
+        let mut matchers: Vec<_> = matchers.into_iter().collect();
         matchers.sort_by_key(|(id, _)| *id);
 
         let mut names: Vec<&str> = matchers.iter().map(|(_, m)| m.name.as_str()).collect();
@@ -168,31 +203,36 @@ impl<T> NameIndex<T> {
         names.sort_unstable();
         names.dedup();
 
-        let mut lengths: Vec<usize> = names.iter().map(|name| name.len()).collect();
-        lengths.sort_unstable_by(|a, b| b.cmp(a));
-        lengths.dedup();
-
-        let nodes = names
+        let nodes: HashMap<Box<str>, NameNode<T>> = names
             .into_iter()
-            .map(|name| {
+            .filter_map(|name| {
                 let mut exact = vec![];
                 let mut prefix = vec![];
-                for (id, matcher) in &matchers {
+                for &(id, matcher) in &matchers {
                     if matcher.wildcard && name.starts_with(&matcher.name) {
-                        exact.push(*id);
-                        prefix.push(*id);
+                        exact.push(id);
+                        prefix.push(id);
                     } else if !matcher.wildcard && name == matcher.name {
-                        exact.push(*id);
+                        exact.push(id);
                     }
                 }
 
+                if exact.is_empty() {
+                    // Prefix matches are a subset of exact matches, so neither has a value.
+                    return None;
+                }
+
                 let node = NameNode {
-                    exact: resolve(exact),
-                    prefix: resolve(prefix),
+                    exact: Some(resolve(exact)),
+                    prefix: (!prefix.is_empty()).then(|| resolve(prefix)),
                 };
-                (name.into(), node)
+                Some((name.into(), node))
             })
             .collect();
+
+        let mut lengths: Vec<usize> = nodes.keys().map(|name| name.len()).collect();
+        lengths.sort_unstable_by(|a, b| b.cmp(a));
+        lengths.dedup();
 
         Self {
             lengths: lengths.into(),
@@ -200,7 +240,7 @@ impl<T> NameIndex<T> {
         }
     }
 
-    fn lookup(&self, name: &str) -> &T {
+    fn lookup(&self, name: &str) -> Option<&T> {
         for &len in &self.lengths {
             // A prefix that doesn't end on a char boundary can't be equal to a node name.
             let Some(prefix) = name.get(..len) else {
@@ -208,15 +248,16 @@ impl<T> NameIndex<T> {
             };
 
             if let Some(node) = self.nodes.get(prefix) {
-                return if len == name.len() {
+                let value = if len == name.len() {
                     &node.exact
                 } else {
                     &node.prefix
                 };
+                return value.as_ref();
             }
         }
 
-        unreachable!("Node for empty name should exist")
+        None
     }
 }
 
@@ -225,6 +266,11 @@ mod test {
     use std::sync::Arc;
 
     use super::{NameMatcher, SourceTableRef, TablePattern, TablePatternIndex};
+
+    fn name_matcher(name: &str) -> NameMatcher {
+        let Ok(matcher) = name.parse();
+        matcher
+    }
 
     #[test]
     fn parse() {
@@ -238,18 +284,20 @@ mod test {
     }
 
     fn pattern(connection_tag: &str, schema: &str, table: &str) -> TablePattern {
-        let Ok(schema) = schema.parse();
-        let Ok(table) = table.parse();
-
         TablePattern {
             connection_tag: connection_tag.to_string(),
-            schema,
-            table,
+            schema: name_matcher(schema),
+            table: name_matcher(table),
         }
     }
 
     fn index(patterns: &[TablePattern]) -> TablePatternIndex<Vec<usize>> {
-        TablePatternIndex::build(patterns, |ids| ids.to_vec())
+        let sources: Vec<_> = patterns.iter().enumerate().collect();
+        TablePatternIndex::build(
+            &sources,
+            |(_, pattern)| pattern,
+            |ids: &mut Vec<usize>, (id, _)| ids.push(*id),
+        )
     }
 
     fn lookup<'a>(

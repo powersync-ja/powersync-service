@@ -218,6 +218,9 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
         if let Some(slot) = group.input_schema_name {
             frame[slot] = SqliteValue::Text(table.schema);
         }
+        if let Some(slot) = group.input_table_name {
+            frame[slot] = SqliteValue::Text(table.name);
+        }
         for suffix in &group.inputs_table_suffix {
             // The table matched a pattern of this length, so this is a valid char boundary.
             frame[suffix.slot] = SqliteValue::Text(&table.name[suffix.prefix_length..]);
@@ -233,7 +236,7 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                     let output_table = source
                         .output_table_name
                         .as_ref()
-                        .map(|s| s.as_str())
+                        .map(|s| resolve(&config.interner, *s))
                         .unwrap_or(table.name);
                     let projection = &source.projection;
                     let mut parameters = frame.allocate_value_slice(&source.common.parameters);
@@ -458,7 +461,7 @@ impl<'a> Frame<'a> {
     fn run(
         &mut self,
         instructions: &'a [EvaluatorInstruction],
-        on_match: &mut impl FnMut(&Self),
+        on_match: &mut dyn FnMut(&Self),
     ) -> Result<(), EvaluationError<'a>> {
         for (index, instruction) in instructions.iter().enumerate() {
             match instruction {
@@ -548,22 +551,14 @@ mod test {
 
     use super::{EvaluationSink, Evaluator, ProjectedRow};
     use crate::sync_plan::{
-        CompatibilityContext, HydratedSource, HydratedSyncConfig, ReplicationEmbedder, SqliteValue,
+        HydratedSource, SqliteValue,
         expression::SqlExpression,
         plan::{
             ColumnSource, RowProjection, StreamDataSource, StreamParameterIndexLookupCreator,
             TableProcessor, TableProcessorData, TableProcessorExpression,
         },
-        table_pattern::{SourceTableRef, TablePattern},
+        test::{TestEmbedder, evaluator, event_source, source_table_ref, table_pattern},
     };
-
-    struct TestEmbedder;
-
-    impl ReplicationEmbedder for TestEmbedder {
-        type BucketId = &'static str;
-        type ParameterId = &'static str;
-        type EventId = &'static str;
-    }
 
     #[derive(Debug, PartialEq)]
     struct RecordedRow {
@@ -623,41 +618,20 @@ mod test {
         }
     }
 
-    fn pattern(table: &str) -> TablePattern {
-        let Ok(schema) = "public".parse();
-        let Ok(table) = table.parse();
-
-        TablePattern {
-            connection_tag: "tag".to_string(),
-            schema,
-            table,
-        }
-    }
-
-    fn table(name: &str) -> SourceTableRef<'_> {
-        SourceTableRef {
-            connection_tag: "tag",
-            schema: "public",
-            name,
-        }
-    }
-
     fn column(name: &str) -> TableProcessorExpression {
-        SqlExpression::ExternalData(TableProcessorData::ColumnInSourceRow(Arc::new(
-            name.to_string(),
-        )))
+        SqlExpression::ExternalData(TableProcessorData::ColumnInSourceRow(name.to_string()))
     }
 
     fn alias(alias: &str, expr: TableProcessorExpression) -> ColumnSource {
         ColumnSource {
-            alias: Arc::new(alias.to_string()),
+            alias: alias.to_string(),
             expr,
         }
     }
 
     fn processor(table: &str) -> TableProcessor {
         TableProcessor {
-            source_table: pattern(table),
+            source_table: table_pattern(table),
             filters: vec![],
             parameters: vec![],
             table_valued_functions: vec![],
@@ -672,26 +646,10 @@ mod test {
         }
     }
 
-    fn star() -> RowProjection<ColumnSource> {
-        RowProjection::Star {
-            before: vec![],
-            after: vec![],
-        }
-    }
-
-    fn create_evaluator(sources: &[HydratedSource<TestEmbedder>]) -> Evaluator<TestEmbedder> {
-        let config = HydratedSyncConfig::new(CompatibilityContext::default(), sources);
-
-        Evaluator::new(Arc::new(config))
-    }
-
-    fn bucket<'a>(
-        id: &'static str,
-        sources: &'a [StreamDataSource],
-    ) -> HydratedSource<'a, TestEmbedder> {
+    fn bucket(id: &'static str, source: StreamDataSource) -> HydratedSource<TestEmbedder> {
         HydratedSource::Bucket {
             id: Arc::new(id),
-            sources,
+            source,
         }
     }
 
@@ -706,7 +664,7 @@ mod test {
         sink: &mut RecordingSink,
     ) -> Vec<&'a str> {
         let mut requested = vec![];
-        let mut row = evaluator.evaluate(table(table_name)).unwrap();
+        let mut row = evaluator.evaluate(source_table_ref(table_name)).unwrap();
         for (name, value) in fields {
             if let Some(field) = row.prepare_field(&Cow::Borrowed(name)) {
                 requested.push(*name);
@@ -720,10 +678,10 @@ mod test {
 
     #[test]
     fn no_matching_group() {
-        let sources = [data_source("users", star())];
-        let mut evaluator = create_evaluator(&[bucket("b", &sources)]);
+        let source = data_source("users", RowProjection::star());
+        let mut eval = evaluator(&[bucket("b", source)]);
 
-        assert!(evaluator.evaluate(table("accounts")).is_none());
+        assert!(eval.evaluate(source_table_ref("accounts")).is_none());
     }
 
     #[test]
@@ -733,8 +691,7 @@ mod test {
             RowProjection::Columns(vec![alias("a", column("a"))]),
         );
         source.processor.filters.push(column("b"));
-        let sources = [source];
-        let mut evaluator = create_evaluator(&[bucket("b", &sources)]);
+        let mut evaluator = evaluator(&[bucket("b", source)]);
         let mut sink = RecordingSink::default();
 
         let requested = evaluate_row(
@@ -777,9 +734,8 @@ mod test {
                 after: vec![],
             },
         );
-        source.output_table_name = Some(Arc::new("renamed".to_string()));
-        let sources = [source];
-        let mut evaluator = create_evaluator(&[bucket("b", &sources)]);
+        source.output_table_name = Some("renamed".to_string());
+        let mut evaluator = evaluator(&[bucket("b", source)]);
         let mut sink = RecordingSink::default();
 
         evaluate_row(
@@ -803,14 +759,14 @@ mod test {
     #[test]
     fn emits_columns_once() {
         // SELECT row.a AS x, row.a AS y, *, row.b AS z FROM users
-        let sources = [data_source(
+        let source = data_source(
             "users",
             RowProjection::Star {
                 before: vec![alias("x", column("a")), alias("y", column("a"))],
                 after: vec![alias("z", column("b"))],
             },
-        )];
-        let mut evaluator = create_evaluator(&[bucket("b", &sources)]);
+        );
+        let mut evaluator = evaluator(&[bucket("b", source)]);
         let mut sink = RecordingSink::default();
 
         evaluate_row(
@@ -848,7 +804,6 @@ mod test {
     fn parameters_and_events() {
         let mut data = data_source("users", RowProjection::Columns(vec![]));
         data.processor.parameters.push(column("org"));
-        let data = [data];
 
         let mut lookup_processor = processor("user%");
         lookup_processor.parameters = vec![
@@ -860,18 +815,14 @@ mod test {
             processor: lookup_processor,
             outputs: vec![column("id")],
         };
-        let event_patterns = [pattern("users"), pattern("user%")];
 
-        let mut evaluator = create_evaluator(&[
-            bucket("b", &data),
+        let mut evaluator = evaluator(&[
+            bucket("b", data),
             HydratedSource::Parameter {
                 id: Arc::new("lookup"),
-                source: &lookup,
+                source: lookup,
             },
-            HydratedSource::Event {
-                id: Arc::new("event"),
-                patterns: &event_patterns,
-            },
+            event_source("event", &["users", "user%"]),
         ]);
         let mut sink = RecordingSink::default();
 
@@ -904,16 +855,22 @@ mod test {
 
     #[test]
     fn shares_symbols_between_groups() {
-        let sources = [
-            data_source("%", RowProjection::Columns(vec![alias("id", column("id"))])),
-            data_source("users", RowProjection::Columns(vec![])),
-        ];
-        let evaluator = create_evaluator(&[bucket("b", &sources)]);
+        let id = Arc::new("b");
+        let evaluator = evaluator(&[
+            HydratedSource::Bucket {
+                id: id.clone(),
+                source: data_source("%", RowProjection::Columns(vec![alias("id", column("id"))])),
+            },
+            HydratedSource::Bucket {
+                id,
+                source: data_source("users", RowProjection::Columns(vec![])),
+            },
+        ]);
         let config = &evaluator.config;
         let id = config.interner.get("id").unwrap();
 
-        let users = config.groups.lookup(table("users")).unwrap();
-        let accounts = config.groups.lookup(table("accounts")).unwrap();
+        let users = config.groups.lookup(source_table_ref("users")).unwrap();
+        let accounts = config.groups.lookup(source_table_ref("accounts")).unwrap();
         assert!(!Arc::ptr_eq(users, accounts));
         assert!(users.input_columns.contains_key(&id));
         assert!(accounts.input_columns.contains_key(&id));

@@ -8,12 +8,11 @@ use fake::{
     uuid::UUIDv4,
 };
 use powersync_service::sync_plan::{
-    CompatibilityContext, EvaluationSink, Evaluator, HydratedSource, HydratedSyncConfig,
-    ProjectedRow, ReplicationEmbedder, RowProjection, SourceTableRef, SqlExpression, SqliteValue,
-    StreamDataSource, StreamParameterIndexLookupCreator, TablePattern, TableProcessor,
-    TableProcessorData,
+    CompatibilityContext, DeserializeSyncPlan, EvaluationSink, Evaluator, HydratedSyncConfig,
+    ProjectedRow, ReplicationEmbedder, SourceTableRef, SqliteValue,
 };
 use serde::Serialize;
+use serde_json::Deserializer;
 
 /// Approximate size of the generated source data, per format.
 const DATA_SIZE: usize = 1 << 30;
@@ -42,71 +41,125 @@ const USERS: usize = 10_000;
 struct BenchmarkEmbedder;
 
 impl ReplicationEmbedder for BenchmarkEmbedder {
-    type BucketId = String;
-    type ParameterId = String;
-    type EventId = String;
+    type BucketId = &'static str;
+    type ParameterId = &'static str;
+    type EventId = &'static str;
 }
 
+const CONNECTION_TAG: &str = "tag";
+const SCHEMA: &str = "schema";
+
 fn sync_config() -> HydratedSyncConfig<BenchmarkEmbedder> {
+    let my_lists = r#"
+{
+  "hash": 385587389,
+  "table": {
+    "connection": null,
+    "schema": null,
+    "table": "lists"
+  },
+  "outputTableName": "lists",
+  "tableValuedFunctions": [],
+  "filters": [],
+  "partitionBy": [
+    {
+      "expr": {
+        "type": "data",
+        "source": {
+        "column": "owner"
+        }
+      }
+    }
+  ],
+  "columns": [
+    "star"
+  ]
+}"#;
+    let contents_data = r#"
+{
+  "hash": 284009032,
+  "table": {
+    "connection": null,
+    "schema": null,
+    "table": "todo_items"
+  },
+  "outputTableName": "todo_items",
+  "tableValuedFunctions": [],
+  "filters": [],
+  "partitionBy": [
+    {
+      "expr": {
+        "type": "data",
+        "source": {
+          "column": "list"
+        }
+      }
+    }
+  ],
+  "columns": [
+    "star"
+  ]
+}
+"#;
+    let contents_parameter = r#"
+{
+  "hash": 323765117,
+  "table": {
+    "connection": null,
+    "schema": null,
+    "table": "lists"
+  },
+  "tableValuedFunctions": [],
+  "filters": [],
+  "partitionBy": [
+    {
+      "expr": {
+        "type": "data",
+        "source": {
+            "column": "owner"
+        }
+      }
+    }
+  ],
+  "output": [
+    {
+        "type": "data",
+        "source": {
+        "column": "id"
+        }
+    }
+  ],
+  "lookupScope": {
+    "lookupName": "lookup",
+    "queryId": "0"
+  }
+}
+"#;
+
     let compat = CompatibilityContext::default();
-
-    let lists = TablePattern::new("tag", "schema", "lists");
-    let todo_items = TablePattern::new("tag", "schema", "todo_items");
-
-    let my_lists = StreamDataSource {
-        processor: TableProcessor {
-            source_table: lists.clone(),
-            filters: vec![],
-            parameters: vec![SqlExpression::ExternalData(
-                TableProcessorData::ColumnInSourceRow(Arc::new("owner".to_string())),
-            )],
-            table_valued_functions: vec![],
-        },
-        projection: RowProjection::star(),
-        output_table_name: None,
-    };
-    // Index from lists.owner -> lists.id for contents query
-    let lists_parameter = StreamParameterIndexLookupCreator {
-        processor: TableProcessor {
-            source_table: lists,
-            filters: vec![],
-            parameters: vec![SqlExpression::ExternalData(
-                TableProcessorData::ColumnInSourceRow(Arc::new("owner".to_string())),
-            )],
-            table_valued_functions: vec![],
-        },
-        outputs: vec![SqlExpression::ExternalData(
-            TableProcessorData::ColumnInSourceRow(Arc::new("id".to_string())),
-        )],
-    };
-    let contents = StreamDataSource {
-        processor: TableProcessor {
-            source_table: todo_items,
-            filters: vec![],
-            parameters: vec![SqlExpression::ExternalData(
-                TableProcessorData::ColumnInSourceRow(Arc::new("list".to_string())),
-            )],
-            table_valued_functions: vec![],
-        },
-        projection: RowProjection::star(),
-        output_table_name: None,
+    let deserialize = DeserializeSyncPlan {
+        default_connection_tag: CONNECTION_TAG,
+        default_schema: SCHEMA,
     };
 
     HydratedSyncConfig::new(
         compat,
         &[
-            HydratedSource::Bucket {
-                id: Arc::new("1|my_lists".to_string()),
-                sources: &[my_lists],
-            },
-            HydratedSource::Bucket {
-                id: Arc::new("1|contents".to_string()),
-                sources: &[contents],
-            },
-            HydratedSource::Parameter {
-                id: Arc::new("1|query0".to_string()),
-                source: &lists_parameter,
-            },
+            deserialize
+                .data_source(Arc::new("my_lists"), &mut Deserializer::from_str(my_lists))
+                .expect("decode my_lists"),
+            deserialize
+                .data_source(
+                    Arc::new("contents"),
+                    &mut Deserializer::from_str(contents_data),
+                )
+                .expect("decode contents"),
+            deserialize
+                .parameter_source(
+                    Arc::new("contents"),
+                    &mut Deserializer::from_str(contents_parameter),
+                )
+                .expect("decode contents parameter"),
         ],
     )
 }
@@ -135,7 +188,7 @@ impl EvaluationSink<BenchmarkEmbedder> for ReplicationBatch {
 
     fn row(
         &mut self,
-        bucket: &String,
+        bucket: &&str,
         parameters: &[SqliteValue<'_>],
         table: &str,
         row: &ProjectedRow<'_, '_>,
@@ -150,7 +203,7 @@ impl EvaluationSink<BenchmarkEmbedder> for ReplicationBatch {
 
     fn parameter_lookup(
         &mut self,
-        id: &String,
+        id: &&str,
         lookup: &[SqliteValue<'_>],
         outputs: &[SqliteValue<'_>],
     ) {
@@ -161,7 +214,7 @@ impl EvaluationSink<BenchmarkEmbedder> for ReplicationBatch {
         self.sink.push(b'\n');
     }
 
-    fn event(&mut self, _id: &String) {
+    fn event(&mut self, _id: &&str) {
         panic!("Did not expect event")
     }
 
@@ -198,8 +251,8 @@ enum Table {
 impl Table {
     fn source_ref(self) -> SourceTableRef<'static> {
         SourceTableRef {
-            connection_tag: "tag",
-            schema: "schema",
+            connection_tag: CONNECTION_TAG,
+            schema: SCHEMA,
             name: match self {
                 Table::Lists => "lists",
                 Table::TodoItems => "todo_items",

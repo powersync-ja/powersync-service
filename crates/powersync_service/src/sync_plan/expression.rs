@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
+
+use serde::{Deserialize, de::Error};
 
 use crate::sync_plan::SqliteValue;
 
@@ -21,37 +23,57 @@ pub enum SqlExpression<Data> {
     Literal(LiteralExpression),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize)]
 pub enum UnaryOperator {
+    #[serde(rename = "not")]
     Not,
+    #[serde(rename = "+")]
     Plus,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct UnaryExpression<Data> {
     pub operand: Box<SqlExpression<Data>>,
     pub operator: UnaryOperator,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize)]
 pub enum BinaryOperator {
+    #[serde(rename = "or")]
     Or,
+    #[serde(rename = "and")]
     And,
+    #[serde(rename = "=")]
     Equals,
+    #[serde(rename = "is")]
     Is,
+    #[serde(rename = "<")]
     Less,
+    #[serde(rename = "<=")]
     LessOrEqual,
+    #[serde(rename = ">")]
     Greater,
+    #[serde(rename = ">=")]
     GreaterOrEqual,
+    #[serde(rename = "&")]
     BinaryAnd,
+    #[serde(rename = "|")]
     BinaryOr,
+    #[serde(rename = "<<")]
     ShiftLeft,
+    #[serde(rename = ">>")]
     ShiftRight,
+    #[serde(rename = "+")]
     Plus,
+    #[serde(rename = "-")]
     Minus,
+    #[serde(rename = "*")]
     Multiply,
+    #[serde(rename = "/")]
     Divide,
+    #[serde(rename = "%")]
     Modulo,
+    #[serde(rename = "||")]
     Concatenate,
 }
 
@@ -59,7 +81,7 @@ pub enum BinaryOperator {
 ///
 /// `LIKE`, `GLOB`, `REGEXP`, `MATCH`, `->` and `->>` are represented as function calls instead. Negated operators
 /// (e.g. `!=` or `NOT IN`) are represented by wrapping the expression in a unary `NOT`.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct BinaryExpression<Data> {
     pub left: Box<SqlExpression<Data>>,
     pub operator: BinaryOperator,
@@ -67,7 +89,7 @@ pub struct BinaryExpression<Data> {
 }
 
 /// A `$value BETWEEN $low AND $high` expression.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct BetweenExpression<Data> {
     pub value: Box<SqlExpression<Data>>,
     pub low: Box<SqlExpression<Data>>,
@@ -75,14 +97,14 @@ pub struct BetweenExpression<Data> {
 }
 
 /// An `$target IN ($in0, $in1, ..., $inN)` expression.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct ScalarInExpression<Data> {
     pub target: Box<SqlExpression<Data>>,
     pub r#in: Vec<SqlExpression<Data>>,
 }
 
 /// A `CASE WHEN` expression as supported by SQLite.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct CaseWhenExpression<Data> {
     pub operand: Option<Box<SqlExpression<Data>>>,
     pub whens: Vec<WhenThen<Data>>,
@@ -90,13 +112,14 @@ pub struct CaseWhenExpression<Data> {
 }
 
 /// A `WHEN $when THEN $then` clause in a [CaseWhenExpression].
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct WhenThen<Data> {
     pub when: SqlExpression<Data>,
     pub then: SqlExpression<Data>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum CastType {
     Text,
     Numeric,
@@ -106,7 +129,7 @@ pub enum CastType {
 }
 
 /// A `CAST($operand AS $cast_as)` expression.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct CastExpression<Data> {
     pub operand: Box<SqlExpression<Data>>,
     pub cast_as: CastType,
@@ -122,106 +145,123 @@ pub enum LiteralExpression {
 }
 
 /// A scalar (non-aggregate, non-window, non-table-valued) function call in SQL.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct ScalarFunctionCallExpression<Data> {
     pub function: ScalarFunction,
     pub parameters: Vec<SqlExpression<Data>>,
 }
 
 /// Scalar functions supported in sync plans.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScalarFunction {
     // Core SQLite functions, https://sqlite.org/lang_corefunc.html
     Hex,
+    #[serde(rename = "ifnull")]
     IfNull,
     Iif,
     Instr,
     Length,
     Lower,
     Substring,
+    #[serde(rename = "typeof")]
     TypeOf,
     Upper,
     JsonArrayLength,
     JsonExtract,
+    #[serde(rename = "unixepoch")]
     UnixEpoch,
+    #[serde(rename = "datetime")]
     DateTime,
     // PowerSync-specific functions
     Base64,
     JsonKeys,
     UuidBlob,
+    #[serde(rename = "st_asgeojson")]
     StAsGeoJson,
+    #[serde(rename = "st_astext")]
     StAsText,
     StX,
     StY,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TableValuedFunction {
     JsonEach,
 }
 
 impl<Data> SqlExpression<Data> {
-    pub fn map<Other>(&self, mut map_data: impl FnMut(&Data) -> Other) -> SqlExpression<Other> {
-        self.map_with(&mut map_data)
-    }
+    /// Transforms all [SqlExpression::ExternalData] nodes in this expression, failing if `map_data` fails for any of
+    /// them.
+    pub fn try_map<Other, E, F>(self, map_data: &mut F) -> Result<SqlExpression<Other>, E>
+    where
+        F: FnMut(Data) -> Result<Other, E>,
+    {
+        fn map_box<Data, Other, E, F: FnMut(Data) -> Result<Other, E>>(
+            expr: SqlExpression<Data>,
+            map_data: &mut F,
+        ) -> Result<Box<SqlExpression<Other>>, E> {
+            Ok(Box::new(expr.try_map(map_data)?))
+        }
 
-    fn map_with<Other, F: FnMut(&Data) -> Other>(&self, map_data: &mut F) -> SqlExpression<Other> {
-        match self {
-            Self::ExternalData(original) => SqlExpression::ExternalData(map_data(original)),
+        fn map_all<Data, Other, E, F: FnMut(Data) -> Result<Other, E>>(
+            exprs: Vec<SqlExpression<Data>>,
+            map_data: &mut F,
+        ) -> Result<Vec<SqlExpression<Other>>, E> {
+            exprs.into_iter().map(|e| e.try_map(map_data)).collect()
+        }
+
+        Ok(match self {
+            Self::ExternalData(data) => SqlExpression::ExternalData(map_data(data)?),
             Self::Unary(unary) => SqlExpression::Unary(UnaryExpression {
-                operand: Box::new(unary.operand.map_with(map_data)),
+                operand: map_box(*unary.operand, map_data)?,
                 operator: unary.operator,
             }),
             Self::Binary(binary) => SqlExpression::Binary(BinaryExpression {
-                left: Box::new(binary.left.map_with(map_data)),
+                left: map_box(*binary.left, map_data)?,
                 operator: binary.operator,
-                right: Box::new(binary.right.map_with(map_data)),
+                right: map_box(*binary.right, map_data)?,
             }),
             Self::Between(between) => SqlExpression::Between(BetweenExpression {
-                value: Box::new(between.value.map_with(map_data)),
-                low: Box::new(between.low.map_with(map_data)),
-                high: Box::new(between.high.map_with(map_data)),
+                value: map_box(*between.value, map_data)?,
+                low: map_box(*between.low, map_data)?,
+                high: map_box(*between.high, map_data)?,
             }),
             Self::ScalarIn(scalar_in) => SqlExpression::ScalarIn(ScalarInExpression {
-                target: Box::new(scalar_in.target.map_with(map_data)),
-                r#in: scalar_in
-                    .r#in
-                    .iter()
-                    .map(|e| e.map_with(map_data))
-                    .collect(),
+                target: map_box(*scalar_in.target, map_data)?,
+                r#in: map_all(scalar_in.r#in, map_data)?,
             }),
             Self::CaseWhen(case_when) => SqlExpression::CaseWhen(CaseWhenExpression {
                 operand: case_when
                     .operand
-                    .as_ref()
-                    .map(|e| Box::new(e.map_with(map_data))),
+                    .map(|e| map_box(*e, map_data))
+                    .transpose()?,
                 whens: case_when
                     .whens
-                    .iter()
-                    .map(|when_then| WhenThen {
-                        when: when_then.when.map_with(map_data),
-                        then: when_then.then.map_with(map_data),
+                    .into_iter()
+                    .map(|when_then| {
+                        Ok(WhenThen {
+                            when: when_then.when.try_map(map_data)?,
+                            then: when_then.then.try_map(map_data)?,
+                        })
                     })
-                    .collect(),
+                    .collect::<Result<_, E>>()?,
                 r#else: case_when
                     .r#else
-                    .as_ref()
-                    .map(|e| Box::new(e.map_with(map_data))),
+                    .map(|e| map_box(*e, map_data))
+                    .transpose()?,
             }),
             Self::Cast(cast) => SqlExpression::Cast(CastExpression {
-                operand: Box::new(cast.operand.map_with(map_data)),
+                operand: map_box(*cast.operand, map_data)?,
                 cast_as: cast.cast_as,
             }),
             Self::FunctionCall(call) => SqlExpression::FunctionCall(ScalarFunctionCallExpression {
                 function: call.function,
-                parameters: call
-                    .parameters
-                    .iter()
-                    .map(|e| e.map_with(map_data))
-                    .collect(),
+                parameters: map_all(call.parameters, map_data)?,
             }),
-            Self::Literal(l) => SqlExpression::Literal(l.clone()),
-        }
+            Self::Literal(literal) => SqlExpression::Literal(literal),
+        })
     }
 }
 
@@ -241,5 +281,72 @@ impl TableValuedFunction {
         match self {
             TableValuedFunction::JsonEach => &["key", "value"],
         }
+    }
+}
+
+// Deserializes expression from the format given by packages/sync-rules/src/sync_plan/expression.ts.
+impl<'de, Data: Deserialize<'de>> Deserialize<'de> for SqlExpression<Data> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(tag = "type")]
+        pub enum TypeScriptSqlExpression<'a, Data> {
+            #[serde(rename = "data")]
+            ExternalData { source: Data },
+            #[serde(rename = "unary")]
+            Unary(UnaryExpression<Data>),
+            #[serde(rename = "binary")]
+            Binary(BinaryExpression<Data>),
+            #[serde(rename = "between")]
+            Between(BetweenExpression<Data>),
+            #[serde(rename = "scalar_in")]
+            ScalarIn(ScalarInExpression<Data>),
+            #[serde(rename = "case_when")]
+            CaseWhen(CaseWhenExpression<Data>),
+            #[serde(rename = "cast")]
+            Cast(CastExpression<Data>),
+            #[serde(rename = "function")]
+            FunctionCall(ScalarFunctionCallExpression<Data>),
+            #[serde(rename = "lit_null")]
+            Null,
+            #[serde(rename = "lit_double")]
+            Double { value: f64 },
+            #[serde(rename = "lit_int")]
+            Integer {
+                #[serde(borrow)]
+                base10: Cow<'a, str>,
+            },
+            #[serde(rename = "lit_string")]
+            String { value: String },
+        }
+
+        let ts = TypeScriptSqlExpression::deserialize(deserializer)?;
+
+        Ok(match ts {
+            TypeScriptSqlExpression::ExternalData { source } => Self::ExternalData(source),
+            TypeScriptSqlExpression::Unary(e) => Self::Unary(e),
+            TypeScriptSqlExpression::Binary(e) => Self::Binary(e),
+            TypeScriptSqlExpression::Between(e) => Self::Between(e),
+            TypeScriptSqlExpression::ScalarIn(e) => Self::ScalarIn(e),
+            TypeScriptSqlExpression::CaseWhen(e) => Self::CaseWhen(e),
+            TypeScriptSqlExpression::Cast(e) => Self::Cast(e),
+            TypeScriptSqlExpression::FunctionCall(e) => Self::FunctionCall(e),
+            TypeScriptSqlExpression::Null => Self::Literal(LiteralExpression::Null),
+            TypeScriptSqlExpression::Double { value } => {
+                Self::Literal(LiteralExpression::Double(value))
+            }
+            TypeScriptSqlExpression::Integer { base10 } => {
+                Self::Literal(LiteralExpression::Integer(
+                    base10
+                        .parse()
+                        .map_err(|_| D::Error::custom("invalid integer literal"))?,
+                ))
+            }
+            TypeScriptSqlExpression::String { value } => {
+                Self::Literal(LiteralExpression::String(Arc::new(value)))
+            }
+        })
     }
 }
