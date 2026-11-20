@@ -267,7 +267,7 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                     let result = frame.run(&source.common.instructions, &mut |frame| {
                         let lookup = &frame.read_values(&mut lookup);
                         let outputs = &frame.read_values(&mut output);
-                        if Self::parameters_valid(*lookup) && Self::parameters_valid(*outputs) {
+                        if Self::parameters_valid(lookup) && Self::parameters_valid(outputs) {
                             sink.parameter_lookup(&source.id, lookup, outputs);
                         }
                     });
