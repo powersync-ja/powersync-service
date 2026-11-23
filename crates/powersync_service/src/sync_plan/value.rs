@@ -1,6 +1,7 @@
-use std::fmt::Display;
+use std::{fmt::Display, mem};
 
 use serde::{Serialize, ser::SerializeSeq};
+use serde_json::value::RawValue;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum SqliteValue<'a> {
@@ -96,12 +97,22 @@ impl Serialize for Parameters<'_, '_> {
         for value in self.0 {
             match value {
                 SqliteValue::Float(f) => {
-                    // See JSONBucketNameSerialize in JavaScript, equal REAL and INTEGER values need to
-                    // be serialized to the same string.
-                    if let Some(i) = safe_integer(*f) {
-                        seq.serialize_element(&i)
+                    // Format doubles in a way that's compatible JSONBucketNameSerialize, which in
+                    // turn uses JSON.stringify for numbers. It's important that Float(0.0) and
+                    // Integer(0) get the same representation.
+                    if !f.is_finite() {
+                        // NaN and Infinity serialize to null
+                        seq.serialize_element(&None::<f64>)
                     } else {
-                        seq.serialize_element(f)
+                        let mut buffer = ryu_js::Buffer::new();
+                        let formatted = buffer.format_finite(*f);
+                        let as_json = unsafe {
+                            // Safety: RawValue has the same representation as str. Given that we
+                            // know the buffer holds a valid JSON value, we can cast references.
+                            mem::transmute::<&str, &RawValue>(formatted)
+                        };
+
+                        seq.serialize_element(as_json)
                     }
                 }
                 SqliteValue::Integer(i) => seq.serialize_element(i),
@@ -111,15 +122,6 @@ impl Serialize for Parameters<'_, '_> {
         }
 
         seq.end()
-    }
-}
-
-/// If the source double can safely be represented as an integer, converts it.
-pub fn safe_integer(source: f64) -> Option<i64> {
-    if source.fract() == 0.0 && (i64::MIN as f64..i64::MAX as f64).contains(&source) {
-        Some(source as i64)
-    } else {
-        None
     }
 }
 
@@ -181,6 +183,8 @@ fn numeric_prefix(bytes: &[u8]) -> f64 {
 
 #[cfg(test)]
 mod test {
+    use crate::sync_plan::Parameters;
+
     use super::SqliteValue;
 
     #[test]
@@ -200,5 +204,31 @@ mod test {
 
         assert!(SqliteValue::Blob(b"12").is_truthy());
         assert!(!SqliteValue::Blob(b"\xff").is_truthy());
+    }
+
+    fn parameter(source: SqliteValue) -> String {
+        let value: &[SqliteValue] = &[source];
+        let params = Parameters::try_from(value).unwrap();
+
+        serde_json::to_string(&params).unwrap()
+    }
+
+    #[test]
+    fn parameter_serialize() {
+        assert_eq!(parameter(SqliteValue::Text("a")), "[\"a\"]");
+
+        assert_eq!(parameter(SqliteValue::Integer(123)), "[123]");
+        assert_eq!(parameter(SqliteValue::Float(123.0)), "[123]");
+        assert_eq!(parameter(SqliteValue::Float(123.1)), "[123.1]");
+        assert_eq!(parameter(SqliteValue::Float(-0.0)), "[0]");
+        assert_eq!(
+            parameter(SqliteValue::Float(1e20)),
+            "[100000000000000000000]"
+        );
+        assert_eq!(parameter(SqliteValue::Float(1e21)), "[1e+21]"); // matches JS
+
+        // This matches what JavaScript does, arguably it shouldn't be a parameter at all.
+        assert_eq!(parameter(SqliteValue::Float(f64::INFINITY)), "[null]");
+        assert_eq!(parameter(SqliteValue::Float(f64::NAN)), "[null]");
     }
 }

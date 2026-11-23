@@ -303,7 +303,9 @@ impl<'a> PreparedField<'_, 'a> {
             frame[slot] = value;
         }
 
-        if let Some(name) = self.name_for_star {
+        if let Some(name) = self.name_for_star
+            && value.is_json_compatible()
+        {
             frame.star_columns.push(StarColumn {
                 name,
                 symbol: self.symbol,

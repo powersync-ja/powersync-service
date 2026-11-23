@@ -18,6 +18,7 @@ bumpalo = { version = "3", features = ["collections", "std"] }
 string-interner = { version = "0.20", default-features = false, features = ["std", "inline-more", "backends"] }
 thiserror = "2"
 bson = "3.1.0"
+ryu-js = "1.0.4"
 
 [dev-dependencies]
 bson = { version = "3.1.0", features = ["serde"] }
