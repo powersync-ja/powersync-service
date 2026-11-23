@@ -2,7 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { expect, test, vi } from 'vitest';
 
 import { modules } from '@/index.js';
-import { resolveRustAddonPath } from '@powersync/service-core-tests';
+import { resolveRustAddonPath } from '@powersync/service-rust-types/testing';
 
 const rustModuleTest = test.extend('rustAddonPath', { scope: 'worker' }, async ({}, { onCleanup }) => {
   const [path, cleanup] = await resolveRustAddonPath();

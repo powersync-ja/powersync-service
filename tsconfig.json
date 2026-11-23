@@ -11,6 +11,9 @@
       "path": "./packages/rsocket-router"
     },
     {
+      "path": "./packages/rust-types"
+    },
+    {
       "path": "./packages/service-core"
     },
     {

@@ -611,6 +611,19 @@ importers:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
 
+  packages/rust-types:
+    dependencies:
+      winston:
+        specifier: ^3.13.0
+        version: 3.13.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.16.2
+        version: 22.16.2
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
   packages/schema:
     devDependencies:
       '@powersync/service-module-convex':
@@ -682,6 +695,9 @@ importers:
       '@powersync/service-rsocket-router':
         specifier: workspace:*
         version: link:../rsocket-router
+      '@powersync/service-rust-types':
+        specifier: workspace:*
+        version: link:../rust-types
       '@powersync/service-sync-rules':
         specifier: workspace:*
         version: link:../sync-rules

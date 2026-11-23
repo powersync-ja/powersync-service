@@ -25,6 +25,7 @@
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
+    "@powersync/service-rust-types": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "async": "^3.2.4",

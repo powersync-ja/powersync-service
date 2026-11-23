@@ -3,7 +3,6 @@ export * from './bucket-validation.js';
 export * from './general-utils.js';
 export * from './leased-storage.js';
 export * from './MetricsHelper.js';
-export * from './rust.js';
 export * from './storage-combinations.js';
 export * from './StorageDataHelpers.js';
 export * from './stream_utils.js';

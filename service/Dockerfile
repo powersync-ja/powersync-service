@@ -28,6 +28,7 @@ COPY service/package.json service/tsconfig.json service/
 COPY packages/jpgwire/package.json packages/jpgwire/tsconfig.json packages/jpgwire/
 COPY packages/jsonbig/package.json packages/jsonbig/tsconfig.json packages/jsonbig/
 COPY packages/rsocket-router/package.json packages/rsocket-router/tsconfig.json packages/rsocket-router/
+COPY packages/rust-types/package.json packages/rust-types/tsconfig.json packages/rust-types/
 COPY packages/service-core/package.json packages/service-core/tsconfig.json packages/service-core/
 COPY packages/service-errors/package.json packages/service-errors/tsconfig.json packages/service-errors/
 COPY packages/sync-rules/package.json packages/sync-rules/tsconfig.json packages/sync-rules/
@@ -59,6 +60,7 @@ COPY packages/jsonbig/src packages/jsonbig/src/
 COPY packages/sync-rules/src packages/sync-rules/src/
 COPY packages/sync-rules/scripts packages/sync-rules/scripts/
 COPY packages/rsocket-router/src packages/rsocket-router/src/
+COPY packages/rust-types/src packages/rust-types/src/
 COPY packages/types/src packages/types/src/
 
 COPY libs/lib-services/src libs/lib-services/src/

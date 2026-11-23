@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 
 /**
- * A test helper providing the Open Edition Rust addon.
+ * A test helper building the Open Edition Rust addon in the PowerSync Service repository.
  *
  * This uses the addon in `POWERSYNC_RUST_ADDON` if set (CI downloads a prebuilt one), or otherwise builds the addon
  * with `scripts/build-rust-addon.mts` in the Cargo workspace containing this package.
