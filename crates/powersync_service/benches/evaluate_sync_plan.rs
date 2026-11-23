@@ -46,7 +46,7 @@ impl ReplicationEmbedder for BenchmarkEmbedder {
     type EventId = &'static str;
 }
 
-const CONNECTION_TAG: &str = "tag";
+const CONNECTION_TAG: &str = "default";
 const SCHEMA: &str = "schema";
 
 fn sync_config() -> HydratedSyncConfig<BenchmarkEmbedder> {
@@ -138,7 +138,6 @@ fn sync_config() -> HydratedSyncConfig<BenchmarkEmbedder> {
 
     let compat = CompatibilityContext::default();
     let deserialize = DeserializeSyncPlan {
-        default_connection_tag: CONNECTION_TAG,
         default_schema: SCHEMA,
     };
 

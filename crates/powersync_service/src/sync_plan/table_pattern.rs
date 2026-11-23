@@ -50,10 +50,16 @@ pub struct TablePattern {
     pub table: NameMatcher,
 }
 
+impl TablePattern {
+    pub const DEFAULT_TAG: &'static str = "default";
+}
+
 /// Reference to a source table associated with a replicated row.
 #[derive(Clone, Copy, Debug)]
 pub struct SourceTableRef<'a> {
     /// A tag associated with the connection.
+    ///
+    /// This is not currently supported, the value must be `default`.
     pub connection_tag: &'a str,
     /// The name of the schema.
     pub schema: &'a str,
@@ -79,7 +85,8 @@ type TableIndex<T> = NameIndex<Arc<T>>;
 /// exact matches for schema and table names.
 #[derive(Debug)]
 pub struct TablePatternIndex<T> {
-    by_connection_tag: HashMap<Box<str>, NameIndex<Arc<TableIndex<T>>>>,
+    // If we were to support connection tags, we'd have to wrap this in a map
+    by_schema: NameIndex<Arc<TableIndex<T>>>,
 }
 
 impl<T: Default> TablePatternIndex<T> {
@@ -139,25 +146,13 @@ impl<T: Default> TablePatternIndex<T> {
             Arc::clone(index)
         };
 
-        // Finally, group by connection tags as the outermost layer.
-        let mut entries_by_tag: HashMap<&str, Vec<usize>> = HashMap::new();
-        for (i, (_, pattern)) in entries.iter().enumerate() {
-            entries_by_tag
-                .entry(&pattern.connection_tag)
-                .or_default()
-                .push(i);
-        }
+        let schemas = entries.iter().enumerate().map(|(i, (_, source))| {
+            assert!(source.connection_tag == TablePattern::DEFAULT_TAG);
+            (i, &source.schema)
+        });
+        let by_schema = NameIndex::build(schemas, &mut table_index_for);
 
-        let by_connection_tag = entries_by_tag
-            .into_iter()
-            .map(|(tag, entries_in_tag)| {
-                let schemas = entries_in_tag.iter().map(|&i| (i, &entries[i].1.schema));
-                let index = NameIndex::build(schemas, &mut table_index_for);
-                (tag.into(), index)
-            })
-            .collect();
-
-        Self { by_connection_tag }
+        Self { by_schema }
     }
 }
 
@@ -165,10 +160,8 @@ impl<T> TablePatternIndex<T> {
     /// Returns the value for the patterns matching the given table, or [None] if no pattern
     /// matches it.
     pub fn lookup(&self, table: SourceTableRef) -> Option<&Arc<T>> {
-        self.by_connection_tag
-            .get(table.connection_tag)?
-            .lookup(table.schema)?
-            .lookup(table.name)
+        debug_assert!(table.connection_tag == TablePattern::DEFAULT_TAG);
+        self.by_schema.lookup(table.schema)?.lookup(table.name)
     }
 }
 
@@ -298,9 +291,9 @@ mod test {
         assert!(matcher.wildcard);
     }
 
-    fn pattern(connection_tag: &str, schema: &str, table: &str) -> TablePattern {
+    fn pattern(schema: &str, table: &str) -> TablePattern {
         TablePattern {
-            connection_tag: connection_tag.to_string(),
+            connection_tag: TablePattern::DEFAULT_TAG.to_string(),
             schema: name_matcher(schema),
             table: name_matcher(table),
         }
@@ -322,7 +315,7 @@ mod test {
     ) -> Option<&'a [usize]> {
         index
             .lookup(SourceTableRef {
-                connection_tag: "tag",
+                connection_tag: TablePattern::DEFAULT_TAG,
                 schema,
                 name,
             })
@@ -331,7 +324,7 @@ mod test {
 
     #[test]
     fn exact() {
-        let index = index(&[pattern("tag", "public", "users")]);
+        let index = index(&[pattern("public", "users")]);
 
         assert_eq!(lookup(&index, "public", "users"), Some(&[0][..]));
         assert_eq!(lookup(&index, "public", "users_table"), None);
@@ -341,26 +334,11 @@ mod test {
     }
 
     #[test]
-    fn connection_tag() {
-        let index = index(&[pattern("tag", "public", "users")]);
-
-        assert!(
-            index
-                .lookup(SourceTableRef {
-                    connection_tag: "another",
-                    schema: "public",
-                    name: "users",
-                })
-                .is_none()
-        );
-    }
-
-    #[test]
     fn overlapping_table_patterns() {
         let index = index(&[
-            pattern("tag", "public", "%"),
-            pattern("tag", "public", "user%"),
-            pattern("tag", "public", "users"),
+            pattern("public", "%"),
+            pattern("public", "user%"),
+            pattern("public", "users"),
         ]);
 
         assert_eq!(lookup(&index, "public", "accounts"), Some(&[0][..]));
@@ -375,9 +353,9 @@ mod test {
     #[test]
     fn schema_wildcards() {
         let index = index(&[
-            pattern("tag", "tenant_%", "users"),
-            pattern("tag", "tenant_a", "user%"),
-            pattern("tag", "%", "accounts"),
+            pattern("tenant_%", "users"),
+            pattern("tenant_a", "user%"),
+            pattern("%", "accounts"),
         ]);
 
         assert_eq!(lookup(&index, "tenant_a", "users"), Some(&[0, 1][..]));
@@ -391,24 +369,21 @@ mod test {
 
     #[test]
     fn duplicate_patterns() {
-        let index = index(&[
-            pattern("tag", "public", "users"),
-            pattern("tag", "public", "users"),
-        ]);
+        let index = index(&[pattern("public", "users"), pattern("public", "users")]);
 
         assert_eq!(lookup(&index, "public", "users"), Some(&[0, 1][..]));
     }
 
     #[test]
     fn shares_values_for_same_combination() {
-        let index = index(&[pattern("tag", "public", "user%")]);
+        let index = index(&[pattern("public", "user%")]);
         let a = index.lookup(SourceTableRef {
-            connection_tag: "tag",
+            connection_tag: TablePattern::DEFAULT_TAG,
             schema: "public",
             name: "users_a",
         });
         let b = index.lookup(SourceTableRef {
-            connection_tag: "tag",
+            connection_tag: TablePattern::DEFAULT_TAG,
             schema: "public",
             name: "user",
         });
@@ -418,7 +393,7 @@ mod test {
 
     #[test]
     fn non_char_boundary() {
-        let index = index(&[pattern("tag", "public", "a%")]);
+        let index = index(&[pattern("public", "a%")]);
 
         // The first byte of "ä" is not a char boundary.
         assert_eq!(lookup(&index, "public", "äb"), None);

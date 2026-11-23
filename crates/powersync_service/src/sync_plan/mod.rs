@@ -106,13 +106,12 @@ mod test {
     }
 
     pub static DESERIALIZE_PLAN: DeserializeSyncPlan<'static> = DeserializeSyncPlan {
-        default_connection_tag: "tag",
         default_schema: "public",
     };
 
     pub fn source_table_ref<'a>(name: &'a str) -> SourceTableRef<'a> {
         SourceTableRef {
-            connection_tag: "tag",
+            connection_tag: TablePattern::DEFAULT_TAG,
             schema: "public",
             name,
         }
@@ -120,7 +119,7 @@ mod test {
 
     pub fn table_pattern(name: &str) -> TablePattern {
         TablePattern {
-            connection_tag: "tag".to_owned(),
+            connection_tag: TablePattern::DEFAULT_TAG.to_owned(),
             schema: NameMatcher::from_string("public".to_owned()),
             table: NameMatcher::from_string(name.to_owned()),
         }

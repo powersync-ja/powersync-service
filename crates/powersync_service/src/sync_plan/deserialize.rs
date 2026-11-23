@@ -24,8 +24,8 @@ use crate::sync_plan::{
 /// Additional context needed to deserialize Sync Plans.
 #[derive(Clone, Copy)]
 pub struct DeserializeSyncPlan<'a> {
-    /// The default connection tag to use in table patterns when they don't specify one.
-    pub default_connection_tag: &'a str,
+    // The default connection tag to use in table patterns when they don't specify one.
+    //pub default_connection_tag: &'a str,
     /// The default schema to match on when a table pattern doesn't specify one.
     pub default_schema: &'a str,
 }
@@ -77,7 +77,7 @@ type SerializedExpression<'a> = SqlExpression<SerializedTableProcessorData<'a>>;
 /// A `ImplicitSchemaTablePattern` as serialized by `serializeTablePattern`.
 #[derive(Deserialize)]
 struct SerializedTablePattern {
-    connection: Option<String>,
+    //connection: Option<String>,
     schema: Option<NameMatcher>,
     table: NameMatcher,
 }
@@ -85,9 +85,9 @@ struct SerializedTablePattern {
 impl SerializedTablePattern {
     fn resolve(self, context: DeserializeSyncPlan) -> TablePattern {
         TablePattern {
-            connection_tag: self
-                .connection
-                .unwrap_or_else(|| context.default_connection_tag.to_owned()),
+            // Matching ImplicitSchemaTablePattern.toTablePattern, existing connection tags are
+            // stored but resolve to the default tag.
+            connection_tag: TablePattern::DEFAULT_TAG.to_owned(),
             schema: self
                 .schema
                 .unwrap_or_else(|| NameMatcher::from_string(context.default_schema.to_owned())),
