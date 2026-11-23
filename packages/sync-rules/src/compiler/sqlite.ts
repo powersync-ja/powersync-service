@@ -116,18 +116,37 @@ export class PostgresToSqlite {
       case 'string':
         return { type: 'lit_string', value: expr.value };
       case 'numeric': {
-        return { type: 'lit_double', value: expr.value };
+        return this.jsNumberAsDouble(expr, expr.value);
       }
       case 'integer': {
+        const warn = () => {
+          this.options.errors.report(
+            'This value is out of range for a 64-bit integer and interpreted as a double. Add an explicit .0 at the end to silence this warning.',
+            expr,
+            { isWarning: true }
+          );
+        };
+
         // JavaScript does not have a number type that can represent SQLite ints, so we try to reuse the source.
         if (expr._location) {
-          return {
-            type: 'lit_int',
-            base10: this.options.originalText.substring(expr._location.start, expr._location.end)
-          };
-        } else {
-          return { type: 'lit_int', base10: expr.value.toString() };
+          const source = this.options.originalText.substring(expr._location.start, expr._location.end);
+          const parsed = BigInt(source);
+
+          if (parsed >= -9223372036854775808n && parsed <= 9223372036854775807n) {
+            return { type: 'lit_int', base10: parsed.toString() };
+          }
+
+          warn();
+          return this.jsNumberAsDouble(expr, Number(source));
         }
+
+        // This should be unreachable since we enable location tracking. But we can still read the parsed value from
+        // the parser.
+        if (!Number.isSafeInteger(expr.value)) {
+          warn();
+          return this.jsNumberAsDouble(expr, expr.value);
+        }
+        return { type: 'lit_int', base10: expr.value.toString() };
       }
       case 'ref': {
         const resultSet = this.options.resolveTableName(expr, expr.table?.name);
@@ -345,15 +364,22 @@ export class PostgresToSqlite {
       }
       case 'member': {
         const operand = this.translateNodeWithLocation(expr.operand);
+        let path: LiteralExpression;
+
+        if (typeof expr.member === 'number') {
+          if (!Number.isSafeInteger(expr.member)) {
+            path = this.invalidExpression(expr, 'Invalid index');
+          } else {
+            path = { type: 'lit_int', base10: expr.member.toString() };
+          }
+        } else {
+          path = { type: 'lit_string', value: expr.member };
+        }
+
         return {
           type: 'function',
           function: expr.op,
-          parameters: [
-            operand,
-            typeof expr.member == 'number'
-              ? { type: 'lit_int', base10: expr.member.toString() }
-              : { type: 'lit_string', value: expr.member }
-          ]
+          parameters: [operand, path]
         };
       }
       case 'select':
@@ -582,6 +608,14 @@ export class PostgresToSqlite {
     };
     this.options.locations.sourceForNode.set(replacement, this.sourceLocation(expr.function));
     return replacement;
+  }
+
+  private jsNumberAsDouble(node: Expr, source: number): LiteralExpression {
+    if (!Number.isFinite(source)) {
+      return this.invalidExpression(node, 'Non-finite numeric literals are not valid SQL');
+    }
+
+    return { type: 'lit_double', value: source };
   }
 
   private sourceLocation(location: PGNode | NodeLocation): SourceLocation {

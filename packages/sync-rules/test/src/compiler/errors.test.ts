@@ -832,6 +832,48 @@ streams:
       { message: 'Expected a scalar here.', source: '- SELECT * FROM tbl WHERE id IN foo\n' }
     ]);
   });
+
+  test('out-of-range integer', () => {
+    const [errors, _] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: SELECT * FROM users WHERE id > 9223372036854775808
+  b:
+    query: SELECT * FROM users WHERE id > 9223372036854775808.0 -- no warning!
+`);
+
+    expect(errors).toStrictEqual([
+      {
+        isWarning: true,
+        message:
+          'This value is out of range for a 64-bit integer and interpreted as a double. Add an explicit .0 at the end to silence this warning.',
+        source: '9223372036854775808'
+      }
+    ]);
+  });
+
+  test('out-of-range double', () => {
+    const infinity = `1${'0'.repeat(310)}.0`;
+
+    const [errors, _] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: SELECT * FROM users WHERE id < ${infinity}
+`);
+
+    expect(errors).toStrictEqual([
+      {
+        message: 'Non-finite numeric literals are not valid SQL',
+        source: infinity
+      }
+    ]);
+  });
 });
 
 describe('table metadata', () => {

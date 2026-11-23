@@ -163,7 +163,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
       this.addLexeme('NULL');
     } else if (expr.type == 'lit_double') {
       let lexeme = expr.value.toString();
-      if (Number.isInteger(expr.value)) {
+      if (!/[.e]/.test(lexeme)) {
         // If we have a double value that happens to be an integer, we still want to treat that as a double in SQLite.
         lexeme += '.0';
       }

@@ -17,9 +17,11 @@ describe('sqlite conversion', () => {
     expectNoErrors("'escaped''string'", "'escaped''string'");
 
     expectNoErrors('0', '0');
-    expectNoErrors('-0', '-0');
+    expectNoErrors('-0', '0');
     expectNoErrors('123.45', '123.45');
-    expectNoErrors('9223372036854775808', '9223372036854775808');
+
+    // The truncation to double emits a warning
+    expect(translate('9223372036854775808')[0]).toStrictEqual('9223372036854776000.0');
   });
 
   test('substring', () => {
