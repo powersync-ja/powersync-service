@@ -189,29 +189,35 @@ impl<'de> SerializedDataSource<'de> {
         // when building output rows.
         let mut before = vec![];
         let mut after = vec![];
-        let mut saw_star = false;
+        let last_star_index = self
+            .columns
+            .iter()
+            .rposition(|c| matches!(c, SerializedColumnSource::Star(_)));
 
-        for column in self.columns {
-            match column {
-                SerializedColumnSource::Star(_) => {
-                    saw_star = true;
-                }
-                SerializedColumnSource::Column { expr, alias } => {
-                    // Like for JavaScript objects, the last column with a given alias wins.
-                    before.retain(|c: &ColumnSource| c.alias != alias);
-                    after.retain(|c: &ColumnSource| c.alias != alias);
+        for (i, column) in self.columns.into_iter().enumerate() {
+            let SerializedColumnSource::Column { expr, alias } = column else {
+                continue;
+            };
 
-                    let column = ColumnSource {
-                        alias,
-                        expr: functions.resolve_expression(expr)?,
-                    };
+            // Like for JavaScript objects, the last column with a given alias wins.
+            before.retain(|c: &ColumnSource| c.alias != alias);
+            after.retain(|c: &ColumnSource| c.alias != alias);
 
-                    if saw_star { &mut after } else { &mut before }.push(column);
-                }
+            let column = ColumnSource {
+                alias,
+                expr: functions.resolve_expression(expr)?,
+            };
+
+            let is_after_star = last_star_index.is_some_and(|star| i > star);
+            if is_after_star {
+                &mut after
+            } else {
+                &mut before
             }
+            .push(column);
         }
 
-        let projection = if saw_star {
+        let projection = if last_star_index.is_some() {
             RowProjection::Star { before, after }
         } else {
             assert!(after.is_empty());
