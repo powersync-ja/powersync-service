@@ -113,8 +113,8 @@ export type LiteralExpression =
   | {
       type: 'lit_int';
       /**
-       * The integer value as a base 10 string. We don't use the correct `bigint` type to be able to serialize and
-       * deserialize with the default JSON implementation.
+       * The (signed, 64-bit) integer value as a base 10 string. We don't use the correct `bigint` type to be able to
+       * serialize and deserialize with the default JSON implementation.
        */
       base10: string;
     }
