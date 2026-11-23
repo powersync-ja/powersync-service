@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use serde::Serialize;
+use serde::{Serialize, ser::SerializeSeq};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum SqliteValue<'a> {
@@ -18,6 +18,14 @@ impl SqliteValue<'_> {
     /// Blobs can't, which is why they're omitted from rows synced to clients.
     pub fn is_json_compatible(&self) -> bool {
         !matches!(self, Self::Blob(_))
+    }
+
+    /// Whether this is a valid bucket parameter.
+    ///
+    /// We don't support binary parameters, and `NULL` isn't a valid parameter because it doesn't
+    /// compare to itself.
+    pub fn is_valid_parameter(&self) -> bool {
+        !matches!(self, SqliteValue::Null | SqliteValue::Blob(_))
     }
 
     /// Whether this value is true when used as a condition, following SQLite semantics.
@@ -59,6 +67,59 @@ impl Serialize for SqliteValue<'_> {
             SqliteValue::Blob(items) => serializer.serialize_bytes(items),
             SqliteValue::Text(str) => serializer.serialize_str(str),
         }
+    }
+}
+
+/// A collection of [SqliteValue]s known to be valid bucket parameters.
+#[repr(transparent)]
+pub struct Parameters<'s, 'a>(&'s [SqliteValue<'a>]);
+
+impl<'s, 'a> TryFrom<&'s [SqliteValue<'a>]> for Parameters<'s, 'a> {
+    type Error = ();
+
+    fn try_from(value: &'s [SqliteValue<'a>]) -> Result<Self, Self::Error> {
+        if value.iter().any(|v| !v.is_valid_parameter()) {
+            return Err(());
+        }
+
+        Ok(Self(value))
+    }
+}
+
+impl Serialize for Parameters<'_, '_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+
+        for value in self.0 {
+            match value {
+                SqliteValue::Float(f) => {
+                    // See JSONBucketNameSerialize in JavaScript, equal REAL and INTEGER values need to
+                    // be serialized to the same string.
+                    if let Some(i) = safe_integer(*f) {
+                        seq.serialize_element(&i)
+                    } else {
+                        seq.serialize_element(f)
+                    }
+                }
+                SqliteValue::Integer(i) => seq.serialize_element(i),
+                SqliteValue::Text(str) => seq.serialize_element(str),
+                SqliteValue::Null | SqliteValue::Blob(_) => unreachable!(),
+            }?;
+        }
+
+        seq.end()
+    }
+}
+
+/// If the source double can safely be represented as an integer, converts it.
+pub fn safe_integer(source: f64) -> Option<i64> {
+    if source.fract() == 0.0 && (i64::MIN as f64..i64::MAX as f64).contains(&source) {
+        Some(source as i64)
+    } else {
+        None
     }
 }
 

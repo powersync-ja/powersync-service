@@ -1,7 +1,7 @@
 use bson::{RawBsonRef, error::Error};
 use bumpalo::Bump;
 
-use crate::sync_plan::{CompatibilityContext, SqliteValue, evaluator::Frame};
+use crate::sync_plan::{CompatibilityContext, SqliteValue, evaluator::Frame, value::safe_integer};
 
 /// Rust port of `DirectSourceRowConverter`, using the bson crate.
 #[derive(Clone, Copy)]
@@ -23,13 +23,10 @@ impl<'a> SqliteValueFromBson<'a> {
     pub fn parse_top_level_value(&self, value: RawBsonRef<'a>) -> Result<SqliteValue<'a>, Error> {
         Ok(match value {
             RawBsonRef::Double(d) => {
-                // i64::MIN is exactly representable, i64::MAX as f64 rounds up to 2^63.
-                if d.fract() == 0.0 && (i64::MIN as f64..i64::MAX as f64).contains(&d) {
-                    // Match the default path: integral doubles are widened to bigint. Values out
-                    // of range for an i64 stay floats instead of saturating.
-                    SqliteValue::Integer(d as i64)
-                } else {
-                    SqliteValue::Float(d)
+                // This matches bufferToSqlite: integral doubles are widened to integers.
+                match safe_integer(d) {
+                    Some(i) => SqliteValue::Integer(i),
+                    None => SqliteValue::Float(d),
                 }
             }
             RawBsonRef::Boolean(b) => SqliteValue::Integer(if b { 1 } else { 0 }),

@@ -12,8 +12,8 @@ use serde::{
 };
 
 use crate::sync_plan::{
-    CompatibilityContext, EvaluationError, HydratedSyncConfig, ReplicationEmbedder, SqliteValue,
-    StringInterner, Symbol,
+    CompatibilityContext, EvaluationError, HydratedSyncConfig, Parameters, ReplicationEmbedder,
+    SqliteValue, StringInterner, Symbol,
     expression::TableValuedFunction,
     operators::table_valued::TableValuedFunctionEvaluation,
     processor_group::{
@@ -254,7 +254,7 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                             },
                         };
                         let parameters = frame.read_values(&mut parameters);
-                        if Self::parameters_valid(parameters) {
+                        if let Ok(parameters) = Parameters::try_from(parameters) {
                             sink.row(&source.id, parameters, output_table, &row);
                         }
                     });
@@ -265,9 +265,11 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
                     let mut output = frame.allocate_value_slice(&source.outputs);
 
                     let result = frame.run(&source.common.instructions, &mut |frame| {
-                        let lookup = &frame.read_values(&mut lookup);
-                        let outputs = &frame.read_values(&mut output);
-                        if Self::parameters_valid(lookup) && Self::parameters_valid(outputs) {
+                        let lookup = frame.read_values(&mut lookup);
+                        let outputs = frame.read_values(&mut output);
+                        if let (Ok(lookup), Ok(outputs)) =
+                            (Parameters::try_from(lookup), Parameters::try_from(outputs))
+                        {
                             sink.parameter_lookup(&source.id, lookup, outputs);
                         }
                     });
@@ -283,10 +285,6 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
             // read values they haven't written, but playing it safe doesn't cost much.
             frame.internals.fill(SqliteValue::Null);
         }
-    }
-
-    fn parameters_valid(values: &[SqliteValue]) -> bool {
-        values.iter().all(|v| v.is_json_compatible())
     }
 }
 
@@ -330,7 +328,7 @@ pub trait EvaluationSink<E: ReplicationEmbedder> {
     fn row(
         &mut self,
         bucket: &E::BucketId,
-        parameters: &[SqliteValue<'_>],
+        parameters: Parameters<'_, '_>,
         table: &str,
         row: &ProjectedRow<'_, '_>,
     );
@@ -339,8 +337,8 @@ pub trait EvaluationSink<E: ReplicationEmbedder> {
     fn parameter_lookup(
         &mut self,
         id: &E::ParameterId,
-        lookup: &[SqliteValue<'_>],
-        outputs: &[SqliteValue<'_>],
+        lookup: Parameters<'_, '_>,
+        outputs: Parameters<'_, '_>,
     );
 
     /// Called for each event that the row's table is relevant for.
@@ -558,7 +556,7 @@ mod test {
 
     use super::{EvaluationSink, Evaluator, ProjectedRow};
     use crate::sync_plan::{
-        HydratedSource, SqliteValue,
+        HydratedSource, Parameters, SqliteValue,
         expression::SqlExpression,
         plan::{
             ColumnSource, RowProjection, StreamDataSource, StreamParameterIndexLookupCreator,
@@ -570,7 +568,7 @@ mod test {
     #[derive(Debug, PartialEq)]
     struct RecordedRow {
         bucket: &'static str,
-        parameters: Vec<String>,
+        parameters: String,
         table: String,
         columns: Value,
     }
@@ -578,25 +576,25 @@ mod test {
     #[derive(Default)]
     struct RecordingSink {
         rows: Vec<RecordedRow>,
-        lookups: Vec<(&'static str, Vec<String>, Vec<String>)>,
+        lookups: Vec<(&'static str, String, String)>,
         events: Vec<&'static str>,
     }
 
-    fn format_values(values: &[SqliteValue<'_>]) -> Vec<String> {
-        values.iter().map(|v| format!("{v:?}")).collect()
+    fn format_parameters(values: Parameters) -> String {
+        serde_json::to_string(&values).unwrap()
     }
 
     impl EvaluationSink<TestEmbedder> for RecordingSink {
         fn row(
             &mut self,
             bucket: &&'static str,
-            parameters: &[SqliteValue<'_>],
+            parameters: Parameters<'_, '_>,
             table: &str,
             row: &ProjectedRow<'_, '_>,
         ) {
             self.rows.push(RecordedRow {
                 bucket,
-                parameters: format_values(parameters),
+                parameters: format_parameters(parameters),
                 table: table.to_string(),
                 columns: to_value(row).expect("serialize output row to json"),
             });
@@ -605,11 +603,11 @@ mod test {
         fn parameter_lookup(
             &mut self,
             id: &&'static str,
-            lookup: &[SqliteValue<'_>],
-            outputs: &[SqliteValue<'_>],
+            lookup: Parameters<'_, '_>,
+            outputs: Parameters<'_, '_>,
         ) {
             self.lookups
-                .push((id, format_values(lookup), format_values(outputs)));
+                .push((id, format_parameters(lookup), format_parameters(outputs)));
         }
 
         fn event(&mut self, id: &&'static str) {
@@ -725,7 +723,7 @@ mod test {
             sink.rows,
             [RecordedRow {
                 bucket: "b",
-                parameters: vec![],
+                parameters: "[]".to_string(),
                 table: "users".to_string(),
                 columns: json!({"a": 1}),
             }]
@@ -756,7 +754,7 @@ mod test {
             sink.rows,
             [RecordedRow {
                 bucket: "b",
-                parameters: vec![],
+                parameters: "[]".to_string(),
                 table: "renamed".to_string(),
                 columns: json!({"x":1, "a":1})
             }]
@@ -844,17 +842,13 @@ mod test {
         );
 
         assert_eq!(sink.rows.len(), 1);
-        assert_eq!(sink.rows[0].parameters, ["Text(\"o\")"]);
+        assert_eq!(sink.rows[0].parameters, "[\"o\"]");
         assert_eq!(
             sink.lookups,
             [(
                 "lookup",
-                vec![
-                    "Text(\"o\")".to_string(),
-                    "Text(\"public\")".to_string(),
-                    "Text(\"s\")".to_string()
-                ],
-                vec!["Integer(1)".to_string()]
+                "[\"o\",\"public\",\"s\"]".to_string(),
+                "[1]".to_string()
             )]
         );
         assert_eq!(sink.events, ["event"]);

@@ -9,7 +9,7 @@ use fake::{
 };
 use powersync_service::sync_plan::{
     CompatibilityContext, DeserializeSyncPlan, EvaluationSink, Evaluator, HydratedSyncConfig,
-    ProjectedRow, ReplicationEmbedder, SourceTableRef, SqliteValue,
+    Parameters, ProjectedRow, ReplicationEmbedder, SourceTableRef,
 };
 use serde::Serialize;
 use serde_json::Deserializer;
@@ -189,12 +189,12 @@ impl EvaluationSink<BenchmarkEmbedder> for ReplicationBatch {
     fn row(
         &mut self,
         bucket: &&str,
-        parameters: &[SqliteValue<'_>],
+        parameters: Parameters<'_, '_>,
         table: &str,
         row: &ProjectedRow<'_, '_>,
     ) {
         let _ = write!(&mut self.sink, "{bucket}#");
-        serde_json::to_writer(&mut self.sink, parameters).unwrap();
+        serde_json::to_writer(&mut self.sink, &parameters).unwrap();
 
         let _ = write!(&mut self.sink, "{table}: ");
         serde_json::to_writer(&mut self.sink, row).unwrap();
@@ -204,13 +204,13 @@ impl EvaluationSink<BenchmarkEmbedder> for ReplicationBatch {
     fn parameter_lookup(
         &mut self,
         id: &&str,
-        lookup: &[SqliteValue<'_>],
-        outputs: &[SqliteValue<'_>],
+        lookup: Parameters<'_, '_>,
+        outputs: Parameters<'_, '_>,
     ) {
         let _ = write!(&mut self.sink, "{id}:");
-        serde_json::to_writer(&mut self.sink, lookup).unwrap();
+        serde_json::to_writer(&mut self.sink, &lookup).unwrap();
         let _ = write!(&mut self.sink, " -> ");
-        serde_json::to_writer(&mut self.sink, outputs).unwrap();
+        serde_json::to_writer(&mut self.sink, &outputs).unwrap();
         self.sink.push(b'\n');
     }
 

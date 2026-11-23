@@ -73,7 +73,7 @@ pub use error::EvaluationError;
 pub use evaluator::{ErrorSource, EvaluationSink, Evaluator, ProjectedRow, RowEvaluation};
 pub use hydrated::*;
 pub use table_pattern::SourceTableRef;
-pub use value::*;
+pub use value::{Parameters, SqliteValue};
 
 /// Interns column names and aliases referenced by processors in a [HydratedSyncConfig].
 ///
