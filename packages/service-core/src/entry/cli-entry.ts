@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 
-import { logger } from '@powersync/lib-services-framework';
+import { container, logger } from '@powersync/lib-services-framework';
+import * as modules from '../modules/modules-index.js';
 import * as utils from '../util/util-index.js';
 import { registerCompactAction } from './commands/compact-action.js';
 import { registerMigrationAction } from './commands/migrate-action.js';
@@ -16,7 +17,19 @@ import { registerTestConnectionAction } from './commands/test-connection-action.
  */
 export function generateEntryProgram(startHandlers?: Record<utils.ServiceRunner, utils.Runner>) {
   const entryProgram = new Command();
-  entryProgram.name('powersync-runner').description('CLI to initiate a PowerSync service runner');
+  entryProgram
+    .name('powersync-runner')
+    .description('CLI to initiate a PowerSync service runner')
+    .option('--rust-addon <path>', 'Path to the Rust .node module');
+
+  entryProgram.hook('preAction', (program) => {
+    const addonPath: string | undefined = program.opts().rustAddon;
+    if (addonPath) {
+      container
+        .getImplementation(modules.ModuleManager)
+        .register([new modules.RustModule({ name: 'Rust', addonPath })]);
+    }
+  });
 
   registerTearDownAction(entryProgram);
   registerMigrationAction(entryProgram);

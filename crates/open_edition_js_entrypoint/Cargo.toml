@@ -1,0 +1,22 @@
+[package]
+name = "open_edition_js_entrypoint"
+edition = "2024"
+publish = false
+
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+powersync_service = { workspace = true }
+powersync_service_js_addon_shared = { workspace = true }
+napi = { workspace = true }
+napi-derive = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"

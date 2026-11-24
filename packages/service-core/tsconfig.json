@@ -16,6 +16,9 @@
       "path": "../jsonbig"
     },
     {
+      "path": "../rust-types"
+    },
+    {
       "path": "../sync-rules"
     },
     {

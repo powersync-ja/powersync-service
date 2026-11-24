@@ -28,3 +28,6 @@ packages/*/manifest.json
 
 # Local implementation plans
 /plans/
+
+# Rust build directory
+/target/
