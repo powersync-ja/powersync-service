@@ -16,11 +16,16 @@ pub struct ProjectedRow<'r, 'a> {
     pub(super) star_columns: &'r [StarColumn<'a>],
 }
 
-impl Serialize for ProjectedRow<'_, '_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+impl<'a> ProjectedRow<'_, 'a> {
+    /// Serializes this row, also returns the value for the `id` column.
+    fn serialize_and_extract_id<S>(
+        &self,
+        serializer: S,
+    ) -> Result<(S::Ok, SqliteValue<'a>), S::Error>
     where
         S: serde::Serializer,
     {
+        let mut id = SqliteValue::Null;
         let Self {
             interner,
             projection,
@@ -29,9 +34,13 @@ impl Serialize for ProjectedRow<'_, '_> {
         } = self;
         let mut map = serializer.serialize_map(None)?;
 
-        let serialize_value = &mut |key: &str, value: &SqliteValue| {
+        let serialize_value = &mut |key: &str, value: &SqliteValue<'a>| {
             if !value.is_json_compatible() {
                 return Ok(());
+            }
+
+            if key == "id" {
+                id = *value;
             }
 
             map.serialize_entry(key, &value)
@@ -69,6 +78,16 @@ impl Serialize for ProjectedRow<'_, '_> {
             serialize_value(key, &frame[after.slot])?;
         }
 
-        map.end()
+        Ok((map.end()?, id))
+    }
+}
+
+impl Serialize for ProjectedRow<'_, '_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let (result, _) = self.serialize_and_extract_id(serializer)?;
+        Ok(result)
     }
 }

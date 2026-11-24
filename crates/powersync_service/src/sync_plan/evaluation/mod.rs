@@ -64,8 +64,9 @@ impl<E: ReplicationEmbedder> Evaluator<E> {
 
 /// A decoded input row being evaluated.
 ///
-/// Iterate over [Self::members] to evaluate the row. Events don't need further evaluation, data
-/// and parameter sources are evaluated with [Self::process_data] and [Self::process_parameters].
+/// Iterate over [Self::members] to evaluate the row. For data and parameter sources, call
+/// [Self::process_data] and [Self::process_parameters] to evaluate results. Events are not
+/// evaluated in this shared module.
 ///
 /// `'a` refers both to values allocated in the scoped bumpalo allocator and to values borrowed from
 /// the processed row.
@@ -172,10 +173,9 @@ fn read_values<'a>(frame: &Frame<'a>, slots: &[Slot], buffer: &mut [SqliteValue<
 
 /// Views the first `len` values of a buffer filled by [read_values].
 fn as_parameters<'b, 'a>(buffer: &'b [SqliteValue<'a>], len: usize) -> Parameters<'b, 'a> {
-    Parameters::try_from(&buffer[..len]).expect("values should be valid parameters")
+    Parameters(&buffer[..len])
 }
 
-/// Buckets that a row is put into by a data source, created with [RowEvaluation::process_data].
 pub struct BucketDataIterator<'a, 'b, E: ReplicationEmbedder> {
     source: &'a ProcessedDataSource<E>,
     table: &'a str,
@@ -183,7 +183,7 @@ pub struct BucketDataIterator<'a, 'b, E: ReplicationEmbedder> {
     eval: &'b mut RowEvaluation<'a, E>,
 }
 
-/// A bucket a row is put into.
+/// An evaluated output row.
 pub struct BucketData<'a, 'r, E: ReplicationEmbedder> {
     pub bucket: &'a E::BucketId,
     pub parameters: Parameters<'r, 'a>,
@@ -244,16 +244,13 @@ impl<'a, E: ReplicationEmbedder> BucketDataIterator<'a, '_, E> {
     }
 }
 
-/// Parameter lookups created from a row by a parameter source, created with
-/// [RowEvaluation::process_parameters].
 pub struct ParameterLookupIterator<'a, 'b, E: ReplicationEmbedder> {
     source: &'a ProcessedParameterSource<E>,
     done: bool,
     eval: &'b mut RowEvaluation<'a, E>,
 }
 
-/// A parameter lookup created from a row.
-pub struct ParameterLookup<'a, 'r, E: ReplicationEmbedder> {
+pub struct EvaluatedParameter<'a, 'r, E: ReplicationEmbedder> {
     pub id: &'a E::ParameterId,
     pub lookup: Parameters<'r, 'a>,
     pub outputs: Parameters<'r, 'a>,
@@ -264,7 +261,7 @@ impl<'a, E: ReplicationEmbedder> ParameterLookupIterator<'a, '_, E> {
     ///
     /// After an error, the parameter source is abandoned and this returns [None].
     #[allow(clippy::should_implement_trait)] // This is a lending iterator.
-    pub fn next(&mut self) -> Option<Result<ParameterLookup<'a, '_, E>, EvaluationError<'a>>> {
+    pub fn next(&mut self) -> Option<Result<EvaluatedParameter<'a, '_, E>, EvaluationError<'a>>> {
         if self.done {
             return None;
         }
@@ -290,7 +287,7 @@ impl<'a, E: ReplicationEmbedder> ParameterLookupIterator<'a, '_, E> {
         }
 
         let eval = &*self.eval;
-        Some(Ok(ParameterLookup {
+        Some(Ok(EvaluatedParameter {
             id: &source.id,
             lookup: as_parameters(eval.parameters, source.common.parameters.len()),
             outputs: as_parameters(eval.parameter_outputs, source.outputs.len()),

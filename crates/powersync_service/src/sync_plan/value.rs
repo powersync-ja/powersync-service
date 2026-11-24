@@ -71,25 +71,13 @@ impl Serialize for SqliteValue<'_> {
     }
 }
 
-/// A collection of [SqliteValue]s known to be valid bucket parameters.
+/// A collection of [SqliteValue]s that are also valid bucket parameters.
 #[repr(transparent)]
-pub struct Parameters<'s, 'a>(&'s [SqliteValue<'a>]);
+pub struct Parameters<'s, 'a>(pub &'s [SqliteValue<'a>]);
 
 impl<'a> AsRef<[SqliteValue<'a>]> for Parameters<'_, 'a> {
     fn as_ref(&self) -> &[SqliteValue<'a>] {
         self.0
-    }
-}
-
-impl<'s, 'a> TryFrom<&'s [SqliteValue<'a>]> for Parameters<'s, 'a> {
-    type Error = ();
-
-    fn try_from(value: &'s [SqliteValue<'a>]) -> Result<Self, Self::Error> {
-        if value.iter().any(|v| !v.is_valid_parameter()) {
-            return Err(());
-        }
-
-        Ok(Self(value))
     }
 }
 
@@ -214,7 +202,7 @@ mod test {
 
     fn parameter(source: SqliteValue) -> String {
         let value: &[SqliteValue] = &[source];
-        let params = Parameters::try_from(value).unwrap();
+        let params = Parameters(value);
 
         serde_json::to_string(&params).unwrap()
     }

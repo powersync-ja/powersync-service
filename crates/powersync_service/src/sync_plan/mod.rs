@@ -71,8 +71,8 @@ pub use compatibility::*;
 pub use deserialize::DeserializeSyncPlan;
 pub use error::EvaluationError;
 pub use evaluation::{
-    BucketData, BucketDataIterator, Evaluator, InputRow, ParameterLookup, ParameterLookupIterator,
-    PreparedField, ProjectedRow, RowEvaluation,
+    BucketData, BucketDataIterator, EvaluatedParameter, Evaluator, InputRow,
+    ParameterLookupIterator, PreparedField, ProjectedRow, RowEvaluation,
 };
 pub use hydrated::*;
 pub use processor_group::{ProcessedDataSource, ProcessedGroupMember, ProcessedParameterSource};

@@ -134,14 +134,27 @@ impl<'a> JsonEachState<'a> {
                 A: serde::de::MapAccess<'a>,
             {
                 let mut vec = Vec::new_in(self.frame.arena);
-                while let Some(entry) = map.next_entry_seed(
+                while let Some((key, value)) = map.next_entry_seed(
                     // The key must be a string, values can be nested (in which case we don't parse
                     // them).
                     ScalarSqliteValueOrFail(self.frame.into()),
                     ScalarSqliteValueOrText(self.frame.into()),
                 )? {
-                    vec.push(entry);
+                    vec.push((key, value));
                 }
+
+                // Remove duplicate keys, with the last entry winning.
+                vec.sort_by_key(|(k, _)| match k {
+                    SqliteValue::Text(k) => *k,
+                    _ => "", // Unreachable for valid json
+                });
+                vec.dedup_by(|later, earlier| {
+                    let is_duplicate = later.0 == earlier.0;
+                    if is_duplicate {
+                        earlier.1 = later.1;
+                    }
+                    is_duplicate
+                });
 
                 Ok(vec.into_bump_slice())
             }
@@ -230,7 +243,26 @@ mod test {
 
         assert_eq!(
             json_each(r#"{"b": 1, "a\n": "x"}"#),
-            rows(&[(Text("b"), Integer(1)), (Text("a\n"), Text("x"))])
+            rows(&[(Text("a\n"), Text("x")), (Text("b"), Integer(1))])
+        );
+    }
+
+    #[test]
+    fn object_duplicate_keys() {
+        use SqliteValue::*;
+
+        assert_eq!(
+            json_each(r#"{"b": 1, "a": 2, "b": 3, "c": 4, "b": [5], "a": null}"#),
+            rows(&[
+                (Text("a"), Null),
+                (Text("b"), Text("[5]")),
+                (Text("c"), Integer(4))
+            ])
+        );
+        // Escaped keys are compared after unescaping.
+        assert_eq!(
+            json_each(r#"{"\u0061": 1, "a": 2}"#),
+            rows(&[(Text("a"), Integer(2))])
         );
     }
 
