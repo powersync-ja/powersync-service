@@ -1,5 +1,9 @@
-use std::{fmt::Display, mem};
+use std::{cmp::Ordering, fmt::Display, mem};
 
+use crate::sync_plan::operators::{
+    bool::{SQLITE_FALSE, SQLITE_TRUE},
+    cast,
+};
 use serde::Serialize;
 use serde_json::value::RawValue;
 
@@ -23,6 +27,16 @@ pub enum SqliteValue<'a> {
 }
 
 impl<'a> SqliteValue<'a> {
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null { is_undefined: _ })
+    }
+
+    pub const fn null() -> Self {
+        Self::Null {
+            is_undefined: false,
+        }
+    }
+
     /// Whether this value can be represented in JSON.
     ///
     /// Blobs can't, which is why they're omitted from rows synced to clients.
@@ -50,15 +64,73 @@ impl<'a> SqliteValue<'a> {
             Self::Null { is_undefined: _ } => false,
             Self::Integer(i) => *i != 0,
             Self::Float(f) => *f != 0.0,
-            Self::Text(text) => numeric_prefix(text.as_bytes()) != 0.0,
-            Self::Blob(blob) => numeric_prefix(blob) != 0.0,
+            Self::Text(text) => cast::numeric_prefix(text.as_bytes()) != 0.0,
+            Self::Blob(blob) => cast::numeric_prefix(blob) != 0.0,
+        }
+    }
+
+    /// Compares values following `compare` as described in <https://www.sqlite.org/datatype3.html#comparisons>:
+    ///
+    ///  1. Values of different storage classes are ordered as `NULL` < numbers < text < blobs.
+    ///  2. Integers and reals are compared numerically (and exactly, also for integers that can't
+    ///     be represented as a double).
+    ///  3. Texts and blobs are compared by bytes, which doesn't match JavaScript.
+    pub fn compare(&self, other: &Self) -> Ordering {
+        use SqliteValue::*;
+
+        match (*self, *other) {
+            (Integer(a), Integer(b)) => a.cmp(&b),
+            (Float(a), Float(b)) => compare_floats(a, b),
+            (Integer(a), Float(b)) => compare_integer_float(a, b),
+            (Float(a), Integer(b)) => compare_integer_float(b, a).reverse(),
+            (Text(a), Text(b)) => a.cmp(b),
+            (Blob(a), Blob(b)) => a.cmp(b),
+            _ => self.storage_class_order().cmp(&other.storage_class_order()),
+        }
+    }
+
+    /// The order of storage classes when comparing values of different classes.
+    fn storage_class_order(&self) -> u8 {
+        match self {
+            SqliteValue::Null { is_undefined: _ } => 0,
+            SqliteValue::Integer(_) | SqliteValue::Float(_) => 1,
+            SqliteValue::Text(_) => 2,
+            SqliteValue::Blob(_) => 3,
         }
     }
 }
 
-impl Default for SqliteValue<'_> {
-    fn default() -> Self {
-        Self::Null { is_undefined: true }
+/// Compares doubles, treating `NaN` similar to `NULL` (as equal to itself and smaller than all other
+/// values).
+fn compare_floats(a: f64, b: f64) -> Ordering {
+    a.partial_cmp(&b)
+        .unwrap_or_else(|| a.is_nan().cmp(&b.is_nan()).reverse())
+}
+
+/// Compares an integer and a double exactly, without rounding the integer to a double.
+fn compare_integer_float(int: i64, float: f64) -> Ordering {
+    // 2^63, the smallest double greater than i64::MAX. -2^63 is i64::MIN.
+    const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+
+    if float.is_nan() {
+        Ordering::Greater
+    } else if float >= TWO_POW_63 {
+        Ordering::Less
+    } else if float < -TWO_POW_63 {
+        Ordering::Greater
+    } else {
+        // The truncated double fits into an i64 exactly.
+        let truncated = float.trunc();
+        int.cmp(&(truncated as i64)).then_with(|| {
+            // Same integral part, so the fractional part of the double decides.
+            0.0f64.partial_cmp(&(float - truncated)).expect("not NaN")
+        })
+    }
+}
+
+impl From<bool> for SqliteValue<'static> {
+    fn from(value: bool) -> Self {
+        if value { SQLITE_TRUE } else { SQLITE_FALSE }
     }
 }
 
@@ -90,7 +162,7 @@ impl Serialize for SqliteValue<'_> {
 }
 
 /// A SQLite value that's also a valid bucket parameter (not null and not a blob).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 #[repr(transparent)]
 pub struct Parameter<'a>(SqliteValue<'a>);
 
@@ -140,62 +212,6 @@ impl Serialize for Parameter<'_> {
     }
 }
 
-/// Parses the longest prefix of `bytes` (after leading whitespace) that is a valid number, or
-/// returns `0.0` if there is none.
-fn numeric_prefix(bytes: &[u8]) -> f64 {
-    let start = bytes
-        .iter()
-        .position(|b| !b.is_ascii_whitespace())
-        .unwrap_or(bytes.len());
-    let bytes = &bytes[start..];
-
-    let count_digits = |from: usize| {
-        bytes[from..]
-            .iter()
-            .take_while(|b| b.is_ascii_digit())
-            .count()
-    };
-
-    let mut end = 0;
-    if matches!(bytes.first(), Some(b'+' | b'-')) {
-        end += 1;
-    }
-
-    let integer_digits = count_digits(end);
-    end += integer_digits;
-    let mut has_digits = integer_digits > 0;
-
-    if bytes.get(end) == Some(&b'.') {
-        let fraction_digits = count_digits(end + 1);
-        if fraction_digits > 0 || has_digits {
-            end += 1 + fraction_digits;
-            has_digits = true;
-        }
-    }
-
-    if !has_digits {
-        return 0.0;
-    }
-
-    if matches!(bytes.get(end), Some(b'e' | b'E')) {
-        let mut exponent_end = end + 1;
-        if matches!(bytes.get(exponent_end), Some(b'+' | b'-')) {
-            exponent_end += 1;
-        }
-
-        let exponent_digits = count_digits(exponent_end);
-        if exponent_digits > 0 {
-            end = exponent_end + exponent_digits;
-        }
-    }
-
-    // The prefix only consists of ASCII characters, so it's valid UTF-8.
-    std::str::from_utf8(&bytes[..end])
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0)
-}
-
 #[cfg(test)]
 mod test {
     use crate::sync_plan::value::Parameter;
@@ -203,28 +219,12 @@ mod test {
     use super::SqliteValue;
 
     #[test]
-    fn truthy() {
-        assert!(
-            !SqliteValue::Null {
-                is_undefined: false
-            }
-            .is_truthy()
-        );
-        assert!(!SqliteValue::Null { is_undefined: true }.is_truthy());
-        assert!(SqliteValue::Integer(-1).is_truthy());
-        assert!(!SqliteValue::Integer(0).is_truthy());
-        assert!(SqliteValue::Float(0.5).is_truthy());
-        assert!(!SqliteValue::Float(0.0).is_truthy());
-
-        for truthy in ["1", " 1abc", "-2", "0.1", ".5", "1e3", "5.", "+3"] {
-            assert!(SqliteValue::Text(truthy).is_truthy(), "{truthy}");
-        }
-        for falsy in ["", "abc", "0", "0.0", "-", ".", "e5", "0e9", " "] {
-            assert!(!SqliteValue::Text(falsy).is_truthy(), "{falsy}");
-        }
-
+    fn truthy_like_sqlite() {
+        // Aslo see the test in sync-rules/test/src/sql_operators.test.ts, this just covers cases
+        // where we disagree with JS.
+        assert!(SqliteValue::Text("0.1").is_truthy());
+        assert!(SqliteValue::Text(".5").is_truthy());
         assert!(SqliteValue::Blob(b"12").is_truthy());
-        assert!(!SqliteValue::Blob(b"\xff").is_truthy());
     }
 
     fn parameter(source: SqliteValue) -> String {

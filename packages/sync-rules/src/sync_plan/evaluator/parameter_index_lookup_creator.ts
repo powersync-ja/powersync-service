@@ -13,12 +13,17 @@ import { resolveRowMetadata, TableProcessorToSqlHelper } from './table_processor
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {
   readonly sourceId: ParameterLookupDefinitionId;
   readonly sourceTable: TablePattern;
+  readonly defaultSchema: string;
   private readonly evaluatorInputs: (plan.ColumnSqlParameterValue | plan.RowMetadataSqlValue)[];
   private readonly statement: ScalarStatement;
   private readonly numberOfOutputs: number;
   private readonly numberOfParameters: number;
 
-  constructor(source: plan.StreamParameterIndexLookupCreator, { defaultSchema }: StreamEvaluationContext) {
+  constructor(
+    readonly source: plan.StreamParameterIndexLookupCreator,
+    { defaultSchema }: StreamEvaluationContext
+  ) {
+    this.defaultSchema = defaultSchema;
     this.sourceId = {
       ...source.defaultLookupScope
     };

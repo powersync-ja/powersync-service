@@ -12,7 +12,7 @@ use crate::sync_plan::{
     evaluation::{Frame, RowEvaluation, frame::StarColumn, program::Program},
     processor_group::{ProcessorGroup, Slot},
     sources::{
-        bson::SqliteValueFromBson,
+        bson::{BsonSourceError, SqliteValueFromBson},
         json::{ScalarSqliteValueOrText, SqliteValueFromJson},
     },
 };
@@ -50,6 +50,13 @@ impl<'a, E: ReplicationEmbedder> InputRow<'a, E> {
         }
     }
 
+    /// The allocator for values of the row being evaluated.
+    ///
+    /// This can be used to allocate field names and values passed to [Self::prepare_field].
+    pub fn arena(&self) -> &'a Bump {
+        self.frame.arena
+    }
+
     /// Prepares a field of the source row.
     ///
     /// Returns [None] if the field is not used by any processor, so that it doesn't have to be
@@ -78,7 +85,7 @@ impl<'a, E: ReplicationEmbedder> InputRow<'a, E> {
     /// Push a BSON source row into the evaluator.
     ///
     /// This iterates through and decodes BSON bytes where needed.
-    pub fn push_bson(mut self, bson: &'a [u8]) -> Result<RowEvaluation<'a, E>, bson::error::Error> {
+    pub fn push_bson(mut self, bson: &'a [u8]) -> Result<RowEvaluation<'a, E>, BsonSourceError> {
         let bson = RawDocument::from_bytes(bson)?;
         let from_bson = SqliteValueFromBson::from(&self.frame);
 

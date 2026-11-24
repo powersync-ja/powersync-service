@@ -17,6 +17,9 @@
       "path": "../../../packages/service-core-tests"
     },
     {
+      "path": "../../../packages/rust-types"
+    },
+    {
       "path": "../../module-mongodb-storage"
     },
     {

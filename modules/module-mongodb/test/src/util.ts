@@ -5,7 +5,9 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as types from '@module/types/types.js';
 import { BSON_DESERIALIZE_DATA_OPTIONS, TestStorageFactory } from '@powersync/service-core';
 import { describeStorageCombinations } from '@powersync/service-core-tests';
-import { TestContext, TestOptions } from 'vitest';
+import { loadRustAddon } from '@powersync/service-rust-types';
+import { resolveRustAddonPath } from '@powersync/service-rust-types/testing';
+import { test, TestContext, TestOptions } from 'vitest';
 import { env } from './env.js';
 
 export const TEST_URI = env.MONGO_TEST_DATA_URL;
@@ -107,3 +109,10 @@ export async function requireFailCommand(client: mongo.MongoClient, ctx: TestCon
     }
   };
 }
+
+export const rustModuleTest = test.extend('rust', { scope: 'worker' }, async ({}, { onCleanup }) => {
+  const [path, cleanup] = await resolveRustAddonPath();
+  onCleanup(cleanup);
+
+  return loadRustAddon(path);
+});

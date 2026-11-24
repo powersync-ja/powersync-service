@@ -1,8 +1,61 @@
+import { JSONBig } from '@powersync/service-jsonbig';
 import { describe, expect, test } from 'vitest';
-import { cast, CompatibilityContext, CompatibilityEdition, generateSqlFunctions } from '../../src/index.js';
+import {
+  CompatibilityContext,
+  CompatibilityEdition,
+  generateSqlFunctions,
+  cast as javaScriptCast,
+  SqliteRow,
+  SqliteValue
+} from '../../src/index.js';
+import { createRustEvaluator, syncTest, TEST_TABLE } from './sync_plan/evaluator/utils.js';
 
 const compatibilityFunctions = generateSqlFunctions(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
 const fn = compatibilityFunctions.callable;
+
+// Utility to evaluate a scalar expression on JavaScript inputs with the Rust addon.
+const scalarRustEvaluationTest = syncTest.extend('evaluateWithRust', ({ rust, sync }) => {
+  return function (expression: string) {
+    const yaml = `
+config:
+  edition: 3
+streams:
+  a:
+    query: SELECT ${expression} AS output FROM tbl
+`;
+    const config = sync.prepareSyncStreams(yaml);
+    const evaluator = createRustEvaluator(rust, config)!;
+
+    return {
+      config,
+      evaluateWithRust(record: SqliteRow) {
+        const { rows: rustRows, errors: rustErrors } = evaluator.evaluateSerialized(TEST_TABLE, record);
+
+        expect(rustErrors).toStrictEqual([]);
+        return (JSONBig.parse(rustRows[0].data) as SqliteRow).output;
+      }
+    };
+  };
+});
+
+// Evaluates a function with both JavaScript and Rust, asserting that outputs are equal.
+const functionTest = scalarRustEvaluationTest.extend('compileFunction', ({ evaluateWithRust }) => {
+  return function (name: keyof typeof fn, argumentCount: number) {
+    const columns = Array.from({ length: argumentCount }, (_, i) => `a${i}`);
+    const preparedRust = evaluateWithRust(`${name}(${columns.join(', ')})`);
+    const jsFunction = generateSqlFunctions(preparedRust.config.compatibility).callable[name];
+
+    return function (...args: SqliteValue[]) {
+      expect(args).toHaveLength(argumentCount);
+
+      const rust = preparedRust.evaluateWithRust(Object.fromEntries(columns.map((column, i) => [column, args[i]])));
+      const js = jsFunction(...args);
+
+      expect(rust).toStrictEqual(js);
+      return js;
+    };
+  };
+});
 
 describe('SQL functions', () => {
   test('json extract', () => {
@@ -99,22 +152,26 @@ describe('SQL functions', () => {
     expect(fn.json_valid('TRUE')).toEqual(0n);
   });
 
-  test('typeof', () => {
-    expect(fn.typeof(null)).toEqual('null');
-    expect(fn.typeof('test')).toEqual('text');
-    expect(fn.typeof('')).toEqual('text');
-    expect(fn.typeof(1n)).toEqual('integer');
-    expect(fn.typeof(1)).toEqual('real');
-    expect(fn.typeof(1.5)).toEqual('real');
-    expect(fn.typeof(Uint8Array.of(1, 2, 3))).toEqual('blob');
+  functionTest('typeof', ({ compileFunction }) => {
+    const fnTypeof = compileFunction('typeof', 1);
+
+    expect(fnTypeof(null)).toEqual('null');
+    expect(fnTypeof('test')).toEqual('text');
+    expect(fnTypeof('')).toEqual('text');
+    expect(fnTypeof(1n)).toEqual('integer');
+    expect(fnTypeof(1)).toEqual('real');
+    expect(fnTypeof(1.5)).toEqual('real');
+    expect(fnTypeof(Uint8Array.of(1, 2, 3))).toEqual('blob');
   });
 
-  test('length', () => {
-    expect(fn.length(null)).toEqual(null);
-    expect(fn.length('abc')).toEqual(3n);
-    expect(fn.length(123n)).toEqual(3n);
-    expect(fn.length(123.4)).toEqual(5n);
-    expect(fn.length(Uint8Array.of(1, 2, 3))).toEqual(3n);
+  functionTest('length', ({ compileFunction }) => {
+    const length = compileFunction('length', 1);
+
+    expect(length(null)).toEqual(null);
+    expect(length('abc')).toEqual(3n);
+    expect(length(123n)).toEqual(3n);
+    expect(length(123.4)).toEqual(5n);
+    expect(length(Uint8Array.of(1, 2, 3))).toEqual(3n);
   });
 
   test('hex', () => {
@@ -167,39 +224,68 @@ describe('SQL functions', () => {
     expect(fn.iif(Uint8Array.of(0x61, 0x62, 0x43), 'is_true', 'is_false')).toEqual('is_false');
   });
 
-  test('upper', () => {
-    expect(fn.upper(null)).toEqual(null);
-    expect(fn.upper('abc')).toEqual('ABC');
-    expect(fn.upper(123n)).toEqual('123');
-    expect(fn.upper(3e60)).toEqual('3E+60');
-    expect(fn.upper(Uint8Array.of(0x61, 0x62, 0x43))).toEqual('ABC');
+  functionTest('upper', ({ compileFunction }) => {
+    const upper = compileFunction('upper', 1);
+
+    expect(upper(null)).toEqual(null);
+    expect(upper('abc')).toEqual('ABC');
+    expect(upper(123n)).toEqual('123');
+    expect(upper(3e60)).toEqual('3E+60');
+    expect(upper(Uint8Array.of(0x61, 0x62, 0x43))).toEqual('ABC');
+
+    expect(upper('straße')).toEqual('STRASSE');
   });
 
-  test('lower', () => {
-    expect(fn.lower(null)).toEqual(null);
-    expect(fn.lower('ABC')).toEqual('abc');
-    expect(fn.lower(123n)).toEqual('123');
-    expect(fn.lower(3e60)).toEqual('3e+60');
-    expect(fn.lower(Uint8Array.of(0x61, 0x62, 0x43))).toEqual('abc');
+  functionTest('lower', ({ compileFunction }) => {
+    const lower = compileFunction('lower', 1);
+
+    expect(lower(null)).toEqual(null);
+    expect(lower('ABC')).toEqual('abc');
+    expect(lower(123n)).toEqual('123');
+    expect(lower(3e60)).toEqual('3e+60');
+    expect(lower(Uint8Array.of(0x61, 0x62, 0x43))).toEqual('abc');
   });
 
-  test('substring', () => {
+  functionTest('substring', ({ compileFunction }) => {
+    const substring2 = compileFunction('substring', 2);
+    const substring3 = compileFunction('substring', 3);
+
+    // The compiler rejects calls with a single argument, so these can only be tested in JavaScript.
     expect(fn.substring(null)).toEqual(null);
     expect(fn.substring('abc')).toEqual(null);
-    expect(fn.substring('abcde', 2, 3)).toEqual('bcd');
-    expect(fn.substring('abcde', 2)).toEqual('bcde');
-    expect(fn.substring('abcde', 2, null)).toEqual(null);
-    expect(fn.substring('abcde', 0, 1)).toEqual('');
-    expect(fn.substring('abcde', 0, 2)).toEqual('a');
-    expect(fn.substring('abcde', 1, 2)).toEqual('ab');
-    expect(fn.substring('abcde', -2)).toEqual('de');
-    expect(fn.substring('abcde', -2, 1)).toEqual('d');
-    expect(fn.substring('abcde', 6, -5)).toEqual('abcde');
-    expect(fn.substring('abcde', 5, -2)).toEqual('cd');
-    expect(fn.substring('2023-06-28 14:12:00.999Z', 1, 10)).toEqual('2023-06-28');
+
+    expect(substring3('abcde', 2, 3)).toEqual('bcd');
+    expect(substring2('abcde', 2)).toEqual('bcde');
+    expect(substring3('abcde', 2, null)).toEqual(null);
+    expect(substring3('abcde', 0, 1)).toEqual('');
+    expect(substring3('abcde', 0, 2)).toEqual('a');
+    expect(substring3('abcde', 1, 2)).toEqual('ab');
+    expect(substring2('abcde', -2)).toEqual('de');
+    expect(substring3('abcde', -2, 1)).toEqual('d');
+    expect(substring3('abcde', 6, -5)).toEqual('abcde');
+    expect(substring3('abcde', 5, -2)).toEqual('cd');
+    expect(substring3('2023-06-28 14:12:00.999Z', 1, 10)).toEqual('2023-06-28');
   });
 
-  test('cast', () => {
+  scalarRustEvaluationTest('cast', ({ evaluateWithRust }) => {
+    // The target type of a CAST must be known statically, so we select the cast to apply based on a column.
+    const targets = ['text', 'integer', 'numeric', 'real', 'blob'] as const;
+    const whens = targets.map((target) => {
+      const cast = `CAST(input AS ${target})`;
+      // Blobs aren't included in output columns of processed rows, so the evaluator trick doesn't work. We cast those
+      // to text afterwards.
+      return `WHEN '${target}' THEN ${target == 'blob' ? `CAST(${cast} AS text)` : cast}`;
+    });
+    const rustEvaluator = evaluateWithRust(`CASE target ${whens.join(' ')} END`);
+
+    function cast(input: SqliteValue, target: (typeof targets)[number]) {
+      const rust = rustEvaluator.evaluateWithRust({ input, target });
+      const js = javaScriptCast(input, target);
+
+      expect(rust).toStrictEqual(target == 'blob' ? javaScriptCast(js, 'text') : js);
+      return js;
+    }
+
     expect(cast(null, 'text')).toEqual(null);
     expect(cast(null, 'integer')).toEqual(null);
     expect(cast(null, 'numeric')).toEqual(null);
@@ -240,6 +326,67 @@ describe('SQL functions', () => {
 
     // We differ from SQLite here
     expect(cast('abc', 'blob')).toEqual(Uint8Array.of(0x61, 0x62, 0x63));
+
+    // The JavaScript implementation throws an error here.
+    expect(rustEvaluator.evaluateWithRust({ input: -Infinity, target: 'integer' })).toStrictEqual(
+      -9223372036854775808n
+    );
+    expect(rustEvaluator.evaluateWithRust({ input: Infinity, target: 'integer' })).toStrictEqual(9223372036854775807n);
+    expect(rustEvaluator.evaluateWithRust({ input: NaN, target: 'integer' })).toStrictEqual(null);
+
+    // JavaScript incorrectly uses arbitrary precision integers instead of clamping like SQLite.
+    expect(rustEvaluator.evaluateWithRust({ input: 1e300, target: 'integer' })).toStrictEqual(9223372036854775807n);
+
+    // Edge cases, make sure JavaScript and Rust agree on all target types.
+    const bytes = (...values: number[]) => Uint8Array.of(...values);
+    const edgeCases: SqliteValue[] = [
+      // Integers
+      -42n,
+      9223372036854775807n,
+      -9223372036854775808n,
+      // Reals
+      1.0,
+      -0.0,
+      1.5,
+      1.9,
+      -1.5,
+      1e-7,
+      // Text
+      '42',
+      '  -7abc',
+      '+5',
+      '12.9',
+      '1.0',
+      '5.',
+      '.5',
+      '+.5',
+      '1e',
+      '1e+',
+      '1e3',
+      '1E3',
+      '1e5',
+      '\u00a0\u3000\t3',
+      '',
+      '-',
+      '.',
+      '- 1',
+      'e5',
+      '  -2.5e2xyz',
+      'infinity',
+      '9223372036854775807',
+      '-9223372036854775808',
+      // Blobs
+      bytes(0x69, 0x64),
+      bytes(0x61, 0xff, 0x62),
+      bytes(0x20, 0x31, 0x32),
+      bytes(0xff, 0x31),
+      bytes(0x32, 0x2e, 0x35)
+    ];
+    for (const input of edgeCases) {
+      for (const target of targets) {
+        cast(input, target);
+      }
+    }
   });
 
   test('unixepoch', () => {

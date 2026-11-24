@@ -348,7 +348,8 @@ streams:
   });
 
   syncTest('multiple inputs and outputs for parameter row', ({ sync }) => {
-    const desc = sync.prepareSyncStreams(`
+    const desc = sync.prepareSyncStreams(
+      `
 config:
   edition: 3
 streams:
@@ -357,7 +358,12 @@ streams:
       SELECT a.*
       FROM a, b, json_each(b.x) x, json_each(b.y) y
       WHERE a.x = x.value AND y.value = auth.user_id()
-`);
+`,
+      undefined,
+      // json_each in JavaScript parses integers as doubles (see the FIXME in TableValuedFunctions.ts), while Rust
+      // emits them as bigints. So the bucket parameters below would be 1n and 2n with Rust.
+      { skipRustComparison: true }
+    );
 
     const outputs = desc.evaluateParameterRow(new TestSourceTable('b'), { x: '[1,2]', y: '["a", "b"]' });
     expect(outputs).toStrictEqual([

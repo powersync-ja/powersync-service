@@ -10,7 +10,12 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+bumpalo = "3"
+bson = { workspace = true }
 powersync_service = { workspace = true }
 log = { workspace = true }
-napi = { workspace = true }
+napi = { workspace = true, features = ["serde-json"] }
 napi-derive = { workspace = true }
+serde_json = { version = "1" }
+serde = { version = "1" }
+smallvec = "1"

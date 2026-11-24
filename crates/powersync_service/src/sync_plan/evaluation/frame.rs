@@ -25,15 +25,17 @@ impl<'a> Frame<'a> {
         Self {
             arena,
             compatibility,
-            inputs: arena.alloc_slice_fill_default(num_inputs as usize),
-            internals: arena.alloc_slice_fill_default(num_internals as usize),
+            inputs: arena.alloc_slice_fill_copy(num_inputs as usize, Self::UNDEFINED),
+            internals: arena.alloc_slice_fill_copy(num_internals as usize, Self::UNDEFINED),
             star_columns: Vec::new_in(arena),
         }
     }
 
     pub fn clear_internals(&mut self) {
-        self.internals.fill(SqliteValue::default());
+        self.internals.fill(Self::UNDEFINED);
     }
+
+    const UNDEFINED: SqliteValue<'static> = SqliteValue::Null { is_undefined: true };
 }
 
 impl<'a> Index<Slot> for Frame<'a> {

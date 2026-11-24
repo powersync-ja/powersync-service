@@ -2,6 +2,7 @@ import {
   CompatibilityContext,
   CompatibilityEdition,
   CompatibilityOption,
+  SqliteRow,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import {
@@ -28,6 +29,8 @@ import {
   LegacySourceRowConverter,
   SourceRowConverter
 } from '@module/replication/SourceRowConverter.js';
+import type { RustAddon } from '@powersync/service-rust-types';
+import { rustModuleTest } from './util.js';
 
 type Placement = 'top' | 'array' | 'nested';
 type ExpectedPlacements = Record<Placement, unknown>;
@@ -479,6 +482,13 @@ describe('SourceRowConverter.rawToSqliteRow expected output', () => {
           value: parityCase.expected[placement]
         });
       });
+
+      rustModuleTest(`rust output for ${parityCase.name} as ${placementLabel(placement)}`, ({ rust }) => {
+        expectNormalizedRow(rustConverter(rust, context), parityCase.buildBuffer(placement), {
+          _id: parityCase.expectedId?.(placement) ?? `${parityCase.name}:${placement}`,
+          value: parityCase.expected[placement]
+        });
+      });
     }
   }
 
@@ -759,8 +769,21 @@ describe('SourceRowConverter.rawToSqliteRow malformed BSON lengths', () => {
   });
 });
 
+const parityTest = rustModuleTest.extend('expectRowParity', ({ rust }) => {
+  const convertRust = rustConverter(rust, CONTEXT);
+
+  return function expectRowParity(source: Buffer) {
+    const direct = captureRow(directConverter, source);
+    const legacy = captureRow(legacyConverter, source);
+    const rust = captureRow(convertRust, source);
+
+    expect(direct).toEqual(legacy);
+    expect(rust).toEqual(legacy);
+  };
+});
+
 describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
-  test('matches across randomized supported documents', () => {
+  parityTest('matches across randomized supported documents', ({ expectRowParity }) => {
     const rng = makeRng(0x5eedc0de);
 
     for (let i = 0; i < 150; i++) {
@@ -777,7 +800,7 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
     }
   });
 
-  test('matches on a large nested string that grows the JSON writer buffer', () => {
+  parityTest('matches on a large nested string that grows the JSON writer buffer', ({ expectRowParity }) => {
     const source = BSON.serialize({
       _id: 'large-string',
       value: {
@@ -788,7 +811,7 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
     expectRowParity(source);
   });
 
-  test('matches on escape-heavy keys and values', () => {
+  parityTest('matches on escape-heavy keys and values', ({ expectRowParity }) => {
     const source = BSON.serialize({
       _id: 'escapes',
       'quote"slash\\newline\n': {
@@ -802,7 +825,7 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
     expectRowParity(source);
   });
 
-  test('matches on large escape-heavy nested values serialized from BSON', () => {
+  parityTest('matches on large escape-heavy nested values serialized from BSON', ({ expectRowParity }) => {
     // For this test to work, this must be larger than the default buffer size
     const escapeHeavy = '\u0001'.repeat(1024 * 400);
     const source = BSON.serialize({
@@ -815,7 +838,7 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
     expectRowParity(source);
   });
 
-  test('matches 21 nested object levels', () => {
+  parityTest('matches 21 nested object levels', ({ expectRowParity }) => {
     expectRowParity(
       BSON.serialize({
         _id: 'depth-21',
@@ -873,7 +896,7 @@ describe('SourceRowConverter.rawToSqliteRow full output parity', () => {
 });
 
 describe('SourceRowConverter.rawToSqliteRow DBRef handling', () => {
-  test('documents why DBRef differs from deprecated DBPointer handling', () => {
+  rustModuleTest('documents why DBRef differs from deprecated DBPointer handling', ({ rust }) => {
     // These are _not_ serialized as a DBPointer value. It is a normal document,
     // with $ref, $id, $db keys.
     const source = BSON.serialize({
@@ -890,6 +913,10 @@ describe('SourceRowConverter.rawToSqliteRow DBRef handling', () => {
     // DirectSourceRowConverter serializes the raw BSON document shape for DBRef.
     // We intentionally do not attempt to convert this type.
     expectNormalizedRow(directConverter, source, {
+      _id: 'dbref',
+      value: '{"$ref":"mycollection","$id":"66e834cc91d805df11fa0ecb","$db":"mydb","foo":"bar"}'
+    });
+    expectNormalizedRow(rustConverter(rust, CONTEXT), source, {
       _id: 'dbref',
       value: '{"$ref":"mycollection","$id":"66e834cc91d805df11fa0ecb","$db":"mydb","foo":"bar"}'
     });
@@ -1029,10 +1056,6 @@ function captureOutput(converter: SourceRowConverter, source: Buffer): OutputCap
   }
 }
 
-function expectRowParity(source: Buffer) {
-  expect(captureRow(directConverter, source)).toEqual(captureRow(legacyConverter, source));
-}
-
 function expectNormalizedRow(converter: SourceRowConverter, source: Buffer, expected: Record<string, unknown>) {
   expect(captureRow(converter, source)).toEqual({
     ok: true,
@@ -1152,4 +1175,23 @@ function deepNestedObject(depth: number): unknown {
     value = { nested: value };
   }
   return value;
+}
+
+function rustConverter(rust: typeof RustAddon, options: CompatibilityContext): SourceRowConverter {
+  const evaluator = new rust.SyncStreamEvaluator({
+    maxTimeValuePrecision: options.maxTimeValuePrecision?.name,
+    timestampsIso8601: options.isEnabled(CompatibilityOption.timestampsIso8601),
+    fixedBooleansInJson: options.isEnabled(CompatibilityOption.fixedBooleanInJson),
+    fixedJsonExtract: false // has no effect here
+  });
+
+  return {
+    rawToSqliteRow: function (source: Buffer): { row: SqliteRow; replicaId: any } {
+      const decoded = evaluator.testDecodeBson(source);
+      return { row: decoded, replicaId: '' };
+    },
+    documentToSqliteRow: function (): SqliteRow {
+      throw new Error('Function not implemented.');
+    }
+  } satisfies SourceRowConverter;
 }

@@ -18,7 +18,7 @@ pub struct ProjectedRow<'r, 'a> {
 
 impl<'a> ProjectedRow<'_, 'a> {
     /// Serializes this row, also returns the value for the `id` column.
-    fn serialize_and_extract_id<S>(
+    pub fn serialize_and_extract_id<S>(
         &self,
         serializer: S,
     ) -> Result<(S::Ok, SqliteValue<'a>), S::Error>

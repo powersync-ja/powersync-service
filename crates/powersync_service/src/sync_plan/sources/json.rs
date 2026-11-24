@@ -142,7 +142,7 @@ impl<'a> Visitor<'a> for SqliteValueFromJson<'a> {
     where
         E: serde::de::Error,
     {
-        Ok(SqliteValue::Integer(if v { 1 } else { 0 }))
+        Ok(v.into())
     }
 
     fn visit_unit<E>(self) -> Result<Self::Value, E>

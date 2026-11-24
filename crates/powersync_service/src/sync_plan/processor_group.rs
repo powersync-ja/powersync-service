@@ -6,9 +6,10 @@ use std::{
 use crate::sync_plan::{
     ReplicationEmbedder, StringInterner, Symbol,
     expression::{
-        BinaryOperator, CastType, LiteralExpression, ScalarFunction, SqlExpression,
-        TableValuedFunction, UnaryOperator,
+        BinaryOperator, CastType, LiteralExpression, SqlExpression, TableValuedFunction,
+        UnaryOperator,
     },
+    operators::functions::ScalarFunctionImpl,
     plan::{
         RowProjection, StreamDataSource, StreamParameterIndexLookupCreator, TableProcessor,
         TableProcessorData, TableProcessorExpression,
@@ -217,7 +218,7 @@ pub enum ScalarOperation {
         cast_as: CastType,
     },
     FunctionCall {
-        function: ScalarFunction,
+        function: ScalarFunctionImpl,
         inputs: Vec<Slot>,
     },
 }
@@ -468,7 +469,7 @@ impl<'a, E: ReplicationEmbedder> ProcessorTranslator<'a, E> {
                 cast_as: cast.cast_as,
             },
             SqlExpression::FunctionCall(call) => ScalarOperation::FunctionCall {
-                function: call.function,
+                function: call.function.implementation(),
                 inputs: self.lower_all(&call.parameters, &mut depth),
             },
         };

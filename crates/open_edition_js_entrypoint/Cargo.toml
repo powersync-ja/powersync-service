@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 [dependencies]
 powersync_service = { workspace = true }
 powersync_service_js_addon_shared = { workspace = true }
-napi = { workspace = true }
+napi = { workspace = true, features = ["serde-json"] }
 napi-derive = { workspace = true }
 
 [build-dependencies]

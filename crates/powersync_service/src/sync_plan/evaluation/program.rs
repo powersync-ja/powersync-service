@@ -4,9 +4,13 @@ use bumpalo::collections::Vec;
 
 use crate::sync_plan::{
     EvaluationError,
+    cast::cast,
     evaluation::Frame,
-    expression::TableValuedFunction,
-    operators::table_valued::TableValuedFunctionEvaluation,
+    expression::{TableValuedFunction, UnaryOperator},
+    operators::{
+        between, binary::evaluate_binary_operator, bool::sqlite_not, case_when, scalar_in,
+        table_valued::TableValuedFunctionEvaluation,
+    },
     processor_group::{EvaluatorInstruction, ScalarOperation},
 };
 
@@ -79,7 +83,42 @@ impl<'a> Program<'a> {
                 EvaluatorInstruction::Evaluate { op, output_slot } => {
                     let scalar = match op {
                         ScalarOperation::Literal(literal) => literal.evaluate(),
-                        _ => todo!("Evaluate scalar operator"),
+                        ScalarOperation::Unary { operator, operand } => {
+                            let operand = self.frame[*operand];
+
+                            match operator {
+                                UnaryOperator::Not => sqlite_not(operand),
+                                UnaryOperator::Plus => operand,
+                            }
+                        }
+                        ScalarOperation::Binary {
+                            left,
+                            operator,
+                            right,
+                        } => evaluate_binary_operator(
+                            &self.frame,
+                            self.frame[*left],
+                            *operator,
+                            self.frame[*right],
+                        )?,
+                        ScalarOperation::FunctionCall { function, inputs } => {
+                            function(inputs, &self.frame)?
+                        }
+                        ScalarOperation::Cast { operand, cast_as } => {
+                            let operand = self.frame[*operand];
+                            cast(operand, *cast_as, self.frame.arena)
+                        }
+                        ScalarOperation::ScalarIn { target, r#in } => {
+                            scalar_in(&self.frame, *target, r#in)
+                        }
+                        ScalarOperation::Between { value, low, high } => {
+                            between(&self.frame, *value, *low, *high)
+                        }
+                        ScalarOperation::CaseWhen {
+                            operand,
+                            whens,
+                            r#else,
+                        } => case_when(&self.frame, *operand, whens, *r#else),
                     };
 
                     self.frame[*output_slot] = scalar;

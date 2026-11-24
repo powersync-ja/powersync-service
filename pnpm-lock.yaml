@@ -312,6 +312,9 @@ importers:
       '@powersync/service-module-postgres-storage':
         specifier: workspace:*
         version: link:../module-postgres-storage
+      '@powersync/service-rust-types':
+        specifier: workspace:*
+        version: link:../../packages/rust-types
 
   modules/module-mongodb-storage:
     dependencies:
@@ -865,6 +868,9 @@ importers:
       '@powersync/service-jsonbig':
         specifier: workspace:^
         version: link:../jsonbig
+      '@powersync/service-rust-types':
+        specifier: workspace:^
+        version: link:../rust-types
       '@syncpoint/wkx':
         specifier: ^0.5.0
         version: 0.5.2

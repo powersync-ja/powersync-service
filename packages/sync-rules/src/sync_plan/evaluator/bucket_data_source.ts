@@ -15,7 +15,7 @@ import { PendingRowProjection } from './row_projection.js';
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
   private readonly pendingSources: PendingStreamDataSource[] = [];
-  private readonly defaultSchema: string;
+  readonly defaultSchema: string;
 
   constructor(
     readonly source: plan.StreamBucketDataSource,
