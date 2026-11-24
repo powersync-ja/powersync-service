@@ -75,6 +75,12 @@ impl Serialize for SqliteValue<'_> {
 #[repr(transparent)]
 pub struct Parameters<'s, 'a>(&'s [SqliteValue<'a>]);
 
+impl<'a> AsRef<[SqliteValue<'a>]> for Parameters<'_, 'a> {
+    fn as_ref(&self) -> &[SqliteValue<'a>] {
+        self.0
+    }
+}
+
 impl<'s, 'a> TryFrom<&'s [SqliteValue<'a>]> for Parameters<'s, 'a> {
     type Error = ();
 

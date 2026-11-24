@@ -2,7 +2,7 @@ use bumpalo::Bump;
 use serde::de::{Deserialize, DeserializeSeed, Visitor};
 use serde_json::value::RawValue;
 
-use crate::sync_plan::{SqliteValue, evaluator::Frame};
+use crate::sync_plan::{SqliteValue, evaluation::Frame};
 
 pub struct SqliteValueFromJson<'a> {
     arena: &'a Bump,
@@ -14,8 +14,8 @@ pub struct SqliteValueFromJson<'a> {
 impl<'a> From<&Frame<'a>> for SqliteValueFromJson<'a> {
     fn from(value: &Frame<'a>) -> Self {
         Self {
-            arena: value.arena(),
-            fixed_json_extract: value.compatibility().fixed_json_extract,
+            arena: value.arena,
+            fixed_json_extract: value.compatibility.fixed_json_extract,
         }
     }
 }
@@ -27,7 +27,7 @@ impl<'a> SqliteValueFromJson<'a> {
     /// [SqliteValue::Null], regardless of the `fixed_json_extract` option.
     pub fn for_source_row(frame: &Frame<'a>) -> Self {
         Self {
-            arena: frame.arena(),
+            arena: frame.arena,
             fixed_json_extract: true,
         }
     }

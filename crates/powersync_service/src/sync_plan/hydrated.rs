@@ -62,17 +62,17 @@ pub trait ReplicationEmbedder {
     /// Something that, along with bucket parameters, uniquely identifies a bucket.
     ///
     /// This is typically a prefix (and an id of the replication stream).
-    type BucketId: Debug + Send;
+    type BucketId: Debug;
 
     /// Something that uniquely identifies a parameter lookup query.
     ///
     /// This is typically a lookup name and query id.
-    type ParameterId: Debug + Send;
+    type ParameterId: Debug;
 
     /// Something that uniquely identifies an event source.
     ///
     /// This is typically an arbitrary id string.
-    type EventId: Debug + Send;
+    type EventId: Debug;
 }
 
 pub enum HydratedSource<E: ReplicationEmbedder> {
@@ -96,6 +96,7 @@ mod test {
 
     use super::HydratedSyncConfig;
     use crate::sync_plan::{
+        Evaluator,
         processor_group::ProcessedGroupMember,
         test::{TestEmbedder, config, event_source, source_table_ref},
     };
@@ -113,6 +114,15 @@ mod test {
                 _ => panic!("expected event"),
             })
             .collect()
+    }
+
+    #[test]
+    fn thread_safe_for_thread_safe_ids() {
+        fn assert_send<T: Send>() {}
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<HydratedSyncConfig<TestEmbedder>>();
+        assert_send::<Evaluator<TestEmbedder>>();
     }
 
     #[test]

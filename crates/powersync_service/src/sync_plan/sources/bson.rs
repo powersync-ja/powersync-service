@@ -1,7 +1,7 @@
 use bson::{RawBsonRef, error::Error};
 use bumpalo::Bump;
 
-use crate::sync_plan::{CompatibilityContext, SqliteValue, evaluator::Frame};
+use crate::sync_plan::{CompatibilityContext, SqliteValue, evaluation::Frame};
 
 /// Rust port of `DirectSourceRowConverter`, using the bson crate.
 #[derive(Clone, Copy)]
@@ -13,8 +13,8 @@ pub struct SqliteValueFromBson<'a> {
 impl<'a> From<&Frame<'a>> for SqliteValueFromBson<'a> {
     fn from(value: &Frame<'a>) -> Self {
         Self {
-            _arena: value.arena(),
-            _options: value.compatibility(),
+            _arena: value.arena,
+            _options: value.compatibility,
         }
     }
 }

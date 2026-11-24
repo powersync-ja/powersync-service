@@ -1,6 +1,6 @@
 use crate::sync_plan::{
     EvaluationError, SqliteValue,
-    evaluator::Frame,
+    evaluation::Frame,
     processor_group::Slot,
     sources::json::{ScalarSqliteValueOrFail, ScalarSqliteValueOrText},
 };
@@ -92,9 +92,7 @@ impl<'a> JsonEachState<'a> {
             deserializer.end()?;
 
             // It is, we report that as a single (null, scalar value) entry.
-            let entries = frame
-                .arena()
-                .alloc_slice_copy(&[(SqliteValue::Null, value)]);
+            let entries = frame.arena.alloc_slice_copy(&[(SqliteValue::Null, value)]);
 
             return Ok(Self { index: 0, entries });
         }
@@ -119,7 +117,7 @@ impl<'a> JsonEachState<'a> {
             where
                 A: serde::de::SeqAccess<'a>,
             {
-                let mut vec = Vec::new_in(self.frame.arena());
+                let mut vec = Vec::new_in(self.frame.arena);
                 let mut i = 0;
                 while let Some(value) =
                     seq.next_element_seed(ScalarSqliteValueOrText(self.frame.into()))?
@@ -135,7 +133,7 @@ impl<'a> JsonEachState<'a> {
             where
                 A: serde::de::MapAccess<'a>,
             {
-                let mut vec = Vec::new_in(self.frame.arena());
+                let mut vec = Vec::new_in(self.frame.arena);
                 while let Some(entry) = map.next_entry_seed(
                     // The key must be a string, values can be nested (in which case we don't parse
                     // them).
@@ -162,7 +160,7 @@ mod test {
 
     use super::TableValuedFunctionEvaluation;
     use crate::sync_plan::{
-        CompatibilityContext, SqliteValue, evaluator::Frame, processor_group::Slot,
+        CompatibilityContext, SqliteValue, evaluation::Frame, processor_group::Slot,
     };
 
     const INPUTS: [Slot; 1] = [Slot::Input(0)];

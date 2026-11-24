@@ -40,6 +40,17 @@ pub struct ProcessorGroup<E: ReplicationEmbedder> {
     /// time.
     pub num_internal_slots: u32,
 
+    /// The maximum amount of parameters of any data or parameter source in this group.
+    ///
+    /// This is used to allocate a shared buffer for parameters ahead of time.
+    pub max_parameters: usize,
+
+    /// The maximum amount of outputs of any parameter source in this group.
+    pub max_parameter_outputs: usize,
+
+    /// The maximum amount of table-valued functions in any processor of this group.
+    pub max_table_valued_functions: usize,
+
     /// For each column name used as input by any processor, the input slot to store it in when
     /// decoding a value.
     pub input_columns: HashMap<Symbol, Slot>,
@@ -234,6 +245,9 @@ impl<E: ReplicationEmbedder> Default for ProcessorGroup<E> {
             processors: Vec::new(),
             num_input_slots: 0,
             num_internal_slots: 0,
+            max_parameters: 0,
+            max_parameter_outputs: 0,
+            max_table_valued_functions: 0,
             input_columns: HashMap::new(),
             input_schema_name: None,
             input_table_name: None,
@@ -281,6 +295,7 @@ impl<E: ReplicationEmbedder> ProcessorGroup<E> {
         let parameters = translator.translate_common();
         let outputs = translator.lower_all(&source.outputs, &mut 0);
         let common = translator.finish(parameters);
+        self.max_parameter_outputs = self.max_parameter_outputs.max(outputs.len());
 
         self.processors
             .push(ProcessedGroupMember::Parameter(ProcessedParameterSource {
@@ -400,6 +415,10 @@ impl<'a, E: ReplicationEmbedder> ProcessorTranslator<'a, E> {
     fn finish(self, parameters: Vec<Slot>) -> CommonProcessedSource {
         let group = self.group;
         group.num_internal_slots = group.num_internal_slots.max(self.num_internal_slots);
+        group.max_parameters = group.max_parameters.max(parameters.len());
+        group.max_table_valued_functions = group
+            .max_table_valued_functions
+            .max(self.processor.table_valued_functions.len());
 
         CommonProcessedSource {
             instructions: self.sections.into_iter().flatten().collect(),
@@ -644,5 +663,8 @@ mod test {
         assert_eq!(source.outputs, [id]);
         assert_eq!(group.num_input_slots, 3);
         assert_eq!(group.num_internal_slots, 2);
+        assert_eq!(group.max_parameters, 1);
+        assert_eq!(group.max_parameter_outputs, 1);
+        assert_eq!(group.max_table_valued_functions, 1);
     }
 }

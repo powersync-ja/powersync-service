@@ -8,8 +8,8 @@ use fake::{
     uuid::UUIDv4,
 };
 use powersync_service::sync_plan::{
-    CompatibilityContext, DeserializeSyncPlan, EvaluationSink, Evaluator, HydratedSyncConfig,
-    Parameters, ProjectedRow, ReplicationEmbedder, SourceTableRef,
+    CompatibilityContext, DeserializeSyncPlan, Evaluator, HydratedSyncConfig, ProcessedGroupMember,
+    ReplicationEmbedder, RowEvaluation, SourceTableRef,
 };
 use serde::Serialize;
 use serde_json::Deserializer;
@@ -181,48 +181,38 @@ impl ReplicationBatch {
     }
 }
 
-impl EvaluationSink<BenchmarkEmbedder> for ReplicationBatch {
+impl ReplicationBatch {
     // Kind of simulate what a replicator would do: Serialize bucket parameters, rows and parameters
     // into an opaque buffer.
+    fn record(&mut self, mut row: RowEvaluation<BenchmarkEmbedder>) {
+        for member in row.members() {
+            match member {
+                ProcessedGroupMember::Data(source) => {
+                    let mut buckets = row.process_data(source);
+                    while let Some(data) = buckets.next() {
+                        let data = data.expect("evaluation error");
+                        let _ = write!(&mut self.sink, "{}#", data.bucket);
+                        serde_json::to_writer(&mut self.sink, &data.parameters).unwrap();
 
-    fn row(
-        &mut self,
-        bucket: &&str,
-        parameters: Parameters<'_, '_>,
-        table: &str,
-        row: &ProjectedRow<'_, '_>,
-    ) {
-        let _ = write!(&mut self.sink, "{bucket}#");
-        serde_json::to_writer(&mut self.sink, &parameters).unwrap();
-
-        let _ = write!(&mut self.sink, "{table}: ");
-        serde_json::to_writer(&mut self.sink, row).unwrap();
-        self.sink.push(b'\n');
-    }
-
-    fn parameter_lookup(
-        &mut self,
-        id: &&str,
-        lookup: Parameters<'_, '_>,
-        outputs: Parameters<'_, '_>,
-    ) {
-        let _ = write!(&mut self.sink, "{id}:");
-        serde_json::to_writer(&mut self.sink, &lookup).unwrap();
-        let _ = write!(&mut self.sink, " -> ");
-        serde_json::to_writer(&mut self.sink, &outputs).unwrap();
-        self.sink.push(b'\n');
-    }
-
-    fn event(&mut self, _id: &&str) {
-        panic!("Did not expect event")
-    }
-
-    fn error(
-        &mut self,
-        _source: powersync_service::sync_plan::ErrorSource<BenchmarkEmbedder>,
-        error: powersync_service::sync_plan::EvaluationError,
-    ) {
-        panic!("Evaluation error: {error}");
+                        let _ = write!(&mut self.sink, "{}: ", data.table);
+                        serde_json::to_writer(&mut self.sink, &data.row).unwrap();
+                        self.sink.push(b'\n');
+                    }
+                }
+                ProcessedGroupMember::Parameter(source) => {
+                    let mut lookups = row.process_parameters(source);
+                    while let Some(lookup) = lookups.next() {
+                        let lookup = lookup.expect("evaluation error");
+                        let _ = write!(&mut self.sink, "{}:", lookup.id);
+                        serde_json::to_writer(&mut self.sink, &lookup.lookup).unwrap();
+                        let _ = write!(&mut self.sink, " -> ");
+                        serde_json::to_writer(&mut self.sink, &lookup.outputs).unwrap();
+                        self.sink.push(b'\n');
+                    }
+                }
+                ProcessedGroupMember::Event(_) => panic!("Did not expect event"),
+            }
+        }
     }
 }
 
@@ -373,17 +363,17 @@ impl Dataset {
     fn evaluate(&self, evaluator: &mut Evaluator<BenchmarkEmbedder>, batch: &mut ReplicationBatch) {
         for (table, range) in &self.rows {
             let bytes = &self.data[range.clone()];
-            let Some(mut row) = evaluator.evaluate(table.source_ref()) else {
+            let Some(row) = evaluator.evaluate(table.source_ref()) else {
                 continue;
             };
 
-            match self.format {
+            let row = match self.format {
                 Format::Json => row
                     .push_json(&mut serde_json::Deserializer::from_slice(bytes))
                     .unwrap(),
                 Format::Bson => row.push_bson(bytes).unwrap(),
-            }
-            row.finish(batch);
+            };
+            batch.record(row);
 
             if batch.sink.len() >= BATCH_SIZE {
                 batch.flush();

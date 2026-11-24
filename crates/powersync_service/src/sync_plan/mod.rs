@@ -2,8 +2,8 @@
 //!
 //! This implements `HydratedSyncConfig` and `DirectSourceRowConverter` in Rust: Starting from
 //! source rows given from e.g. BSON bytes, we decode fields into [SqliteValue] and evaluate
-//! bucket data (via [EvaluationSink::row]), parameters ([EvaluationSink::parameter_lookup]) and
-//! potential event matches ([EvaluationSink::event]).
+//! bucket data ([RowEvaluation::process_data]), parameters ([RowEvaluation::process_parameters])
+//! and potential event matches ([ProcessedGroupMember::Event]).
 //!
 //! Emitted outputs are not guaranteed to match the TS implementation exactly on all inputs, but
 //! should be functionally equivalent (modulo minor things like whitespace in JSON or the order of
@@ -43,7 +43,7 @@
 //! process, [Evaluator::evaluate] finds a matching group (if none is found, we can safely ignore
 //! the row).
 //!
-//! Once a matching group is found, [RowEvaluation::push_bson] (and friends) deserialize source data
+//! Once a matching group is found, [InputRow::push_bson] (and friends) deserialize source data
 //! as bytes. While evaluating a row, intermediate values reference source data as slices instead of
 //! copying. When that is not possible, we use the [bumpalo] crate for allocations, which have the
 //! same lifetime as the row being processed. We clear the arena after the row.
@@ -57,7 +57,7 @@
 mod compatibility;
 mod deserialize;
 mod error;
-mod evaluator;
+mod evaluation;
 mod expression;
 mod hydrated;
 mod operators;
@@ -70,8 +70,12 @@ mod value;
 pub use compatibility::*;
 pub use deserialize::DeserializeSyncPlan;
 pub use error::EvaluationError;
-pub use evaluator::{ErrorSource, EvaluationSink, Evaluator, ProjectedRow, RowEvaluation};
+pub use evaluation::{
+    BucketData, BucketDataIterator, Evaluator, InputRow, ParameterLookup, ParameterLookupIterator,
+    PreparedField, ProjectedRow, RowEvaluation,
+};
 pub use hydrated::*;
+pub use processor_group::{ProcessedDataSource, ProcessedGroupMember, ProcessedParameterSource};
 pub use table_pattern::SourceTableRef;
 pub use value::{Parameters, SqliteValue};
 
