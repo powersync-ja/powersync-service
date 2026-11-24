@@ -34,7 +34,7 @@ jobs:
       TEST_TIMEOUT_MULTIPLIER: ${{ inputs.timeout_multiplier || '6' }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Check DocumentDB test URI secret
         env:
