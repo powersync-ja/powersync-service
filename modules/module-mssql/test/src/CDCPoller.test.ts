@@ -2,6 +2,7 @@ import { LSN } from '@module/common/LSN.js';
 import { MSSQLSourceTable } from '@module/common/MSSQLSourceTable.js';
 import { CDCEventHandler, CDCPoller } from '@module/replication/CDCPoller.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
+import { MSSQLConnectionManagerFactory } from '@module/replication/MSSQLConnectionManagerFactory.js';
 import {
   createCheckpoint,
   escapeIdentifier,
@@ -21,6 +22,7 @@ import {
   enableCDCForTable,
   insertBasicIdTestData,
   TEST_CONNECTION_OPTIONS,
+  TEST_URI,
   waitForPendingCDCChanges
 } from './util.js';
 
@@ -220,6 +222,41 @@ describe('CDCPoller tests', { timeout: 60_000 }, () => {
     expect(bounds.startLSN).toBe(refreshed.minLSN);
     expect(table.captureInstance).toBe(refreshed);
     expect(table.pinnedCaptureObjectId).toBe(refreshed.objectId);
+    expect(eventHandler.operations).toMatchObject([{ operation: 'insert', row: inserted }]);
+  });
+
+  test('Waits for a change read that takes longer than 15 seconds', async () => {
+    const tableName = 'test_slow_change_read';
+    await createTestTableWithBasicId(connectionManager, tableName);
+    const table = await resolveSourceTable(connectionManager, tableName);
+    const beforeInsertLSN = await getLatestLSN(connectionManager);
+    const inserted = await insertBasicIdTestData(connectionManager, tableName);
+    await waitForPendingCDCChanges(beforeInsertLSN, connectionManager);
+    const bounds = { startLSN: LSN.fromString(LSN.ZERO), endLSN: await getLatestReplicatedLSN(connectionManager) };
+
+    const factory = new MSSQLConnectionManagerFactory({ type: 'mssql', uri: TEST_URI, ...TEST_CONNECTION_OPTIONS });
+    const eventHandler = new RecordingCDCEventHandler();
+    const poller = new CDCPoller({
+      connectionManager: factory.create({}),
+      eventHandler,
+      getReplicatedTables: () => [table],
+      startLSN: bounds.startLSN,
+      additionalConfig: { pollingBatchSize: 1, pollingIntervalMs: 1, trustServerCertificate: true }
+    });
+    (poller as any).captureInstances = await getCaptureInstances({ connectionManager });
+
+    // Locking cdc.change_tables holds back the change read, like sorting a large transaction does.
+    const lock = await connectionManager.createTransaction();
+    await lock.begin();
+    await lock.request().query('SELECT TOP 1 1 FROM cdc.change_tables WITH (TABLOCKX, HOLDLOCK)');
+    const released = timers.setTimeout(20_000).then(() => lock.rollback());
+    try {
+      await (poller as any).pollTable(table, bounds);
+    } finally {
+      await released;
+      await factory.shutdown();
+    }
+
     expect(eventHandler.operations).toMatchObject([{ operation: 'insert', row: inserted }]);
   });
 });

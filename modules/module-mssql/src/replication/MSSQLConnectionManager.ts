@@ -13,7 +13,8 @@ export interface MSSQLConnectionManagerListener {
 
 export function createConnectionPoolConfig(
   options: NormalizedMSSQLConnectionConfig,
-  poolOptions: sql.PoolOpts<sql.Connection>
+  poolOptions: sql.PoolOpts<sql.Connection>,
+  requestTimeout?: number
 ): sql.config {
   return {
     authentication: options.authentication,
@@ -23,6 +24,7 @@ export function createConnectionPoolConfig(
     port: options.port,
     database: options.database,
     pool: poolOptions,
+    requestTimeout,
     options: {
       appName: `powersync/${POWERSYNC_VERSION}`,
       encrypt: true, // Required for Azure
@@ -38,11 +40,12 @@ export class MSSQLConnectionManager extends BaseObserver<MSSQLConnectionManagerL
 
   constructor(
     public options: NormalizedMSSQLConnectionConfig,
-    poolOptions: sql.PoolOpts<sql.Connection>
+    poolOptions: sql.PoolOpts<sql.Connection>,
+    requestTimeout?: number
   ) {
     super();
     // The pool is lazy - no connections are opened until a query is performed.
-    this.pool = new sql.ConnectionPool(createConnectionPoolConfig(options, poolOptions));
+    this.pool = new sql.ConnectionPool(createConnectionPoolConfig(options, poolOptions, requestTimeout));
   }
 
   public get connectionTag() {
