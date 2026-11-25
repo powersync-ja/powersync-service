@@ -8,6 +8,7 @@ import {
   SourceTableRef
 } from '@powersync/service-sync-rules';
 import { bson } from '../index.js';
+import { formatTableProgress, toTableSnapshotProgress } from '../replication/progress/snapshot-progress.js';
 import * as util from '../util/util-index.js';
 import { ColumnDescriptor, JsonValue } from './SourceEntity.js';
 
@@ -50,9 +51,23 @@ export interface SourceTableOptions {
 }
 
 export interface TableSnapshotStatus {
-  totalEstimatedCount: number;
+  /**
+   * Null when not estimated yet. Negative when unknown (the source could not provide an estimate).
+   */
+  totalEstimatedCount: number | null;
   replicatedCount: number;
+  /**
+   * Resume cursor. Cleared on completion.
+   */
   lastKey: Uint8Array | null;
+  /**
+   * Time of the latest `replicatedCount` observation. Estimate-only updates leave it unchanged.
+   */
+  updatedAt: Date | null;
+  /**
+   * Records / second, moving window. Null until two observations are available.
+   */
+  replicationRate: number | null;
 }
 
 /**
@@ -222,14 +237,7 @@ export class SourceTable {
   }
 
   formatSnapshotProgress() {
-    if (this.snapshotComplete || this.snapshotStatus == null) {
-      // Should not happen
-      return '-';
-    } else if (this.snapshotStatus.totalEstimatedCount < 0) {
-      return `${this.snapshotStatus.replicatedCount}/?`;
-    } else {
-      return `${this.snapshotStatus.replicatedCount}/~${this.snapshotStatus.totalEstimatedCount}`;
-    }
+    return formatTableProgress(toTableSnapshotProgress(this.snapshotComplete, this.snapshotStatus));
   }
 }
 

@@ -2,7 +2,7 @@ import { ConvexDocumentDeltasResult } from '@module/client/ConvexAPITypes.js';
 import { parseConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { BinaryConvexSnapshotProgressCursor } from '@module/replication/ConvexSnapshotProgressCursor.js';
 import { ConvexStream } from '@module/replication/ConvexStream.js';
-import { SaveOperationTag, SourceTable } from '@powersync/service-core';
+import { mergeTableProgress, SaveOperationTag, SourceTable } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { describe, expect, it, vi } from 'vitest';
@@ -67,7 +67,9 @@ function createFakeStorage(options?: {
       table.snapshotStatus = {
         totalEstimatedCount: tableOptions.snapshotStatus.totalEstimatedCount ?? -1,
         replicatedCount: tableOptions.snapshotStatus.replicatedCount ?? 0,
-        lastKey: tableOptions.snapshotStatus.lastKey ?? null
+        lastKey: tableOptions.snapshotStatus.lastKey ?? null,
+        updatedAt: null,
+        replicationRate: null
       };
     }
 
@@ -125,11 +127,7 @@ function createFakeStorage(options?: {
         tableName: sourceTable.name,
         ...progress
       });
-      sourceTable.snapshotStatus = {
-        totalEstimatedCount: progress.totalEstimatedCount ?? sourceTable.snapshotStatus?.totalEstimatedCount ?? -1,
-        replicatedCount: progress.replicatedCount ?? sourceTable.snapshotStatus?.replicatedCount ?? 0,
-        lastKey: progress.lastKey ?? sourceTable.snapshotStatus?.lastKey ?? null
-      };
+      sourceTable.snapshotStatus = mergeTableProgress(sourceTable.snapshotStatus, progress, new Date());
       return sourceTable;
     }
   };

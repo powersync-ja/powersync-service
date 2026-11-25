@@ -4,5 +4,6 @@ export * from './codecs.js';
 export * from './definitions.js';
 export * from './metrics.js';
 export * as metric_types from './metrics.js';
+export * from './progress.js';
 export * as event_types from './reports.js';
 export * as internal_routes from './routes.js';
