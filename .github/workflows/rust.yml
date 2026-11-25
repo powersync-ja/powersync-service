@@ -21,7 +21,7 @@ jobs:
     name: Rust Lints and Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -64,7 +64,7 @@ jobs:
             os: macos-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -72,7 +72,7 @@ jobs:
       - name: Restore built addon
         if: ${{ inputs.ref == '' }}
         id: addon-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: dist/rust-addon
           key: rust-addon-${{ matrix.target }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml', 'crates/**') }}
@@ -108,7 +108,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/$library" "dist/rust-addon/$ADDON_CRATE.node"
 
       - name: Upload addon
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: rust-addon-${{ matrix.target }}
           path: dist/rust-addon/${{ env.ADDON_CRATE }}.node
