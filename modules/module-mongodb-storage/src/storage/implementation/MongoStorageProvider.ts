@@ -48,6 +48,17 @@ export class MongoStorageProvider implements storage.StorageProvider {
         concurrencyLimit: decodedConfig.object_storage.concurrency_limit,
         defaultsMode: decodedConfig.object_storage.defaults_mode
       });
+    } else if (decodedConfig.object_storage?.type === 'azure') {
+      // Keep the Azure SDK out of deployments that don't use Azure object storage.
+      const { AzureBlobObjectStorage } = await import('./v3/object-storage/AzureBlobObjectStorage.js');
+      objectStorage = new AzureBlobObjectStorage({
+        container: decodedConfig.object_storage.container,
+        connectionString: decodedConfig.object_storage.connection_string,
+        accountUrl: decodedConfig.object_storage.account_url,
+        prefix: decodedConfig.object_storage.prefix,
+        concurrencyLimit: decodedConfig.object_storage.concurrency_limit,
+        operationTimeoutMs: decodedConfig.object_storage.operation_timeout_ms
+      });
     }
 
     const client = lib_mongo.db.createMongoClient(decodedConfig, {
@@ -108,9 +119,9 @@ export class MongoStorageProvider implements storage.StorageProvider {
       tearDown: async () => {
         logger.info(`Tearing down storage: ${database.db.namespace}...`);
         if (objectStorage != null) {
-          logger.info(
-            `Clearing object storage: ${decodedConfig.object_storage!.bucket}/${decodedConfig.object_storage!.prefix ?? ''}.`
-          );
+          const config = decodedConfig.object_storage!;
+          const location = config.type === 's3' ? config.bucket : config.container;
+          logger.info(`Clearing object storage: ${location}/${config.prefix ?? ''}.`);
           const { objectCount } = await objectStorage.deletePrefix('bucket-data/');
           logger.info(`Deleted ${objectCount} objects from object storage.`);
         }

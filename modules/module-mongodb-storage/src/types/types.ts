@@ -34,6 +34,21 @@ const S3ObjectStorageConfig = t.object({
   inline_threshold_bytes: t.number.optional()
 });
 
+const AzureBlobObjectStorageConfig = t.object({
+  type: t.literal('azure'),
+  container: t.string,
+  // Use a connection string for Azurite or shared-key authentication. Otherwise use
+  // the account URL with DefaultAzureCredential (including managed identities).
+  connection_string: t.string.optional(),
+  account_url: t.string.optional(),
+  prefix: t.string.optional(),
+  concurrency_limit: t.number.optional(),
+  // Bounds the whole operation, including SDK retries and reading response bodies. Default 60000.
+  operation_timeout_ms: t.number.optional(),
+  // Chunks below this threshold stay inline in MongoDB. Default 1024 bytes.
+  inline_threshold_bytes: t.number.optional()
+});
+
 export const MongoStorageReadPreference = service_types.enumLiteral(
   'primary',
   'primaryPreferred',
@@ -81,7 +96,7 @@ export const MongoStorageConfig = service_types.configFile.BaseStorageConfig.and
     /** Larger batches improve throughput at the cost of retained memory. Default: medium. */
     replication_batch_size: MongoReplicationBatchSize.optional(),
 
-    object_storage: S3ObjectStorageConfig.optional()
+    object_storage: S3ObjectStorageConfig.or(AzureBlobObjectStorageConfig).optional()
   })
 );
 
