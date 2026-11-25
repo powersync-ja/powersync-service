@@ -3,6 +3,10 @@ import sql from 'mssql';
 import { ResolvedMSSQLConnectionConfig } from '../types/types.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 
+// Replication requests get a longer timeout than the mssql default of 15s. SQL Server sorts the changes of a large
+// transaction before returning the first row, which can take longer than 15s, and every retry reads the same changes.
+const REPLICATION_REQUEST_TIMEOUT_MS = 120_000;
+
 export class MSSQLConnectionManagerFactory {
   private readonly connectionManagers: Set<MSSQLConnectionManager>;
   public readonly connectionConfig: ResolvedMSSQLConnectionConfig;
@@ -13,7 +17,7 @@ export class MSSQLConnectionManagerFactory {
   }
 
   create(poolOptions: sql.PoolOpts<sql.Connection>) {
-    const manager = new MSSQLConnectionManager(this.connectionConfig, poolOptions);
+    const manager = new MSSQLConnectionManager(this.connectionConfig, poolOptions, REPLICATION_REQUEST_TIMEOUT_MS);
     manager.registerListener({
       onEnded: () => {
         this.connectionManagers.delete(manager);

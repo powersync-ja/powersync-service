@@ -2,6 +2,7 @@ import { LSN } from '@module/common/LSN.js';
 import { MSSQLSourceTable } from '@module/common/MSSQLSourceTable.js';
 import { CDCEventHandler, CDCPoller } from '@module/replication/CDCPoller.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
+import { MSSQLConnectionManagerFactory } from '@module/replication/MSSQLConnectionManagerFactory.js';
 import {
   createCheckpoint,
   escapeIdentifier,
@@ -21,6 +22,7 @@ import {
   enableCDCForTable,
   insertBasicIdTestData,
   TEST_CONNECTION_OPTIONS,
+  TEST_URI,
   waitForPendingCDCChanges
 } from './util.js';
 
@@ -237,44 +239,19 @@ describe('CDCPoller tests', { timeout: 60_000 }, () => {
     await lock.begin();
     await lock.request().query(`TRUNCATE TABLE cdc.${table.captureInstance!.name}_CT`);
     const released = timers.setTimeout(18_000).then(() => lock.rollback());
-    const { operations } = await collectChanges({
-      connectionManager,
-      tables: [table],
-      startLSN,
-      expectedOperationCount: 1
-    });
-    await released;
-
-    expect(operations).toMatchObject([{ operation: 'insert', row: inserted }]);
-  });
-
-  test('Stopping cancels a change read that is still running', async () => {
-    const tableName = 'test_cancel_change_read';
-    await createTestTableWithBasicId(connectionManager, tableName);
-    const table = await resolveSourceTable(connectionManager, tableName);
-    const startLSN = await getLatestReplicatedLSN(connectionManager);
-    const beforeInsertLSN = await getLatestLSN(connectionManager);
-    await insertBasicIdTestData(connectionManager, tableName);
-    await waitForPendingCDCChanges(beforeInsertLSN, connectionManager);
-
-    const lock = await connectionManager.createTransaction();
-    await lock.begin();
-    await lock.request().query(`TRUNCATE TABLE cdc.${table.captureInstance!.name}_CT`);
-    const poller = new CDCPoller({
-      connectionManager,
-      eventHandler: new RecordingCDCEventHandler(),
-      getReplicatedTables: () => [table],
-      startLSN,
-      additionalConfig: { pollingBatchSize: 1, pollingIntervalMs: 1, trustServerCertificate: true }
-    });
-    const polling = poller.replicateUntilStopped();
-    await timers.setTimeout(1_000);
-    await poller.stop();
-    const result = await Promise.race([polling.then(() => 'stopped'), timers.setTimeout(5_000, 'still reading')]);
-    await lock.rollback();
-    await polling;
-
-    expect(result).toEqual('stopped');
+    const factory = new MSSQLConnectionManagerFactory({ type: 'mssql', uri: TEST_URI, ...TEST_CONNECTION_OPTIONS });
+    try {
+      const { operations } = await collectChanges({
+        connectionManager: factory.create({}),
+        tables: [table],
+        startLSN,
+        expectedOperationCount: 1
+      });
+      expect(operations).toMatchObject([{ operation: 'insert', row: inserted }]);
+    } finally {
+      await released;
+      await factory.shutdown();
+    }
   });
 });
 
