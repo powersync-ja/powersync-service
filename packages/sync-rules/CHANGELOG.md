@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.45.2
+
+### Patch Changes
+
+- 67767c0: Interpret numeric literals in Sync Streams as doubles when they're out-of-range for 64-bit signed integer values.
+
 ## 0.45.1
 
 ### Patch Changes
