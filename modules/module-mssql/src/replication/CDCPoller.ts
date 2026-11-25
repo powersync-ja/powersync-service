@@ -72,6 +72,8 @@ export interface CDCPollerOptions {
  */
 export class CDCPoller {
   private connectionManager: MSSQLConnectionManager;
+  private changeReadConnectionManager: MSSQLConnectionManager;
+  private changeReadRequest: sql.Request | null = null;
   private eventHandler: CDCEventHandler;
   private currentLSN: LSN;
   private logger: Logger;
@@ -86,6 +88,9 @@ export class CDCPoller {
   constructor(private options: CDCPollerOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.connectionManager = options.connectionManager;
+    // Changes are read without a request timeout (mssql default is 15s). Reading the changes of a large transaction can
+    // take longer than that, and every retry would read the same changes again. stop() cancels the read instead.
+    this.changeReadConnectionManager = new MSSQLConnectionManager(options.connectionManager.options, { max: 1 }, 0);
     this.eventHandler = options.eventHandler;
     this.currentLSN = options.startLSN;
     this.captureInstances = new Map<number, CaptureInstanceDetails>();
@@ -111,6 +116,7 @@ export class CDCPoller {
     if (!(this.isStopped || this.isStopping)) {
       this.isStopping = true;
       this.isStopped = true;
+      this.changeReadRequest?.cancel();
     }
   }
 
@@ -170,6 +176,7 @@ export class CDCPoller {
         break;
       }
     }
+    await this.changeReadConnectionManager.end();
 
     if (this.pollingError) {
       this.logger.error('CDC polling was stopped due to an error:', this.pollingError);
@@ -267,7 +274,7 @@ export class CDCPoller {
     }
 
     try {
-      const request = await this.connectionManager.createRequest();
+      const request = await this.changeReadConnectionManager.createRequest();
       request.input('from_lsn', sql.VarBinary, bounds.startLSN.toBinary());
       request.input('to_lsn', sql.VarBinary, bounds.endLSN.toBinary());
 
@@ -276,9 +283,18 @@ export class CDCPoller {
         columns = recordsetColumns;
       });
       const stream = request.toReadableStream();
+      // Errors are surfaced by iterating the rows. This listener prevents an unhandled 'error' event
+      // when the read fails after iteration has stopped, such as the cancellation error from cancel().
+      stream.on('error', () => {});
       request.query(`
         SELECT * FROM ${table.allChangesFunction}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval, __$operation
       `);
+      // Set after query(), which clears an earlier cancel().
+      this.changeReadRequest = request;
+      if (this.isStopped) {
+        // stop() was called before the read started.
+        request.cancel();
+      }
 
       for await (const { transactionLSN, type, rows } of groupLogicalChanges(stream, table)) {
         if (columns == null) {
@@ -317,6 +333,10 @@ export class CDCPoller {
         );
       }
       throw error;
+    } finally {
+      // Does nothing if the read finished. If iterating stopped early, this releases its connection.
+      this.changeReadRequest?.cancel();
+      this.changeReadRequest = null;
     }
   }
 
