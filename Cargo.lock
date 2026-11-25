@@ -220,7 +220,7 @@ checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
 name = "open_edition_js_entrypoint"
-version = "1.28.3"
+version = "1.30.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -237,14 +237,14 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "powersync_service"
-version = "1.28.3"
+version = "1.30.0"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "powersync_service_js_addon_shared"
-version = "1.28.3"
+version = "1.30.0"
 dependencies = [
  "log",
  "napi",

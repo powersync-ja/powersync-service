@@ -1,5 +1,17 @@
 # @powersync/service-core
 
+## 1.30.0
+
+### Patch Changes
+
+- c47945b: Run internal storage migrations in the order of their names, instead of the order `fs.readdir` returns them in.
+- Updated dependencies [67767c0]
+- Updated dependencies [bc89e42]
+  - @powersync/service-sync-rules@0.45.2
+  - @powersync/service-rust-types@0.1.0
+  - @powersync/lib-services-framework@0.10.7
+  - @powersync/service-rsocket-router@0.3.2
+
 ## 1.29.1
 
 ### Patch Changes

@@ -1,5 +1,26 @@
 # @powersync/service-image
 
+## 1.30.0
+
+### Minor Changes
+
+- bc89e42: Prepare Rust module to accelerate some PowerSync Service features.
+
+### Patch Changes
+
+- Updated dependencies [c47945b]
+  - @powersync/service-core@1.30.0
+  - @powersync/lib-services-framework@0.10.7
+  - @powersync/service-module-convex@0.4.11
+  - @powersync/service-module-mongodb@0.22.8
+  - @powersync/service-module-mongodb-storage@0.26.2
+  - @powersync/service-module-mssql@0.10.12
+  - @powersync/service-module-mysql@0.16.12
+  - @powersync/service-module-postgres@0.23.11
+  - @powersync/service-module-postgres-storage@0.19.11
+  - @powersync/service-module-core@0.3.6
+  - @powersync/service-rsocket-router@0.3.2
+
 ## 1.29.1
 
 ### Patch Changes
