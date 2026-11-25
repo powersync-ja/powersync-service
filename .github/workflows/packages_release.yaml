@@ -44,6 +44,8 @@ jobs:
         with:
           # This expects you to have a script called release which does a build for your packages and calls changeset publish
           publish: pnpm release
+          # Also syncs the Cargo workspace version with @powersync/service-image
+          version: pnpm version-packages
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

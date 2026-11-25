@@ -1,0 +1,116 @@
+name: Rust
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out. Defaults to the ref of the calling workflow.
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  ADDON_CRATE: open_edition_js_entrypoint
+
+jobs:
+  lint:
+    name: Rust Lints and Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      # Installs the toolchain pinned in rust-toolchain.toml.
+      - name: Install Rust
+        run: |
+          rustup toolchain install
+          rustup component add rustfmt clippy
+
+      - name: Cache Rust build
+        if: ${{ inputs.ref == '' }}
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --all
+
+  build:
+    name: Build Rust Addon (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      # Skip compiling entirely when no Rust sources have changed.
+      - name: Restore built addon
+        if: ${{ inputs.ref == '' }}
+        id: addon-cache
+        uses: actions/cache@v4
+        with:
+          path: dist/rust-addon
+          key: rust-addon-${{ matrix.target }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml', 'crates/**') }}
+
+      - name: Install Rust
+        if: steps.addon-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          rustup toolchain install --profile minimal
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache Rust build
+        if: ${{ inputs.ref == '' && steps.addon-cache.outputs.cache-hit != 'true' }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        if: steps.addon-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cargo build --release --locked -p "$ADDON_CRATE" --target ${{ matrix.target }}
+
+      - name: Copy addon
+        if: steps.addon-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          case "${{ matrix.target }}" in
+            *-windows-*) library="$ADDON_CRATE.dll" ;;
+            *-apple-*) library="lib$ADDON_CRATE.dylib" ;;
+            *) library="lib$ADDON_CRATE.so" ;;
+          esac
+          mkdir -p dist/rust-addon
+          cp "target/${{ matrix.target }}/release/$library" "dist/rust-addon/$ADDON_CRATE.node"
+
+      - name: Upload addon
+        uses: actions/upload-artifact@v5
+        with:
+          name: rust-addon-${{ matrix.target }}
+          path: dist/rust-addon/${{ env.ADDON_CRATE }}.node
+          if-no-files-found: error
+          retention-days: 7

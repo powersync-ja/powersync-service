@@ -1,0 +1,13 @@
+[package]
+name = "powersync_service"
+description = "Rust implementation of parts of the PowerSync Service."
+edition = "2024"
+
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+log = { workspace = true }

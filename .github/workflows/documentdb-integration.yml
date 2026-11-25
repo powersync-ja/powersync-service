@@ -17,8 +17,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build-rust:
+    name: Rust
+    uses: ./.github/workflows/rust.yml
+
   documentdb-integration:
     name: DocumentDB Integration
+    needs: build-rust
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
