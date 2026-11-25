@@ -22,7 +22,9 @@ export abstract class AbstractPowerSyncMigrationAgent extends framework.Abstract
 
   async loadInternalMigrations(): Promise<framework.Migration<PowerSyncMigrationContext>[]> {
     const migrationsDir = this.getInternalScriptsDir();
-    const files = await fs.readdir(migrationsDir);
+    // readdir does not guarantee any order, and migrations must run in the order of their names,
+    // which start with a timestamp.
+    const files = (await fs.readdir(migrationsDir)).sort();
     const migrations = files.filter((file) => {
       return '.js' == path.extname(file);
     });
