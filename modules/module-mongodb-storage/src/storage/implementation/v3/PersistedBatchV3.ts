@@ -8,6 +8,7 @@ import { BatchOperationBuffer } from '../common/BatchOperationBuffer.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
   BucketStateUpdate,
+  parameterLookupSource,
   PersistedBatch,
   PersistedBatchOptions,
   SaveBucketDataOptions,
@@ -25,7 +26,7 @@ import {
   BucketDataDocumentV3,
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
-  serializeParameterLookup,
+  serializedParameterLookupOutput,
   SourceTableDocumentV3,
   taggedBucketParameterDocumentToTagged
 } from './models.js';
@@ -213,8 +214,8 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     }
 
     for (let result of evaluated) {
-      const sourceDefinitionId = this.mapping.parameterLookupId(result.lookup.source);
-      const binLookup = serializeParameterLookup(result.lookup);
+      const sourceDefinitionId = this.mapping.parameterLookupId(parameterLookupSource(result));
+      const binLookup = serializedParameterLookupOutput(result);
       remaining_lookups.delete(`${sourceDefinitionId}.${binLookup.toString('base64')}`);
 
       const op_id = data.op_seq.next();

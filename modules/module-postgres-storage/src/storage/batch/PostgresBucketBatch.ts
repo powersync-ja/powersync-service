@@ -332,12 +332,14 @@ export class PostgresBucketBatch
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     // TODO maybe share with abstract class
-    const { after, before, sourceTable, tag } = record;
+    const { before, sourceTable, tag } = record;
     const storeCurrentData = this.options.store_current_data && sourceTable.storeCurrentData;
     // PostgreSQL storage resolves each physical table to one SourceTable. syncEvent records whether
     // that table matches any event definition; each matching definition is evaluated once here and
     // may produce multiple payloads from its matching queries.
     if (sourceTable.syncEvent) {
+      // Events are evaluated in JavaScript, so encoded rows need to be decoded here.
+      const decodedAfter = storage.decodeSourceRow(record.after);
       for (const event of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>
           cb.replicationEvent?.({
@@ -345,7 +347,7 @@ export class PostgresBucketBatch
             table: sourceTable,
             data: {
               op: tag,
-              after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
+              after: decodedAfter && utils.isCompleteRow(storeCurrentData, decodedAfter) ? decodedAfter : undefined,
               before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
             },
             event
@@ -360,7 +362,9 @@ export class PostgresBucketBatch
       return null;
     }
 
-    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+    this.logger.debug(
+      `Saving ${record.tag}:${record.before?.id}/${storage.sourceRowLogId(record.after, record.afterReplicaId)}`
+    );
 
     this.batch ??= new OperationBatch(this.options.batch_limits);
     this.batch.push(new RecordOperation(record));
@@ -1042,7 +1046,7 @@ export class PostgresBucketBatch
     // We store bytea colums for source keys
     const beforeId = operation.beforeId;
     const afterId = operation.afterId;
-    let after = record.after;
+    let after = storage.decodeSourceRow(record.after);
     const sourceTable = record.sourceTable;
     // Effective per-record flag: store current_data only if both the batch (source-level)
     // and the table (e.g. non-FULL replica identity) require it.
@@ -1135,7 +1139,7 @@ export class PostgresBucketBatch
         afterData = storage.serializeBson(after);
 
         container.reporter.captureMessage(
-          `Data too big on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${e.message}`,
+          `Data too big on ${record.sourceTable.qualifiedName}.${storage.sourceRowLogId(record.after, record.afterReplicaId)}: ${e.message}`,
           {
             level: errors.ErrorSeverity.WARNING,
             metadata: {
@@ -1191,7 +1195,7 @@ export class PostgresBucketBatch
 
         for (const error of syncErrors) {
           container.reporter.captureMessage(
-            `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
+            `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${storage.sourceRowLogId(record.after, record.afterReplicaId)}: ${error.error}`,
             {
               level: errors.ErrorSeverity.WARNING,
               metadata: {
@@ -1201,7 +1205,7 @@ export class PostgresBucketBatch
             }
           );
           this.logger.error(
-            `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`
+            `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${storage.sourceRowLogId(record.after, record.afterReplicaId)}: ${error.error}`
           );
         }
 
@@ -1232,7 +1236,7 @@ export class PostgresBucketBatch
 
         for (let error of paramErrors) {
           container.reporter.captureMessage(
-            `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
+            `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${storage.sourceRowLogId(record.after, record.afterReplicaId)}: ${error.error}`,
             {
               level: errors.ErrorSeverity.WARNING,
               metadata: {

@@ -23,6 +23,7 @@
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-core": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
+    "@powersync/service-rust-types": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "@smithy/core": "^3.33.3",

@@ -5,6 +5,8 @@ export const env = utils.collectEnvironmentVariables({
   BENCHMARK_POSTGRES_STORAGE_URL: utils.type.string.optional(),
   BENCHMARK_MONGODB_SOURCE_URL: utils.type.string.optional(),
   BENCHMARK_MONGODB_STORAGE_URL: utils.type.string.optional(),
+  /** A release build of the Rust addon, required for `evaluator:rust` benchmarks. */
+  POWERSYNC_RUST_ADDON: utils.type.string.optional(),
   CI: utils.type.boolean.default('false')
 });
 

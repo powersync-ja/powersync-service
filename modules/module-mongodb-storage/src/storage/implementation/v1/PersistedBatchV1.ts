@@ -13,6 +13,7 @@ import {
   PersistedBatchOptions,
   SaveBucketDataOptions,
   SaveParameterDataOptions,
+  SerializedParameterLookup,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
 import { LEGACY_BUCKET_DATA_DEFINITION_ID, LEGACY_BUCKET_PARAMETER_INDEX_ID, SourceKey } from '../models.js';
@@ -102,6 +103,9 @@ export class PersistedBatchV1 implements PersistedBatch {
     }
 
     for (let result of evaluated) {
+      if (result instanceof SerializedParameterLookup) {
+        throw new ReplicationAssertionError('Serialized parameter lookups are only supported in v3 storage');
+      }
       const binLookup = storage.serializeLookup(result.lookup);
       remaining_lookups.delete(binLookup.toString('base64'));
 

@@ -39,6 +39,11 @@ export interface StorageBenchmarkRunResource {
   readonly factory: storage.BucketStorageFactory;
   readonly tableIdStrings: boolean;
   readonly environment: object;
+  /**
+   * Throws if source rows weren't evaluated as configured for this resource (e.g. if Rust evaluation was requested,
+   * but rows fell back to JavaScript). Called after rows have been replicated.
+   */
+  assertExpectedEvaluation?(): void;
   dispose(): Promise<void>;
 }
 
@@ -54,6 +59,10 @@ export interface PostgresStorageBenchmarkImplementationOptions {
 export interface MongoStorageBenchmarkImplementationOptions {
   readonly url: string;
   readonly isCI: boolean;
+  /**
+   * Evaluates source rows with this Rust addon (v3+ storage only).
+   */
+  readonly rustAddonPath?: string;
 }
 
 export interface StorageBenchmarkRunContext {

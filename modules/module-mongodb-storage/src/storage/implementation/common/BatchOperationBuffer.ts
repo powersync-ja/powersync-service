@@ -1,6 +1,5 @@
 import { logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
 import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
@@ -73,8 +72,8 @@ export class BatchOperationBuffer {
         id: evaluated.id
       });
 
-      const recordData = JSONBig.stringify(evaluated.data);
-      const checksum = utils.hashData(evaluated.table, evaluated.id, recordData);
+      const recordData = evaluated.data;
+      const checksum = evaluated.checksum;
       if (recordData.length > MAX_ROW_SIZE) {
         const message = `Row ${key} too large: ${recordData.length} bytes. Removing.`;
         this.logger.error(message);

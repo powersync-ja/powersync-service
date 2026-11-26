@@ -15,6 +15,7 @@
     "@powersync/lib-services-framework": "workspace:^",
     "@powersync/service-core": "workspace:^",
     "@powersync/service-jsonbig": "workspace:^",
+    "@powersync/service-rust-types": "workspace:^",
     "@powersync/service-sync-rules": "workspace:^",
     "yaml": "^2.8.3"
   },

@@ -2,7 +2,7 @@ import { storage } from '@powersync/service-core';
 import { createHash } from 'node:crypto';
 import { maxFixedRowBytes } from '../generators/benchmark-data.js';
 import type { BenchmarkDataDefinition } from '../types/BenchmarkDataDefinition.js';
-import type { BenchmarkScenario } from '../types/BenchmarkScenario.js';
+import type { BenchmarkEvaluator, BenchmarkScenario } from '../types/BenchmarkScenario.js';
 import type { BenchmarkSyncDefinition, BenchmarkSyncEngine } from '../types/BenchmarkSyncDefinition.js';
 import { benchmarkClientParameters, expectedMembership } from '../utils/benchmark-sync.js';
 
@@ -220,8 +220,10 @@ export function defineScenario<T extends BenchmarkScenario>(
     'version:',
     'engine:',
     'layout:',
-    'shape:'
+    'shape:',
+    'evaluator:'
   ];
+  const evaluator = input.storage.evaluator ?? 'javascript';
   const producer = 'producer' in input ? String(input.producer) : undefined;
   const phase =
     'phase' in input
@@ -243,21 +245,22 @@ export function defineScenario<T extends BenchmarkScenario>(
     ...(sync.streams.length === 1 && sync.streams[0].bucket_count === 100 ? ['shape:100-buckets'] : []),
     ...(sync.streams.length === 1 && sync.streams[0].bucket_count === 1 ? ['shape:single-bucket'] : []),
     `engine:${sync.engine}`,
-    `layout:${data.tables.length === 1 ? 'single-table' : 'multi-table'}`
+    `layout:${data.tables.length === 1 ? 'single-table' : 'multi-table'}`,
+    `evaluator:${evaluator}`
   ];
   return {
     ...scenario,
     data,
     sync,
     id: scenarioIdentity(
-      `${input.layer}.${'phase' in input ? input.phase : 'mode' in input ? input.mode : 'write'}.${producer ?? 'direct'}.${input.storage.implementation}.v${input.storage.version}.${input.profile}`,
+      `${input.layer}.${'phase' in input ? input.phase : 'mode' in input ? input.mode : 'write'}.${producer ?? 'direct'}.${input.storage.implementation}.v${input.storage.version}${evaluator === 'rust' ? '.rust' : ''}.${input.profile}`,
       data,
       sync
     ),
     sync_parameters: benchmarkClientParameters(sync),
     description:
-      input.description.replace(/ \[(?:Sync Streams|legacy Sync Rules)\]$/, '') +
-      ` [${sync.engine === 'sync-streams' ? 'Sync Streams' : 'legacy Sync Rules'}]`,
+      input.description.replace(/ \[(?:Sync Streams|legacy Sync Rules)(?:, Rust)?\]$/, '') +
+      ` [${sync.engine === 'sync-streams' ? 'Sync Streams' : 'legacy Sync Rules'}${evaluator === 'rust' ? ', Rust' : ''}]`,
     tags: [...new Set(tags)],
     prerequisites: [
       ...new Set([
@@ -271,4 +274,11 @@ export function defineScenario<T extends BenchmarkScenario>(
       ? streamingCount + (input.layer === 'replication' ? snapshotCount : 0)
       : snapshotCount
   } as unknown as T;
+}
+
+/**
+ * Returns a variant of a scenario evaluating source rows with the given evaluator.
+ */
+export function withEvaluator<T extends BenchmarkScenario>(scenario: T, evaluator: BenchmarkEvaluator): T {
+  return defineScenario<T>({ ...scenario, storage: { ...scenario.storage, evaluator } });
 }

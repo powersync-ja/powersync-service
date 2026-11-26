@@ -287,9 +287,13 @@ function rowKey(entry: OplogEntry) {
 /**
  * Estimate in-memory size of row.
  */
-export function estimateRowSize(record: sync_rules.ToastableSqliteRow | undefined) {
+export function estimateRowSize(record: storage.SourceRow<sync_rules.ToastableSqliteRow> | undefined) {
   if (record == null) {
     return 12;
+  }
+  if (record instanceof storage.EncodedSourceRow) {
+    // Not the decoded size, but a reasonable estimate without decoding the row.
+    return record.bytes.byteLength;
   }
   let size = 0;
   for (let [key, value] of Object.entries(record)) {

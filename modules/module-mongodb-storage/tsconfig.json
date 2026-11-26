@@ -20,6 +20,9 @@
       "path": "../../packages/service-core"
     },
     {
+      "path": "../../packages/rust-types"
+    },
+    {
       "path": "../../libs/lib-services"
     },
     {

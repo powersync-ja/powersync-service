@@ -188,7 +188,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
     expect(reads).not.toHaveBeenCalled();
     expect(repairs).toEqual([]);
     await writer.flush();
-    expect(repairs.map((record) => record.after.id)).toEqual(['missing1', 'missing2']);
+    expect(repairs.map((record) => storage.decodeSourceRow(record.after).id)).toEqual(['missing1', 'missing2']);
     expect(await factory.db.sync_rules.findOne({ _id: context.stream.replicationStreamId })).toMatchObject({
       resume_lsn: '1/1',
       sync_configs: [{ last_checkpoint: 1n }]
@@ -198,7 +198,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
       await writer.save({
         sourceTable: repair.sourceTable,
         tag: storage.SaveOperationTag.INSERT,
-        after: { id: repair.after.id!, description: 'recovered' },
+        after: { id: storage.decodeSourceRow(repair.after).id!, description: 'recovered' },
         afterReplicaId: repair.afterReplicaId
       });
     }

@@ -1,4 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { existsSync } from 'node:fs';
 import {
   assertDistinctMongoSourceAndStorage,
   canonicalMongoAuthority
@@ -7,7 +8,7 @@ import {
   assertDistinctPostgresSourceAndStorage,
   canonicalPostgresAuthority
 } from '../implementations/replication/postgres/PostgresSourceBenchmarkConfiguration.js';
-import type { BenchmarkLayer } from '../types/BenchmarkScenario.js';
+import type { BenchmarkEvaluator, BenchmarkLayer } from '../types/BenchmarkScenario.js';
 import type { ReplicationBenchmarkProducerId } from '../types/ReplicationBenchmark.js';
 import type { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
 
@@ -15,7 +16,10 @@ export interface BenchmarkEnvironmentScenario {
   readonly tags: readonly string[];
   readonly layer: BenchmarkLayer;
   readonly producer?: ReplicationBenchmarkProducerId;
-  readonly storage: { readonly implementation: StorageBenchmarkImplementationId };
+  readonly storage: {
+    readonly implementation: StorageBenchmarkImplementationId;
+    readonly evaluator?: BenchmarkEvaluator;
+  };
 }
 
 export function validateSelectedBenchmarkEnvironment(
@@ -28,6 +32,10 @@ export function validateSelectedBenchmarkEnvironment(
 
   for (const scenario of scenarios) {
     if (!matchesTags([...scenario.tags])) continue;
+
+    if (scenario.storage.evaluator === 'rust') {
+      requiredVariables.add('POWERSYNC_RUST_ADDON');
+    }
 
     const postgresStorage = scenario.storage.implementation === 'storage:postgres';
     const storageVariable = postgresStorage ? 'BENCHMARK_POSTGRES_STORAGE_URL' : 'BENCHMARK_MONGODB_STORAGE_URL';
@@ -50,10 +58,19 @@ export function validateSelectedBenchmarkEnvironment(
   for (const variable of requiredVariables) {
     const value = environment[variable]?.trim();
     if (!value) {
-      errors.push(`${variable} is required`);
+      errors.push(
+        variable === 'POWERSYNC_RUST_ADDON'
+          ? `${variable} is required for evaluator:rust benchmarks. Build a release addon with \`node scripts/build-rust-addon.mts --release\`, or exclude them with \`not evaluator:rust\``
+          : `${variable} is required`
+      );
       continue;
     }
     try {
+      if (variable === 'POWERSYNC_RUST_ADDON') {
+        if (!existsSync(value)) throw new Error(`file ${value} does not exist`);
+        validVariables.add(variable);
+        continue;
+      }
       if (variable.includes('POSTGRES')) {
         canonicalPostgresAuthority(value, variable);
       } else {

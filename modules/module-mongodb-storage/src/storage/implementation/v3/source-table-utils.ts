@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { BucketDefinitionMapping, ColumnDescriptor, JsonValue, storage } from '@powersync/service-core';
+import { BucketDefinitionMapping, ColumnDescriptor, JsonValue, storage, type RustAddon } from '@powersync/service-core';
 import {
   BucketDataSource,
   BucketDefinitionId,
@@ -49,6 +49,7 @@ export interface SourceTableReconciliationContext {
    * Source metadata for records created by this resolution.
    */
   newTableSourceMetadata: JsonValue;
+  rustAddon: typeof RustAddon | undefined;
 }
 
 export interface SourceTableReconciliationPlan {
@@ -251,16 +252,12 @@ class SourceTableReconciliationPlanner {
   }
 
   private sourceTableFor(doc: SourceTableDocumentV3, memberships: SourceTableMembershipIds): storage.SourceTable {
-    const { connectionTag, syncConfig, mapping, desired, storeCurrentData } = this.context;
-    const built = sourceTableFromDocument(
-      doc,
-      connectionTag,
-      syncConfig,
-      mapping,
-      desired.eventDefinitionById,
-      matchingSourcesFor(desired, memberships),
-      memberships
-    );
+    const { connectionTag, syncConfig, mapping, desired, storeCurrentData, rustAddon } = this.context;
+    const built = sourceTableFromDocument(doc, connectionTag, syncConfig, mapping, desired.eventDefinitionById, {
+      memberships: matchingSourcesFor(desired, memberships),
+      membershipIds: memberships,
+      rustAddon
+    });
     // Use any metadata update returned by the reconciler.
     const resolved = this.compatibleTableFor(doc);
     const table = resolved == null ? built : built.withSourceMetadata(resolved.sourceMetadata);
@@ -297,7 +294,8 @@ export function createNewSourceTable(
     mapping,
     desired,
     storeCurrentData,
-    newTableSourceMetadata
+    newTableSourceMetadata,
+    rustAddon
   } = context;
   const doc: SourceTableDocumentV3 = {
     _id: id,
@@ -314,15 +312,11 @@ export function createNewSourceTable(
     // Records created together share the same source metadata.
     source_metadata: newTableSourceMetadata
   };
-  const table = sourceTableFromDocument(
-    doc,
-    connectionTag,
-    syncConfig,
-    mapping,
-    desired.eventDefinitionById,
-    matchingSourcesFor(desired, memberships),
-    memberships
-  );
+  const table = sourceTableFromDocument(doc, connectionTag, syncConfig, mapping, desired.eventDefinitionById, {
+    memberships: matchingSourcesFor(desired, memberships),
+    membershipIds: memberships,
+    rustAddon
+  });
   table.storeCurrentData = storeCurrentData;
 
   return { doc, table };
@@ -346,23 +340,52 @@ function sourceTableMembershipsFromDocument(
   };
 }
 
+export interface SourceTableFromDocumentOptions {
+  /** Resolved memberships, derived from the document if not given. */
+  memberships?: MatchingSources;
+  membershipIds?: SourceTableMembershipIds;
+  /** When set, matching sources are also compiled into a Rust processor group for the table. */
+  rustAddon?: typeof RustAddon;
+}
+
 export function sourceTableFromDocument(
   doc: SourceTableDocumentV3,
   connectionTag: string,
   syncConfig: HydratedSyncConfig,
   mapping: BucketDefinitionMapping,
   eventById: ReadonlyMap<EventDefinitionId, HydratedEventDescriptor>,
-  memberships?: MatchingSources,
-  membershipIds?: SourceTableMembershipIds
+  options: SourceTableFromDocumentOptions = {}
 ): storage.SourceTable {
-  const resolvedMemberships = memberships ?? sourceTableMembershipsFromDocument(doc, syncConfig, mapping);
-  const resolvedMembershipIds = membershipIds ?? {
+  const { rustAddon } = options;
+  const resolvedMemberships = options.memberships ?? sourceTableMembershipsFromDocument(doc, syncConfig, mapping);
+  const resolvedMembershipIds = options.membershipIds ?? {
     bucketDataSourceIds: resolvedMemberships.bucketDataSources.map((source) => mapping.bucketSourceId(source)),
     parameterLookupSourceIds: resolvedMemberships.parameterLookupSources.map((source) =>
       mapping.parameterLookupId(source)
     ),
     eventDefinitionIds: doc.event_definition_ids.filter((id) => eventById.has(id))
   };
+  let rustTable: storage.CompiledRustTable | undefined;
+  if (rustAddon != null) {
+    const sourceTableRef = {
+      connectionTag,
+      schema: doc.schema_name,
+      name: doc.table_name
+    };
+    const processor = syncConfig.compileToRustGroup(rustAddon, sourceTableRef, resolvedMemberships);
+    if (processor != null) {
+      rustTable = {
+        table: new rustAddon.SourceTable(
+          sourceTableRef.connectionTag,
+          sourceTableRef.schema,
+          sourceTableRef.name,
+          processor.group
+        ),
+        group: processor
+      };
+    }
+  }
+
   const table = new storage.SourceTable({
     id: doc._id,
     ref: {
@@ -381,7 +404,8 @@ export function sourceTableFromDocument(
     bucketDataSourceIds: new Set(resolvedMembershipIds.bucketDataSourceIds),
     parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds),
     eventDefinitionIds: new Set(resolvedMembershipIds.eventDefinitionIds),
-    sourceMetadata: doc.source_metadata ?? null
+    sourceMetadata: doc.source_metadata ?? null,
+    rust: rustTable
   });
   table.syncData = table.bucketDataSources.length > 0;
   table.syncParameters = table.parameterLookupSources.length > 0;

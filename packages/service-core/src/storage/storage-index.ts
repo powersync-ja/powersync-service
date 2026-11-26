@@ -4,6 +4,7 @@ export * from './BucketStorageBatch.js';
 export * from './BucketStorageFactory.js';
 export * from './CheckpointChecksumInvalidatedError.js';
 export * from './ChecksumCache.js';
+export * from './EncodedSourceRow.js';
 export * from './ParsedSyncConfigSet.js';
 export * from './PersistedReplicationStream.js';
 export * from './PersistedSyncConfigContent.js';

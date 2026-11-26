@@ -431,13 +431,12 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const { row: baseRecord, replicaId: _replicaId } = this.rawToSqliteRow(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
-        after: baseRecord,
+        after: this.sourceRowConverter.encodeRow(change.fullDocument),
         // Same as _replicaId
         // We specifically need to use the source _id, not the converted one in baseRecord,
         // to preserve _id uniqueness properties.
@@ -453,13 +452,12 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const { row: after, replicaId: _replicaId } = this.rawToSqliteRow(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
-        after: after,
+        after: this.sourceRowConverter.encodeRow(change.fullDocument),
         afterReplicaId: change.documentKey._id // Same as _replicaId
       });
     } else if (change.operationType == 'delete') {
@@ -601,10 +599,6 @@ export class ChangeStream {
         tracer: options.tracer
       }
     });
-  }
-
-  private rawToSqliteRow(row: Buffer) {
-    return this.sourceRowConverter.rawToSqliteRow(row);
   }
 
   private async createBatchCheckpoint() {

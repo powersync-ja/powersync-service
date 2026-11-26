@@ -11,6 +11,7 @@ import {
 import {
   BucketStorageBatch,
   BucketStorageMarkRecordUnavailable,
+  EncodedSourceRow,
   formatBytes,
   getUuidReplicaIdentityBson,
   MetricsEngine,
@@ -1133,6 +1134,8 @@ WHERE  oid = $1::regclass`,
     let resnapshot: { table: storage.SourceTable; key: PrimaryKeyValue }[] = [];
 
     const markRecordUnavailable: BucketStorageMarkRecordUnavailable = (record) => {
+      const after = record.after instanceof EncodedSourceRow ? record.after.toSqliteRow() : record.after;
+
       // Storage may deliver this after its data transaction commits, while it
       // still holds writer admission. Keep this callback synchronous and limited
       // to collecting keys: resnapshot() runs after flush() returns. The queue is
@@ -1145,14 +1148,14 @@ WHERE  oid = $1::regclass`,
         // and rely on a later full row update or a future full snapshot to correct it.
         // FIXME: We should support resnapshot for any row.
         this.logger.warn(
-          `Missing record for ${record.sourceTable.qualifiedName}: ${record.afterReplicaId} / ${record.after.id}`
+          `Missing record for ${record.sourceTable.qualifiedName}: ${record.afterReplicaId} / ${after.id}`
         );
         return;
       }
       let key: PrimaryKeyValue = {};
       for (let column of record.sourceTable.replicaIdColumns) {
         const name = column.name;
-        const value = record.after[name];
+        const value = after[name];
         if (value == null) {
           // We don't expect this to actually happen.
           // The key should always be present in the "after" record.

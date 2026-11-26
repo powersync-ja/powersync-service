@@ -29,7 +29,8 @@ export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorag
         objectStorage: factoryOptions.objectStorage,
         chunkCompactionConcurrency: factoryOptions.chunkCompactionConcurrency,
         replicationBatchSize: factoryOptions.replicationBatchSize,
-        inlineThresholdBytes: factoryOptions.inlineThresholdBytes
+        inlineThresholdBytes: factoryOptions.inlineThresholdBytes,
+        rustAddon: factoryOptions.rustAddon
       });
     },
     tableIdStrings: false

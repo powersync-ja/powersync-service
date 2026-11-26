@@ -16,6 +16,9 @@
       "path": "../service-core"
     },
     {
+      "path": "../rust-types"
+    },
+    {
       "path": "../../libs/lib-services"
     },
     {

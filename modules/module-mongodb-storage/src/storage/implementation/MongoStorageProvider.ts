@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
+import { container, ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
+import { modules, POWERSYNC_VERSION, storage } from '@powersync/service-core';
 import {
   MongoStorageConfig,
   normalizeChunkCompactionConcurrency,
@@ -92,7 +92,9 @@ export class MongoStorageProvider implements storage.StorageProvider {
       supportsMultipleSyncConfigs: resolvedConfig.connections?.[0]?.type == lib_mongo.MONGO_CONNECTION_TYPE,
 
       objectStorage,
-      inlineThresholdBytes: decodedConfig.object_storage?.inline_threshold_bytes
+      inlineThresholdBytes: decodedConfig.object_storage?.inline_threshold_bytes,
+      // Registered by the RustModule during module initialization.
+      rustAddon: container.getOptional(modules.RustModule.id) ?? undefined
     });
 
     // Storage factory for reports

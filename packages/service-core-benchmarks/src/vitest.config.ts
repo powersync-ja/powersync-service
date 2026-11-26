@@ -35,7 +35,9 @@ export default defineConfig(() => ({
       { name: 'layer:storage' },
       { name: 'shape:single-bucket' },
       { name: 'shape:10-buckets' },
-      { name: 'shape:100-buckets' }
+      { name: 'shape:100-buckets' },
+      { name: 'evaluator:javascript' },
+      { name: 'evaluator:rust' }
     ]
   }
 }));

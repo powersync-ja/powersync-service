@@ -333,6 +333,9 @@ importers:
       '@powersync/service-jsonbig':
         specifier: workspace:*
         version: link:../../packages/jsonbig
+      '@powersync/service-rust-types':
+        specifier: workspace:*
+        version: link:../../packages/rust-types
       '@powersync/service-sync-rules':
         specifier: workspace:*
         version: link:../../packages/sync-rules
@@ -786,6 +789,9 @@ importers:
       '@powersync/service-jsonbig':
         specifier: workspace:^
         version: link:../jsonbig
+      '@powersync/service-rust-types':
+        specifier: workspace:^
+        version: link:../rust-types
       '@powersync/service-sync-rules':
         specifier: workspace:^
         version: link:../sync-rules
