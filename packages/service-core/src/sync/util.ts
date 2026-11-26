@@ -4,6 +4,7 @@ import { SemaphoreInterface } from 'async-mutex';
 import { serialize } from 'bson';
 import * as util from '../util/util-index.js';
 import { RequestTracker } from './RequestTracker.js';
+import { safeRace } from './safeRace.js';
 
 export type TokenStreamOptions = {
   /**
@@ -134,6 +135,79 @@ export async function* transformToBytesTracked(
 
     tracker.addPlaintextDataSynced(encoded.length);
     yield encoded;
+  }
+}
+
+/**
+ * Coalesce consecutive chunks that are already ready within the same event loop turn
+ * into a single Buffer, up to {@link maxBatchBytes}. This avoids emitting back-to-back
+ * small frames (such as `checkpoint` followed immediately by `checkpoint_complete`).
+ */
+export async function* coalesceChunks(
+  iterator: AsyncIterable<Buffer>,
+  maxBatchBytes = 16 * 1024
+): AsyncGenerator<Buffer> {
+  const source = iterator[Symbol.asyncIterator]();
+  let pendingNext: Promise<PromiseSettledResult<IteratorResult<Buffer>>> | undefined;
+
+  try {
+    while (true) {
+      const nextPromise = pendingNext ?? settledPromise(source.next());
+      pendingNext = undefined;
+      const first = await nextPromise;
+      if (first.status === 'rejected') {
+        throw first.reason;
+      }
+      if (first.value.done) {
+        return;
+      }
+
+      const chunks: Buffer[] = [first.value.value];
+      let totalBytes = first.value.value.length;
+      let doneAfterFlush = false;
+      let errorAfterFlush: { error: unknown } | undefined;
+
+      while (totalBytes < maxBatchBytes) {
+        const next = settledPromise(source.next());
+        let immediate: NodeJS.Immediate;
+        const tick = new Promise<'tick'>((resolve) => {
+          immediate = setImmediate(() => resolve('tick'));
+        });
+
+        const winner = await safeRace<
+          { kind: 'next'; result: PromiseSettledResult<IteratorResult<Buffer>> } | { kind: 'tick' }
+        >([next.then((result) => ({ kind: 'next' as const, result })), tick.then(() => ({ kind: 'tick' as const }))]);
+
+        if (winner.kind === 'tick') {
+          pendingNext = next;
+          break;
+        }
+
+        clearImmediate(immediate!);
+        const { result } = winner;
+        if (result.status === 'rejected') {
+          errorAfterFlush = { error: result.reason };
+          break;
+        }
+        if (result.value.done) {
+          doneAfterFlush = true;
+          break;
+        }
+        chunks.push(result.value.value);
+        totalBytes += result.value.value.length;
+      }
+
+      yield chunks.length === 1 ? chunks[0] : Buffer.concat(chunks);
+
+      if (errorAfterFlush !== undefined) {
+        throw errorAfterFlush.error;
+      }
+      if (doneAfterFlush) {
+        return;
+      }
+    }
+  } finally {
+    await Promise.all([settledPromise(Promise.resolve().then(() => source.return?.())), pendingNext]);
   }
 }
 

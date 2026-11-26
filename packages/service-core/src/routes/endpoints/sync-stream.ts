@@ -91,7 +91,7 @@ export const syncStreamed = routeDefinition({
       });
 
       const byteContents = useBson ? sync.bsonLines(syncLines) : sync.ndjson(syncLines);
-      const plainStream = Readable.from(sync.transformToBytesTracked(byteContents, tracker), {
+      const plainStream = Readable.from(sync.coalesceChunks(sync.transformToBytesTracked(byteContents, tracker)), {
         objectMode: false,
         highWaterMark: 16 * 1024
       });

@@ -1,4 +1,4 @@
-import { acquireSemaphoreAbortable, isAbortError } from '@/index.js';
+import { acquireSemaphoreAbortable, coalesceChunks, isAbortError } from '@/index.js';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
@@ -87,5 +87,74 @@ describe('acquireSemaphoreAbortable', () => {
     expect(await acquireSemaphoreAbortable(semaphore, controller.signal)).toBe('aborted');
 
     release();
+  });
+});
+
+describe('coalesceChunks', () => {
+  test('coalesces chunks ready in the same event loop turn into a single Buffer', async () => {
+    async function* source() {
+      yield Buffer.from('{"checkpoint":1}\n');
+      await Promise.resolve();
+      await Promise.resolve();
+      yield Buffer.from('{"checkpoint_complete":1}\n');
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 25));
+      yield Buffer.from('{"token_expires_in":60}\n');
+    }
+
+    const batches: string[] = [];
+    for await (const chunk of coalesceChunks(source())) {
+      batches.push(chunk.toString('utf8'));
+    }
+
+    expect(batches).toEqual(['{"checkpoint":1}\n{"checkpoint_complete":1}\n', '{"token_expires_in":60}\n']);
+  });
+
+  test('flushes when maxBatchBytes is reached without waiting for next tick', async () => {
+    async function* source() {
+      yield Buffer.from('aaaa');
+      yield Buffer.from('bbbb');
+      yield Buffer.from('cccc');
+    }
+
+    const batches: string[] = [];
+    for await (const chunk of coalesceChunks(source(), 6)) {
+      batches.push(chunk.toString('utf8'));
+    }
+
+    expect(batches).toEqual(['aaaabbbb', 'cccc']);
+  });
+
+  test('flushes buffered chunks before propagating an error from the next item', async () => {
+    async function* source() {
+      yield Buffer.from('line1\n');
+      throw new Error('boom');
+    }
+
+    const iter = coalesceChunks(source())[Symbol.asyncIterator]();
+    await expect(iter.next()).resolves.toEqual({ done: false, value: Buffer.from('line1\n') });
+    await expect(iter.next()).rejects.toThrow('boom');
+  });
+
+  test('closes the underlying iterator when stopped early', async () => {
+    let closed = false;
+    let yieldedThird = false;
+    async function* source() {
+      try {
+        yield Buffer.from('line1\n');
+        await setTimeout(20);
+        yield Buffer.from('line2\n');
+        yieldedThird = true;
+        yield Buffer.from('line3\n');
+      } finally {
+        closed = true;
+      }
+    }
+
+    const iter = coalesceChunks(source())[Symbol.asyncIterator]();
+    const first = await iter.next();
+    expect(first.value?.toString('utf8')).toBe('line1\n');
+    await iter.return?.(undefined);
+    expect(closed).toBe(true);
+    expect(yieldedThird).toBe(false);
   });
 });

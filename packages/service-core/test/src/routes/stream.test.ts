@@ -396,6 +396,87 @@ bucket_definitions:
       });
     }
   );
+
+  it.each([
+    { acceptEncoding: undefined, label: 'uncompressed' },
+    { acceptEncoding: 'gzip', label: 'gzip-compressed' }
+  ])('coalesces checkpoint and checkpoint_complete into one chunk ($label)', async ({ acceptEncoding }) => {
+    const { createGunzip } = await import('node:zlib');
+    const syncRules = new SqlSyncRules('bucket_definitions: {}').hydrate(defaultHydrationOptions);
+    const storage = {
+      getParsedSyncRules() {
+        return syncRules;
+      },
+      watchCheckpointChanges: async function* ({ signal }: { signal: AbortSignal }) {
+        yield {
+          base: {
+            checkpoint: 1n,
+            lsn: '1',
+            getParameterSets: async () => []
+          },
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        };
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+      },
+      getChecksums: async () => new Map(),
+      getBucketDataBatch: async function* () {
+        yield { hasMore: false };
+      }
+    } as Partial<SyncRulesBucketStorage>;
+
+    const serviceContext = mockServiceContext(storage);
+    const context: Context = {
+      logger,
+      service_context: serviceContext,
+      token_payload: new JwtPayload({
+        exp: Date.now() / 1000 + 10_000,
+        iat: Date.now() / 1000 - 10_000,
+        sub: 'test-user'
+      })
+    };
+    const request: BasicRouterRequest = {
+      headers: acceptEncoding ? { 'accept-encoding': acceptEncoding } : {},
+      hostname: '',
+      protocol: 'http'
+    };
+
+    const response = (await syncStreamed.handler({ context, params: {}, request })) as RouterResponse;
+    const stream = response.data as Readable;
+
+    const firstChunk = await new Promise<Buffer>((resolve, reject) => {
+      stream.once('data', (chunk: Buffer) => resolve(chunk));
+      stream.once('error', reject);
+    });
+
+    stream.destroy();
+    await response.afterSend?.({ clientClosed: true });
+
+    let decoded: string;
+    if (acceptEncoding === 'gzip') {
+      const gunzip = createGunzip();
+      const parts: Buffer[] = [];
+      gunzip.on('data', (part: Buffer) => parts.push(part));
+      await new Promise<void>((resolve, reject) => {
+        gunzip.once('error', reject);
+        gunzip.write(firstChunk, () => gunzip.flush(() => resolve()));
+      });
+      gunzip.destroy();
+      decoded = Buffer.concat(parts).toString('utf8');
+    } else {
+      decoded = firstChunk.toString('utf8');
+    }
+
+    const lines = decoded
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toHaveProperty('checkpoint');
+    expect(lines[1]).toHaveProperty('checkpoint_complete');
+  });
 });
 
 export async function drainWithTimeout(readable: Readable, ms = 2_000) {
