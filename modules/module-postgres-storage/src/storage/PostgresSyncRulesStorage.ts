@@ -956,11 +956,13 @@ export class PostgresSyncRulesStorage
   }
 
   /**
-   * Data buckets with operations between the two checkpoints.
+   * Data buckets with operations after lastCheckpoint.
    *
-   * Compaction keeps the highest op_id of each bucket (MOVE in place, CLEAR at the last removed op). If it removes
-   * operations of a bucket in this range, a later op_id of that bucket exists and is reported for a later
-   * checkpoint, so the connection only sees the change one checkpoint later.
+   * There is deliberately no upper bound at nextCheckpoint, like MongoDB storage (last_op > lastCheckpoint).
+   * Compaction turns operations into MOVE in place, or replaces them with a CLEAR at the highest removed op_id. A
+   * compaction that runs while the changes are computed can therefore remove an operation in
+   * (lastCheckpoint, nextCheckpoint], but it always leaves an op_id at least as high in the same bucket. Buckets
+   * written after nextCheckpoint are reported too, which only means they are checked again.
    */
   private async getDataBucketChanges(
     options: GetCheckpointChangesOptions
@@ -978,7 +980,6 @@ export class PostgresSyncRulesStorage
       WHERE
         group_id = ${{ type: 'int4', value: this.replicationStreamId }}
         AND op_id > ${{ type: 'int8', value: options.lastCheckpoint.checkpoint }}
-        AND op_id <= ${{ type: 'int8', value: options.nextCheckpoint.checkpoint }}
       ORDER BY
         op_id
       LIMIT

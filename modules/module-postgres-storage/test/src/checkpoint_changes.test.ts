@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { getTestStorage, test_utils } from '@powersync/service-core-tests';
+import { compactActive, getTestStorage, test_utils } from '@powersync/service-core-tests';
 import {
   ParameterIndexLookupCreator,
   ScopedParameterLookup,
@@ -205,6 +205,65 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
         // The migration creates the index for small storage; leave it in place for the other tests.
         await db.sql`CREATE INDEX IF NOT EXISTS bucket_data_op_id_index ON bucket_data (group_id, op_id)`.execute();
       }
+    });
+
+    test('data bucket changes survive compaction of the checkpoint range', async () => {
+      const { factory, bucketStorage } = await setup();
+      await using _factory = factory;
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const paramTable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);
+      const dataTable = await test_utils.resolveTestTable(writer, 'a', ['id'], config, 2);
+      await writer.markAllSnapshotDone('1/1');
+      await writer.save({
+        sourceTable: paramTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'g1', u: 'user1' },
+        afterReplicaId: test_utils.rid('g1')
+      });
+      await writer.commit('1/1');
+      const cp1 = await bucketStorage.getCheckpoint();
+
+      await writer.save({
+        sourceTable: dataTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'd1', p: 'g1', v: 1 },
+        afterReplicaId: test_utils.rid('d1')
+      });
+      await writer.commit('1/2');
+      const cp2 = await bucketStorage.getCheckpoint();
+
+      for (const [v, lsn] of [
+        [2, '1/3'],
+        [3, '1/4']
+      ] as const) {
+        await writer.save({
+          sourceTable: dataTable,
+          tag: storage.SaveOperationTag.UPDATE,
+          after: { id: 'd1', p: 'g1', v },
+          afterReplicaId: test_utils.rid('d1')
+        });
+        await writer.commit(lsn);
+      }
+      const cp4 = await bucketStorage.getCheckpoint();
+
+      // A compaction up to cp4 while a connection still computes cp1 -> cp2: the only operation of the bucket in
+      // that range is replaced by a CLEAR after cp2.
+      await compactActive(factory, { maxOpId: cp4.checkpoint });
+      const db = (bucketStorage as any).db;
+      const inRange = await db.sql`
+        SELECT
+          COUNT(*) AS count
+        FROM
+          bucket_data
+        WHERE
+          op_id > ${{ type: 'int8', value: cp1.checkpoint }}
+          AND op_id <= ${{ type: 'int8', value: cp2.checkpoint }}
+      `.first();
+      expect(Number(inRange.count)).toBe(0);
+
+      const changes = await bucketStorage.getCheckpointChanges({ lastCheckpoint: cp1, nextCheckpoint: cp2 });
+      expect(changes.invalidateDataBuckets).toBe(false);
+      expect([...changes.updatedDataBuckets].some((b) => b.includes('"g1"'))).toBe(true);
     });
 
     test('watchCheckpointChanges reports parameter changes after the first checkpoint', async () => {
