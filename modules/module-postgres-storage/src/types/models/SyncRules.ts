@@ -51,6 +51,10 @@ export const SyncRules = t.object({
   keepalive_op: orNull(bigint),
   storage_version: orNull(pgwire_number).optional(),
   version_label: orNull(t.string).optional(),
+  /**
+   * Set by clear(): checkpoint changes cannot be derived for checkpoints below this op_id.
+   */
+  checkpoint_changes_invalid_before: orNull(bigint).optional(),
   content: t.string,
   sync_plan: orNull(
     jsonContainerObject(
