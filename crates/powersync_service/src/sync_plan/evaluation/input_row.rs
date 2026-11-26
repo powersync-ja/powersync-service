@@ -6,7 +6,7 @@ use serde::{
 };
 
 use crate::sync_plan::{
-    HydratedSyncConfig, ReplicationEmbedder, SourceTableRef, SqliteValue, Symbol,
+    ReplicationEmbedder, SourceTableRef, SqliteValue, Symbol,
     evaluation::{Frame, RowEvaluation, frame::StarColumn, program::Program},
     processor_group::{ProcessorGroup, Slot},
     sources::{
@@ -19,7 +19,6 @@ use crate::sync_plan::{
 ///
 /// Once all fields have been set, [Self::finish] returns a [RowEvaluation] to evaluate processors.
 pub struct InputRow<'a, E: ReplicationEmbedder> {
-    config: &'a HydratedSyncConfig<E>,
     group: &'a ProcessorGroup<E>,
     table: SourceTableRef<'a>,
     frame: Frame<'a>,
@@ -27,7 +26,6 @@ pub struct InputRow<'a, E: ReplicationEmbedder> {
 
 impl<'a, E: ReplicationEmbedder> InputRow<'a, E> {
     pub fn new(
-        config: &'a HydratedSyncConfig<E>,
         group: &'a ProcessorGroup<E>,
         table: SourceTableRef<'a>,
         mut frame: Frame<'a>,
@@ -44,7 +42,6 @@ impl<'a, E: ReplicationEmbedder> InputRow<'a, E> {
         }
 
         Self {
-            config,
             group,
             table,
             frame,
@@ -56,7 +53,7 @@ impl<'a, E: ReplicationEmbedder> InputRow<'a, E> {
     /// Returns [None] if the field is not used by any processor, so that it doesn't have to be
     /// decoded. Otherwise, the value should be set with [PreparedField::set].
     pub fn prepare_field(&mut self, name: &'a str) -> Option<PreparedField<'_, 'a>> {
-        let symbol = self.config.interner.get(name);
+        let symbol = self.group.interner.get(name);
         let slot = symbol.and_then(|symbol| self.group.input_columns.get(&symbol).copied());
         let name_for_star = if self.group.has_star_projection {
             Some(name)
@@ -182,7 +179,6 @@ impl<'a, E: ReplicationEmbedder> InputRow<'a, E> {
     pub fn finish(self) -> RowEvaluation<'a, E> {
         let arena = self.frame.arena;
         RowEvaluation::new(
-            self.config,
             self.group,
             self.table,
             Program::new(self.frame, self.group.max_table_valued_functions),

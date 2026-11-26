@@ -4,19 +4,21 @@ use std::{
 };
 
 use crate::sync_plan::{
-    StringInterner, Symbol,
+    ReplicationEmbedder, StringInterner, Symbol,
     expression::{
         BinaryOperator, CastType, LiteralExpression, ScalarFunction, SqlExpression,
         TableValuedFunction, UnaryOperator,
     },
-    hydrated::ReplicationEmbedder,
     plan::{
         RowProjection, StreamDataSource, StreamParameterIndexLookupCreator, TableProcessor,
         TableProcessorData, TableProcessorExpression,
     },
 };
 
-/// A prepared group of processors all operating on compatible table patterns.
+/// A prepared group of processors, typically all processors matching a source table.
+///
+/// Groups are built by callers, who are responsible for only including processors that apply to the
+/// rows evaluated with the group.
 ///
 /// In each group, processors can share decoded values. For example, if one stream has a
 /// `SELECT * FROM users WHERE id = ...` and another has `SELECT id FROM users WHERE ...`, we'd
@@ -26,6 +28,9 @@ use crate::sync_plan::{
 /// lookup values very efficiently.
 #[derive(Debug)]
 pub struct ProcessorGroup<E: ReplicationEmbedder> {
+    /// Interned column names used in inputs and outputs of [Self::processors].
+    pub interner: StringInterner,
+
     pub processors: Vec<ProcessedGroupMember<E>>,
 
     /// The maximum amount of [Slot::Input] slots used by a processor.
@@ -80,17 +85,11 @@ pub enum Slot {
 pub enum ProcessedGroupMember<E: ReplicationEmbedder> {
     Data(ProcessedDataSource<E>),
     Parameter(ProcessedParameterSource<E>),
-
-    /// An event source.
-    ///
-    /// We don't need to evaluate the event here, only the fact that an event might be matched by
-    /// the row to process.
-    Event(Arc<E::EventId>),
 }
 
 #[derive(Debug)]
 pub struct ProcessedDataSource<E: ReplicationEmbedder> {
-    pub id: Arc<E::BucketId>,
+    pub id: E::BucketId,
     pub projection: PreparedProjection,
     /// The name of the output table for evaluated rows.
     ///
@@ -145,7 +144,7 @@ impl PreparedProjection {
 
 #[derive(Debug)]
 pub struct ProcessedParameterSource<E: ReplicationEmbedder> {
-    pub id: Arc<E::ParameterId>,
+    pub id: E::ParameterId,
     /// The slots storing outputs to persist in the lookup.
     pub outputs: Vec<Slot>,
     pub common: CommonProcessedSource,
@@ -243,6 +242,7 @@ impl<E: ReplicationEmbedder> Default for ProcessorGroup<E> {
     fn default() -> Self {
         Self {
             processors: Vec::new(),
+            interner: StringInterner::default(),
             num_input_slots: 0,
             num_internal_slots: 0,
             max_parameters: 0,
@@ -258,17 +258,17 @@ impl<E: ReplicationEmbedder> Default for ProcessorGroup<E> {
 }
 
 impl<E: ReplicationEmbedder> ProcessorGroup<E> {
-    pub fn include_data(
-        &mut self,
-        interner: &mut StringInterner,
-        id: Arc<E::BucketId>,
-        source: &StreamDataSource,
-    ) {
-        let mut translator = ProcessorTranslator::new(self, interner, &source.processor);
+    pub fn include_data(&mut self, id: E::BucketId, source: &StreamDataSource) {
+        let mut translator = ProcessorTranslator::new(self, &source.processor);
         let parameters = translator.translate_common();
-        let projection = PreparedProjection::new(source.projection.map(|column| PreparedColumn {
-            alias: translator.interner.get_or_intern(column.alias.as_str()),
-            slot: translator.lower(&column.expr).slot,
+        let projection = PreparedProjection::new(source.projection.map(|column| {
+            PreparedColumn {
+                alias: translator
+                    .group
+                    .interner
+                    .get_or_intern(column.alias.as_str()),
+                slot: translator.lower(&column.expr).slot,
+            }
         }));
         let common = translator.finish(parameters);
         self.has_star_projection = self.has_star_projection || projection.columns.has_star();
@@ -280,18 +280,17 @@ impl<E: ReplicationEmbedder> ProcessorGroup<E> {
                 output_table_name: source
                     .output_table_name
                     .as_deref()
-                    .map(|name| interner.get_or_intern(name)),
+                    .map(|name| self.interner.get_or_intern(name)),
                 common,
             }));
     }
 
     pub fn include_parameter(
         &mut self,
-        interner: &mut StringInterner,
-        id: Arc<E::ParameterId>,
+        id: E::ParameterId,
         source: &StreamParameterIndexLookupCreator,
     ) {
-        let mut translator = ProcessorTranslator::new(self, interner, &source.processor);
+        let mut translator = ProcessorTranslator::new(self, &source.processor);
         let parameters = translator.translate_common();
         let outputs = translator.lower_all(&source.outputs, &mut 0);
         let common = translator.finish(parameters);
@@ -303,10 +302,6 @@ impl<E: ReplicationEmbedder> ProcessorGroup<E> {
                 outputs,
                 common,
             }));
-    }
-
-    pub fn include_event(&mut self, id: Arc<E::EventId>) {
-        self.processors.push(ProcessedGroupMember::Event(id));
     }
 }
 
@@ -336,7 +331,6 @@ struct LoweredValue {
 /// of a [ProcessorGroup].
 struct ProcessorTranslator<'a, E: ReplicationEmbedder> {
     group: &'a mut ProcessorGroup<E>,
-    interner: &'a mut StringInterner,
     processor: &'a TableProcessor,
     /// For each entry in [TableProcessor::table_valued_functions], the slots assigned to its
     /// output columns.
@@ -351,11 +345,7 @@ struct ProcessorTranslator<'a, E: ReplicationEmbedder> {
 }
 
 impl<'a, E: ReplicationEmbedder> ProcessorTranslator<'a, E> {
-    fn new(
-        group: &'a mut ProcessorGroup<E>,
-        interner: &'a mut StringInterner,
-        processor: &'a TableProcessor,
-    ) -> Self {
+    fn new(group: &'a mut ProcessorGroup<E>, processor: &'a TableProcessor) -> Self {
         let mut num_internal_slots = 0;
         let function_outputs = processor
             .table_valued_functions
@@ -371,7 +361,6 @@ impl<'a, E: ReplicationEmbedder> ProcessorTranslator<'a, E> {
 
         Self {
             group,
-            interner,
             processor,
             function_outputs,
             num_internal_slots,
@@ -517,7 +506,7 @@ impl<'a, E: ReplicationEmbedder> ProcessorTranslator<'a, E> {
         let slot = match data {
             TableProcessorData::ColumnInSourceRow(name) => *group
                 .input_columns
-                .entry(self.interner.get_or_intern(name.as_str()))
+                .entry(group.interner.get_or_intern(name.as_str()))
                 .or_insert_with(|| Slot::Input(next_slot(&mut group.num_input_slots))),
             TableProcessorData::SchemaName => *group
                 .input_schema_name
@@ -573,7 +562,7 @@ mod test {
         EvaluatorInstruction, ProcessedGroupMember, ProcessedTableValuedFunction, ProcessorGroup,
     };
     use crate::sync_plan::{
-        ReplicationEmbedder, StringInterner,
+        ReplicationEmbedder,
         expression::{SqlExpression, TableValuedFunction},
         plan::{
             StreamParameterIndexLookupCreator, TableProcessor, TableProcessorData,
@@ -588,7 +577,6 @@ mod test {
     impl ReplicationEmbedder for TestEmbedder {
         type BucketId = ();
         type ParameterId = ();
-        type EventId = ();
     }
 
     fn column(name: &str) -> TableProcessorExpression {
@@ -630,11 +618,10 @@ mod test {
             outputs: vec![column("id")],
         };
 
-        let mut interner = StringInterner::new();
         let mut group = ProcessorGroup::<TestEmbedder>::default();
-        group.include_parameter(&mut interner, Arc::new(()), &source);
+        group.include_parameter((), &source);
 
-        let input = |name: &str| group.input_columns[&interner.get(name).unwrap()];
+        let input = |name: &str| group.input_columns[&group.interner.get(name).unwrap()];
         let (tags, active, id) = (input("tags"), input("active"), input("id"));
         let ProcessedGroupMember::Parameter(source) = &group.processors[0] else {
             panic!("expected parameter source");

@@ -10,13 +10,11 @@ use std::{borrow::Cow, sync::Arc};
 use serde::{Deserialize, Deserializer, de::Error};
 
 use crate::sync_plan::{
-    HydratedSource, ReplicationEmbedder,
     expression::{SqlExpression, TableValuedFunction},
     plan::{
-        ColumnSource, EventDescriptor, RowProjection, StreamDataSource,
-        StreamParameterIndexLookupCreator, TableProcessor, TableProcessorData,
-        TableProcessorExpression, TableProcessorTableValuedFunction,
-        TableProcessorTableValuedFunctionOutput,
+        ColumnSource, RowProjection, StreamDataSource, StreamParameterIndexLookupCreator,
+        TableProcessor, TableProcessorData, TableProcessorExpression,
+        TableProcessorTableValuedFunction, TableProcessorTableValuedFunctionOutput,
     },
     table_pattern::{NameMatcher, TablePattern},
 };
@@ -33,42 +31,21 @@ pub struct DeserializeSyncPlan<'a> {
 impl<'a> DeserializeSyncPlan<'a> {
     /// Deserializes a serialized data source (defining which buckets a row is put into and which
     /// output document is created).
-    pub fn data_source<D: Deserializer<'a>, E: ReplicationEmbedder>(
+    pub fn data_source<D: Deserializer<'a>>(
         self,
-        id: Arc<E::BucketId>,
         deserializer: D,
-    ) -> Result<HydratedSource<E>, D::Error> {
+    ) -> Result<StreamDataSource, D::Error> {
         let raw = SerializedDataSource::deserialize(deserializer)?;
-        let mapped = raw.resolve(self).map_err(D::Error::custom)?;
-
-        Ok(HydratedSource::Bucket { id, source: mapped })
+        raw.resolve(self).map_err(D::Error::custom)
     }
 
     /// Deserializes a parameter index lookup creator.
-    pub fn parameter_source<D: Deserializer<'a>, E: ReplicationEmbedder>(
+    pub fn parameter_source<D: Deserializer<'a>>(
         self,
-        id: Arc<E::ParameterId>,
         deserializer: D,
-    ) -> Result<HydratedSource<E>, D::Error> {
+    ) -> Result<StreamParameterIndexLookupCreator, D::Error> {
         let raw = SerializedParameterIndexLookupCreator::deserialize(deserializer)?;
-        let mapped = raw.resolve(self).map_err(D::Error::custom)?;
-
-        Ok(HydratedSource::Parameter { id, source: mapped })
-    }
-
-    /// Deserializes an event source. This currently only decodes the tables it matches on.
-    pub fn event_source<D: Deserializer<'a>, E: ReplicationEmbedder>(
-        self,
-        id: Arc<E::EventId>,
-        deserializer: D,
-    ) -> Result<HydratedSource<E>, D::Error> {
-        let raw = SerializedEventDescriptor::deserialize(deserializer)?;
-        let mapped = raw.resolve(self).map_err(D::Error::custom)?;
-
-        Ok(HydratedSource::Event {
-            id,
-            descriptor: mapped,
-        })
+        raw.resolve(self).map_err(D::Error::custom)
     }
 }
 
@@ -110,7 +87,7 @@ struct SerializedTableValuedFunction<'a> {
     function_inputs: Vec<SerializedExpression<'a>>,
 }
 
-/// Fields shared by `SerializedDataSource`, `SerializedParameterIndexLookupCreator` and `SerializedEventRowEvaluator`.
+/// Fields shared by `SerializedDataSource` and `SerializedParameterIndexLookupCreator`.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SerializedTableProcessor<'a> {
@@ -251,34 +228,6 @@ impl<'de> SerializedParameterIndexLookupCreator<'de> {
             .resolve_expressions(self.output)?;
 
         Ok(StreamParameterIndexLookupCreator { processor, outputs })
-    }
-}
-
-/// A `SerializedEventDescriptor` as defined in serialize.ts.
-///
-/// We only need the table patterns of source queries, the rest of the event is not evaluated here.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SerializedEventDescriptor {
-    name: String,
-    source_queries: Vec<SerializedEventSourceQuery>,
-}
-
-#[derive(Deserialize)]
-struct SerializedEventSourceQuery {
-    table: SerializedTablePattern,
-}
-
-impl SerializedEventDescriptor {
-    fn resolve(self, context: DeserializeSyncPlan) -> Result<EventDescriptor, String> {
-        Ok(EventDescriptor {
-            name: self.name,
-            patterns: self
-                .source_queries
-                .into_iter()
-                .map(|query| query.table.resolve(context))
-                .collect(),
-        })
     }
 }
 

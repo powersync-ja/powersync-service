@@ -28,16 +28,6 @@ pub struct StreamParameterIndexLookupCreator {
     pub outputs: Vec<TableProcessorExpression>,
 }
 
-/// An event triggered by changes to rows in matching tables.
-///
-/// Events are evaluated outside of the sync plan evaluator, so we only need to know which tables
-/// they're interested in.
-#[derive(Debug)]
-pub struct EventDescriptor {
-    pub name: String,
-    pub patterns: Vec<TablePattern>,
-}
-
 /// Something that processes a source row if it matches filters.
 #[derive(Debug)]
 pub struct TableProcessor {

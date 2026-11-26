@@ -8,7 +8,7 @@ use fake::{
     uuid::UUIDv4,
 };
 use powersync_service::sync_plan::{
-    CompatibilityContext, DeserializeSyncPlan, Evaluator, HydratedSyncConfig, ProcessedGroupMember,
+    CompatibilityContext, DeserializeSyncPlan, Evaluator, ProcessedGroupMember, ProcessorGroup,
     ReplicationEmbedder, RowEvaluation, SourceTableRef,
 };
 use serde::Serialize;
@@ -43,13 +43,17 @@ struct BenchmarkEmbedder;
 impl ReplicationEmbedder for BenchmarkEmbedder {
     type BucketId = &'static str;
     type ParameterId = &'static str;
-    type EventId = &'static str;
 }
 
 const CONNECTION_TAG: &str = "default";
 const SCHEMA: &str = "schema";
 
-fn sync_config() -> HydratedSyncConfig<BenchmarkEmbedder> {
+struct PreparedGroups {
+    lists: ProcessorGroup<BenchmarkEmbedder>,
+    todo_items: ProcessorGroup<BenchmarkEmbedder>,
+}
+
+fn prepare_groups() -> PreparedGroups {
     let my_lists = r#"
 {
   "hash": 385587389,
@@ -136,31 +140,42 @@ fn sync_config() -> HydratedSyncConfig<BenchmarkEmbedder> {
 }
 "#;
 
-    let compat = CompatibilityContext::default();
     let deserialize = DeserializeSyncPlan {
         default_schema: SCHEMA,
     };
 
-    HydratedSyncConfig::new(
-        compat,
-        &[
-            deserialize
-                .data_source(Arc::new("my_lists"), &mut Deserializer::from_str(my_lists))
+    let lists_group = {
+        let mut group = ProcessorGroup::default();
+        group.include_data(
+            "my_lists",
+            &deserialize
+                .data_source(&mut Deserializer::from_str(my_lists))
                 .expect("decode my_lists"),
-            deserialize
-                .data_source(
-                    Arc::new("contents"),
-                    &mut Deserializer::from_str(contents_data),
-                )
-                .expect("decode contents"),
-            deserialize
-                .parameter_source(
-                    Arc::new("contents"),
-                    &mut Deserializer::from_str(contents_parameter),
-                )
+        );
+        group.include_parameter(
+            "contents",
+            &deserialize
+                .parameter_source(&mut Deserializer::from_str(contents_parameter))
                 .expect("decode contents parameter"),
-        ],
-    )
+        );
+
+        group
+    };
+    let items_group = {
+        let mut group = ProcessorGroup::default();
+        group.include_data(
+            "contents",
+            &deserialize
+                .data_source(&mut Deserializer::from_str(contents_data))
+                .expect("decode contents"),
+        );
+        group
+    };
+
+    PreparedGroups {
+        lists: lists_group,
+        todo_items: items_group,
+    }
 }
 
 struct ReplicationBatch {
@@ -210,7 +225,6 @@ impl ReplicationBatch {
                         self.sink.push(b'\n');
                     }
                 }
-                ProcessedGroupMember::Event(_) => panic!("Did not expect event"),
             }
         }
     }
@@ -360,12 +374,21 @@ impl Dataset {
     }
 
     /// Evaluates all rows, writing outputs into the batch and flushing it when it gets too large.
-    fn evaluate(&self, evaluator: &mut Evaluator<BenchmarkEmbedder>, batch: &mut ReplicationBatch) {
+    fn evaluate(
+        &self,
+        evaluator: &mut Evaluator,
+        groups: &PreparedGroups,
+        batch: &mut ReplicationBatch,
+    ) {
         for (table, range) in &self.rows {
             let bytes = &self.data[range.clone()];
-            let Some(row) = evaluator.evaluate(table.source_ref()) else {
-                continue;
-            };
+            let row = evaluator.evaluate(
+                table.source_ref(),
+                match table {
+                    Table::Lists => &groups.lists,
+                    Table::TodoItems => &groups.todo_items,
+                },
+            );
 
             let row = match self.format {
                 Format::Json => row
@@ -385,7 +408,9 @@ impl Dataset {
 }
 
 fn evaluate_sync_plan(c: &mut Criterion) {
-    let config = Arc::new(sync_config());
+    let compatibility = Arc::new(CompatibilityContext::default());
+    let processor_groups = prepare_groups();
+
     let mut group = c.benchmark_group("evaluate_sync_plan");
     // Each iteration processes the full data set, so we can't afford many samples.
     group.sample_size(10);
@@ -397,9 +422,9 @@ fn evaluate_sync_plan(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(dataset.data.len() as u64));
 
         group.bench_function(format.name(), |b| {
-            let mut evaluator = Evaluator::new(config.clone());
+            let mut evaluator = Evaluator::new(compatibility.clone());
             let mut batch = ReplicationBatch::new();
-            b.iter(|| dataset.evaluate(&mut evaluator, &mut batch));
+            b.iter(|| dataset.evaluate(&mut evaluator, &processor_groups, &mut batch));
         });
     }
 

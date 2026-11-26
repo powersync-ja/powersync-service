@@ -4,14 +4,14 @@ use serde_json::{Value, json, to_value};
 
 use super::{Evaluator, RowEvaluation};
 use crate::sync_plan::{
-    HydratedSource, Parameters, ProcessedGroupMember, SqliteValue,
+    Parameters, ProcessedGroupMember, ProcessorGroup, SqliteValue,
     expression::{SqlExpression, TableValuedFunction},
     plan::{
         ColumnSource, RowProjection, StreamDataSource, StreamParameterIndexLookupCreator,
         TableProcessor, TableProcessorData, TableProcessorExpression,
         TableProcessorTableValuedFunction, TableProcessorTableValuedFunctionOutput,
     },
-    test::{TestEmbedder, evaluator, event_source, source_table_ref, table_pattern},
+    test::{TestEmbedder, evaluator, source_table_ref, table_pattern},
 };
 
 #[derive(Debug, PartialEq)]
@@ -26,7 +26,6 @@ struct RecordedRow {
 struct RecordingSink {
     rows: Vec<RecordedRow>,
     lookups: Vec<(&'static str, String, String)>,
-    events: Vec<&'static str>,
 }
 
 fn format_parameters(values: Parameters) -> String {
@@ -60,7 +59,6 @@ impl RecordingSink {
                         ));
                     }
                 }
-                ProcessedGroupMember::Event(id) => self.events.push(id),
             }
         }
     }
@@ -94,25 +92,19 @@ fn data_source(table: &str, projection: RowProjection<ColumnSource>) -> StreamDa
     }
 }
 
-fn bucket(id: &'static str, source: StreamDataSource) -> HydratedSource<TestEmbedder> {
-    HydratedSource::Bucket {
-        id: Arc::new(id),
-        source,
-    }
-}
-
 /// A (name, value) pair representing a source row field.
 type Field<'a> = (&'a str, SqliteValue<'a>);
 
 /// Evaluates a row, returning the names of fields that were requested.
 fn evaluate_row<'a>(
-    evaluator: &mut Evaluator<TestEmbedder>,
+    evaluator: &mut Evaluator,
+    group: &'a ProcessorGroup<TestEmbedder>,
     table_name: &'a str,
     fields: &[Field<'a>],
     sink: &mut RecordingSink,
 ) -> Vec<&'a str> {
     let mut requested = vec![];
-    let mut row = evaluator.evaluate(source_table_ref(table_name)).unwrap();
+    let mut row = evaluator.evaluate(source_table_ref(table_name), group);
     for (name, value) in fields {
         if let Some(field) = row.prepare_field(&Cow::Borrowed(name)) {
             requested.push(*name);
@@ -125,25 +117,19 @@ fn evaluate_row<'a>(
 }
 
 #[test]
-fn no_matching_group() {
-    let source = data_source("users", RowProjection::star());
-    let mut eval = evaluator(&[bucket("b", source)]);
-
-    assert!(eval.evaluate(source_table_ref("accounts")).is_none());
-}
-
-#[test]
 fn skips_unused_fields() {
     let mut source = data_source(
         "users",
         RowProjection::Columns(vec![alias("a", column("a"))]),
     );
     source.processor.filters.push(column("b"));
-    let mut evaluator = evaluator(&[bucket("b", source)]);
+    let mut group = ProcessorGroup::default();
+    group.include_data("b", &source);
     let mut sink = RecordingSink::default();
 
     let requested = evaluate_row(
-        &mut evaluator,
+        &mut evaluator(),
+        &group,
         "users",
         &[
             ("a", SqliteValue::Integer(1)),
@@ -156,7 +142,8 @@ fn skips_unused_fields() {
 
     // The filter evaluates to false here.
     evaluate_row(
-        &mut evaluator,
+        &mut evaluator(),
+        &group,
         "users",
         &[("a", SqliteValue::Integer(2))],
         &mut sink,
@@ -183,11 +170,13 @@ fn projection_order() {
         },
     );
     source.output_table_name = Some("renamed".to_string());
-    let mut evaluator = evaluator(&[bucket("b", source)]);
+    let mut group = ProcessorGroup::default();
+    group.include_data("b", &source);
     let mut sink = RecordingSink::default();
 
     evaluate_row(
-        &mut evaluator,
+        &mut evaluator(),
+        &group,
         "users",
         &[("a", SqliteValue::Integer(1))],
         &mut sink,
@@ -214,11 +203,13 @@ fn emits_columns_once() {
             after: vec![alias("z", column("b"))],
         },
     );
-    let mut evaluator = evaluator(&[bucket("b", source)]);
+    let mut group = ProcessorGroup::default();
+    group.include_data("b", &source);
     let mut sink = RecordingSink::default();
 
     evaluate_row(
-        &mut evaluator,
+        &mut evaluator(),
+        &group,
         "users",
         &[
             ("a", SqliteValue::Integer(1)),
@@ -237,7 +228,8 @@ fn emits_columns_once() {
 
     // Without an x field in the source row, the column before the star is emitted.
     evaluate_row(
-        &mut evaluator,
+        &mut evaluator(),
+        &group,
         "users",
         &[("a", SqliteValue::Integer(1))],
         &mut sink,
@@ -263,19 +255,15 @@ fn parameters_and_events() {
         processor: lookup_processor,
         outputs: vec![column("id")],
     };
+    let mut group = ProcessorGroup::default();
+    group.include_data("b", &data);
+    group.include_parameter("lookup", &lookup);
 
-    let mut evaluator = evaluator(&[
-        bucket("b", data),
-        HydratedSource::Parameter {
-            id: Arc::new("lookup"),
-            source: lookup,
-        },
-        event_source("event", &["users", "user%"]),
-    ]);
     let mut sink = RecordingSink::default();
 
     evaluate_row(
-        &mut evaluator,
+        &mut evaluator(),
+        &group,
         "users",
         &[
             ("id", SqliteValue::Integer(1)),
@@ -294,7 +282,6 @@ fn parameters_and_events() {
             "[1]".to_string()
         )]
     );
-    assert_eq!(sink.events, ["event"]);
 }
 
 fn json_each(input: &str) -> Arc<TableProcessorTableValuedFunction> {
@@ -327,11 +314,13 @@ fn nested_table_valued_functions() {
     source.processor.filters.push(function_output(&a, 1));
     source.processor.parameters = vec![function_output(&a, 0), function_output(&b, 1)];
 
-    let mut evaluator = evaluator(&[bucket("b", source)]);
+    let mut group = ProcessorGroup::default();
+    group.include_data("b", &source);
     let mut sink = RecordingSink::default();
 
     evaluate_row(
-        &mut evaluator,
+        &mut evaluator(),
+        &group,
         "users",
         &[
             ("a", SqliteValue::Text(r#"{"a": 1, "b": 0, "c": 1}"#)),
@@ -353,7 +342,8 @@ fn nested_table_valued_functions() {
     // An empty inner function doesn't produce any rows.
     sink.rows.clear();
     evaluate_row(
-        &mut evaluator,
+        &mut evaluator(),
+        &group,
         "users",
         &[
             ("a", SqliteValue::Text("[1, 1]")),
@@ -371,13 +361,12 @@ fn continues_after_error() {
     failing.processor.table_valued_functions = vec![a.clone()];
     failing.processor.parameters = vec![function_output(&a, 1)];
 
-    let mut evaluator = evaluator(&[
-        bucket("failing", failing),
-        bucket("b", data_source("users", RowProjection::Columns(vec![]))),
-        event_source("event", &["users"]),
-    ]);
+    let mut group = ProcessorGroup::<TestEmbedder>::default();
+    group.include_data("failing", &failing);
+    group.include_data("b", &data_source("users", RowProjection::Columns(vec![])));
 
-    let mut row = evaluator.evaluate(source_table_ref("users")).unwrap();
+    let mut evaluator = evaluator();
+    let mut row = evaluator.evaluate(source_table_ref("users"), &group);
     row.prepare_field("a")
         .unwrap()
         .set(SqliteValue::Text("invalid json"));
@@ -396,32 +385,8 @@ fn continues_after_error() {
                 }
             }
             ProcessedGroupMember::Parameter(_) => unreachable!(),
-            ProcessedGroupMember::Event(id) => outputs.push(format!("event {id}")),
         }
     }
 
-    assert_eq!(outputs, ["error failing", "row b", "event event"]);
-}
-
-#[test]
-fn shares_symbols_between_groups() {
-    let id = Arc::new("b");
-    let evaluator = evaluator(&[
-        HydratedSource::Bucket {
-            id: id.clone(),
-            source: data_source("%", RowProjection::Columns(vec![alias("id", column("id"))])),
-        },
-        HydratedSource::Bucket {
-            id,
-            source: data_source("users", RowProjection::Columns(vec![])),
-        },
-    ]);
-    let config = &evaluator.config;
-    let id = config.interner.get("id").unwrap();
-
-    let users = config.groups.lookup(source_table_ref("users")).unwrap();
-    let accounts = config.groups.lookup(source_table_ref("accounts")).unwrap();
-    assert!(!Arc::ptr_eq(users, accounts));
-    assert!(users.input_columns.contains_key(&id));
-    assert!(accounts.input_columns.contains_key(&id));
+    assert_eq!(outputs, ["error failing", "row b"]);
 }

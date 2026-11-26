@@ -13,7 +13,7 @@ pub use input_row::{InputRow, PreparedField};
 pub use projected_row::ProjectedRow;
 
 use crate::sync_plan::{
-    EvaluationError, HydratedSyncConfig, Parameters, ReplicationEmbedder, SourceTableRef,
+    CompatibilityContext, EvaluationError, Parameters, ReplicationEmbedder, SourceTableRef,
     SqliteValue, StringInterner, Symbol,
     evaluation::program::Program,
     processor_group::{
@@ -21,57 +21,59 @@ use crate::sync_plan::{
     },
 };
 
-/// Evaluates rows to buckets, parameter results, and event notifications.
+/// Evaluates rows to buckets and parameter results.
 ///
-/// Evaluators are meant to be thread-local, while the [HydratedSyncConfig] contains prepared state
-/// and can be used across threads.
-pub struct Evaluator<E: ReplicationEmbedder> {
-    config: Arc<HydratedSyncConfig<E>>,
+/// Evaluators are meant to be thread-local, while [ProcessorGroup]s contain prepared state and can
+/// be used across threads.
+pub struct Evaluator {
+    compatibility: Arc<CompatibilityContext>,
     /// Storage for values computed while evaluating a row, reset for each row.
     arena: Bump,
 }
 
-impl<E: ReplicationEmbedder> Evaluator<E> {
-    pub fn new(config: Arc<HydratedSyncConfig<E>>) -> Self {
+impl Evaluator {
+    pub fn new(compatibility: Arc<CompatibilityContext>) -> Self {
         Self {
-            config,
+            compatibility,
             arena: Bump::new(),
         }
     }
 
-    /// Starts evaluating a row in the given source table.
+    /// Starts evaluating a row in the given source table with the processors in `group`.
     ///
-    /// Returns [None] if no processor matches the table, in which case the row doesn't need to be
-    /// decoded at all. Otherwise, call [InputRow::prepare_field] for each field in the source row
-    /// and then [InputRow::finish] (or use [InputRow::push_bson] / [InputRow::push_json]).
-    pub fn evaluate<'a>(&'a mut self, table: SourceTableRef<'a>) -> Option<InputRow<'a, E>> {
+    /// The caller is responsible for passing a group containing the processors matching `table`.
+    /// If no processor matches the table, callers should skip the row instead of decoding it.
+    ///
+    /// Call [InputRow::prepare_field] for each field in the source row and then [InputRow::finish]
+    /// (or use [InputRow::push_bson] / [InputRow::push_json]).
+    pub fn evaluate<'a, E: ReplicationEmbedder>(
+        &'a mut self,
+        table: SourceTableRef<'a>,
+        group: &'a ProcessorGroup<E>,
+    ) -> InputRow<'a, E> {
         // Values of the previous row are no longer referenced, since the buffers are empty.
         self.arena.reset();
 
-        let config: &'a HydratedSyncConfig<E> = &self.config;
         let arena = &self.arena;
-        let group = config.groups.lookup(table)?;
 
         let frame = Frame::new(
             arena,
-            &config.compatibility,
+            &self.compatibility,
             group.num_input_slots,
             group.num_internal_slots,
         );
-        Some(InputRow::new(config, group, table, frame))
+        InputRow::new(group, table, frame)
     }
 }
 
 /// A decoded input row being evaluated.
 ///
 /// Iterate over [Self::members] to evaluate the row. For data and parameter sources, call
-/// [Self::process_data] and [Self::process_parameters] to evaluate results. Events are not
-/// evaluated in this shared module.
+/// [Self::process_data] and [Self::process_parameters] to evaluate results.
 ///
 /// `'a` refers both to values allocated in the scoped bumpalo allocator and to values borrowed from
 /// the processed row.
 pub struct RowEvaluation<'a, E: ReplicationEmbedder> {
-    config: &'a HydratedSyncConfig<E>,
     group: &'a ProcessorGroup<E>,
     table: SourceTableRef<'a>,
 
@@ -85,7 +87,6 @@ pub struct RowEvaluation<'a, E: ReplicationEmbedder> {
 
 impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
     pub(super) fn new(
-        config: &'a HydratedSyncConfig<E>,
         group: &'a ProcessorGroup<E>,
         table: SourceTableRef<'a>,
         program: Program<'a>,
@@ -93,7 +94,6 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
         parameter_outputs: &'a mut [SqliteValue<'a>],
     ) -> Self {
         Self {
-            config,
             group,
             table,
             program,
@@ -116,7 +116,7 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
         self.program.start(&source.common.instructions);
         let table = source
             .output_table_name
-            .map(|s| resolve(&self.config.interner, s))
+            .map(|s| resolve(&self.group.interner, s))
             .unwrap_or(self.table.name);
 
         BucketDataIterator {
@@ -231,7 +231,7 @@ impl<'a, E: ReplicationEmbedder> BucketDataIterator<'a, '_, E> {
             parameters: as_parameters(eval.parameters, source.common.parameters.len()),
             table: self.table,
             row: ProjectedRow {
-                interner: &eval.config.interner,
+                interner: &eval.group.interner,
                 projection,
                 frame,
                 star_columns: if projection.columns.has_star() {
