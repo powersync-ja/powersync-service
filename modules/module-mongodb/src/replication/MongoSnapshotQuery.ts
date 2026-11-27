@@ -16,18 +16,21 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
   private collection: mongo.Collection;
   private batchSize: number;
   private readonly filter: mongo.Filter<mongo.Document> | null;
+  private readonly upperKey: unknown;
 
   public constructor(options: {
     collection: mongo.Collection;
     batchSize: number;
     key?: Uint8Array | null;
     filter?: mongo.Filter<mongo.Document> | null;
+    upperKey?: unknown;
   }) {
     this.lastKey = options.key ? bson.deserialize(options.key, { useBigInt64: true })._id : null;
     this.lastCursor = null;
     this.collection = options.collection;
     this.batchSize = options.batchSize;
     this.filter = options.filter ?? null;
+    this.upperKey = options.upperKey;
   }
 
   async nextChunk(): Promise<
@@ -46,14 +49,17 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       // any parsing as an operator.
       // Starting in MongoDB 5.0, this filter can use the _id index. Source:
       // https://www.mongodb.com/docs/manual/release-notes/5.0/#general-aggregation-improvements
-      const continuationFilter: mongo.Filter<mongo.Document> =
-        this.lastKey == null ? {} : { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
-      const filter: mongo.Filter<mongo.Document> =
-        this.filter == null
-          ? continuationFilter
-          : this.lastKey == null
-            ? this.filter
-            : { $and: [this.filter, continuationFilter] };
+      const filters: mongo.Filter<mongo.Document>[] = [];
+      if (this.filter != null) {
+        filters.push(this.filter);
+      }
+      if (this.lastKey != null) {
+        filters.push({ $expr: { $gt: ['$_id', { $literal: this.lastKey }] } });
+      }
+      if (this.upperKey !== undefined) {
+        filters.push({ $expr: { $lte: ['$_id', { $literal: this.upperKey }] } });
+      }
+      const filter = filters.length > 1 ? { $and: filters } : (filters[0] ?? {});
       cursor = this.collection.find(filter, {
         readConcern: 'majority',
         limit: this.batchSize,
