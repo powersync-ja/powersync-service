@@ -1,3 +1,4 @@
+import { STORAGE_VERSION_3 } from '@powersync/service-core';
 import { assertDistinctMongoSourceAndStorage } from '../implementations/replication/mongodb/MongoSourceBenchmarkConfiguration.js';
 import { assertDistinctPostgresSourceAndStorage } from '../implementations/replication/postgres/PostgresSourceBenchmarkConfiguration.js';
 import type { ApiBenchmarkCase } from '../types/ApiBenchmark.js';
@@ -59,6 +60,27 @@ const baseReplicationBenchmarkCases = [
   })
 ];
 
+/**
+ * Rust evaluation only applies to MongoDB sources (which pass rows as undecoded BSON) with MongoDB storage v3+, so we
+ * only add Rust variants of those cases.
+ */
+const RUST_MONGO_STORAGE_VERSIONS = MONGO_STORAGE_BENCHMARK_VERSIONS.filter((version) => version >= STORAGE_VERSION_3);
+
+const rustReplicationBenchmarkCases = RUST_MONGO_STORAGE_VERSIONS.flatMap((version) => {
+  const storage = mongoReplicationStorage(version, 'rust');
+  return [
+    mongoSourceCase('snapshot', storage, assertDistinctMongoSourceAndStorage),
+    mongoSourceCase('streaming', storage, assertDistinctMongoSourceAndStorage)
+  ];
+});
+
+const rustCombinedBenchmarkCases = RUST_MONGO_STORAGE_VERSIONS.flatMap((version) => {
+  const storage = mongoReplicationStorage(version, 'rust');
+  return [...createQuickCombinedCases(storage), ...createStreamingCombinedCases(storage)].filter(
+    ({ scenario }) => scenario.producer === 'source:mongodb'
+  );
+});
+
 const baseCombinedBenchmarkCases = [
   ...POSTGRES_STORAGE_BENCHMARK_VERSIONS.flatMap((version) => {
     const storage = postgresReplicationStorage(version);
@@ -102,8 +124,14 @@ function createDatasetCases<T extends { readonly scenario: BenchmarkScenario }>(
 
 export const apiBenchmarkCases = createDatasetCases(baseApiBenchmarkCases, BASELINE_DATASETS);
 export const storageBenchmarkCases = createDatasetCases(baseStorageBenchmarkCases, BASELINE_DATASETS);
-export const replicationBenchmarkCases = createDatasetCases(baseReplicationBenchmarkCases, BASELINE_DATASETS);
-export const combinedBenchmarkCases = createDatasetCases(baseCombinedBenchmarkCases, BASELINE_DATASETS);
+export const replicationBenchmarkCases = createDatasetCases(
+  [...baseReplicationBenchmarkCases, ...rustReplicationBenchmarkCases],
+  BASELINE_DATASETS
+);
+export const combinedBenchmarkCases = createDatasetCases(
+  [...baseCombinedBenchmarkCases, ...rustCombinedBenchmarkCases],
+  BASELINE_DATASETS
+);
 
 export const allBenchmarkScenarios = [
   ...apiBenchmarkCases,

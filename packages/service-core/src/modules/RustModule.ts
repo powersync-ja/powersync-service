@@ -1,7 +1,10 @@
 import { loadRustAddon, RustAddon } from '@powersync/service-rust-types';
 
+import { ServiceIdentifier } from '@powersync/lib-services-framework';
 import { ServiceContextContainer } from '../system/ServiceContext.js';
 import { AbstractModule, AbstractModuleOptions, TearDownOptions } from './AbstractModule.js';
+
+export type { RustAddon };
 
 export interface RustModuleOptions extends AbstractModuleOptions {
   addonPath: string;
@@ -20,17 +23,20 @@ export class RustModule extends AbstractModule {
     this.#addonPath = options.addonPath;
   }
 
-  public override async initialize(_context: ServiceContextContainer): Promise<void> {
-    await this.loadRust();
+  public override async initialize(context: ServiceContextContainer): Promise<void> {
+    const [addon, _] = await this.loadRust();
 
     // Currently, we just initialize the module for testing purposes. In the future, we'd register Rust-backed
     // implementations on the service container.
+    context.register(RustModule.id, addon);
   }
 
-  async loadRust(): Promise<RustAddon.InitializedRustModule> {
+  async loadRust(): Promise<[typeof RustAddon, RustAddon.InitializedRustModule]> {
     const addon = loadRustAddon(this.#addonPath);
-    return addon.initializeRust({ logger: this.logger });
+    return [addon, addon.initializeRust({ logger: this.logger })];
   }
 
   public override async teardown(_options: TearDownOptions): Promise<void> {}
+
+  static readonly id: ServiceIdentifier<typeof RustAddon> = 'rust-addon';
 }

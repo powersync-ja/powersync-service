@@ -15,7 +15,7 @@ import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.j
 import { OpIdRangeExhausted } from '../MongoIdSequence.js';
 import { MongoParsedSyncConfigSet } from '../MongoParsedSyncConfigSet.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
-import { OperationBatch } from '../OperationBatch.js';
+import { OperationBatch, RecordOperation } from '../OperationBatch.js';
 import { RETAINED_BYTES_FACTOR } from '../ReplicationBatchLimits.js';
 import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { PreparedPublication } from '../common/PreparedPublication.js';
@@ -23,6 +23,7 @@ import { LoadedSourceRecord } from '../common/SourceRecordStore.js';
 import { SyncRuleDocumentBase } from '../models.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { ReplicationPipelineV3 } from './ReplicationPipelineV3.js';
+import { isRustEvaluated, RustBlockEvaluation } from './RustBlockEvaluation.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { CustomCheckpointRequestDocumentV3, ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
@@ -49,6 +50,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV3;
 
   private readonly store: SourceRecordStoreV3;
+  /**
+   * Evaluates BSON-encoded rows in Rust, if the Rust addon is available.
+   */
+  private readonly rustEvaluation: RustBlockEvaluation | null;
   private readonly pipeline: ReplicationPipelineV3;
   private enqueuePublication = false;
   private pendingPublications = 0;
@@ -78,6 +83,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     this.syncConfigIds = syncConfigIds;
     this.knownEventIds = new Set(this.mapping.allEventDefinitionIds());
     this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
+    this.rustEvaluation =
+      options.rustAddon == null
+        ? null
+        : new RustBlockEvaluation(options.rustAddon, this.sync_rules.compatibility, this.logger);
     this.pipeline.registerWriter(this);
   }
 
@@ -315,6 +324,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     using _span = this.tracer.span('storage', 'flush');
     await this.hooks?.beforeBatchFlush?.(this);
     const input = this.capturedInput;
+    // Evaluating encoded rows doesn't depend on existing source records, so Rust evaluates them on the libuv thread
+    // pool while we prepare. This never rejects.
+    const evaluation = input == null ? undefined : this.rustEvaluation?.evaluate(input.batch);
     const checkpoints = input?.customWriteCheckpoints ?? [];
     const allocator = this.pipeline.allocator;
     await allocator.ensureCapacity();
@@ -326,7 +338,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const overlay = this.pipeline.beginRead();
     let prepared: PreparedRows;
     try {
-      prepared = await this.prepareRows(this.session, input, overlay);
+      prepared = await this.prepareRows(this.session, input, overlay, evaluation);
     } finally {
       this.pipeline.endRead();
     }
@@ -550,10 +562,31 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
   }
 
+  private countEvaluation(op: RecordOperation) {
+    const stats = this.options.rustEvaluationStats;
+    const { after, sourceTable } = op.record;
+    if (
+      stats == null ||
+      op.afterId == null ||
+      !(after instanceof storage.EncodedSourceRow) ||
+      !(sourceTable.syncData || sourceTable.syncParameters)
+    ) {
+      return;
+    }
+    if (op.precomputed?.failure != null) {
+      stats.failedInRust++;
+    } else if (op.precomputed != null) {
+      stats.evaluatedInRust++;
+    } else {
+      stats.evaluatedInJavaScript++;
+    }
+  }
+
   private async prepareRows(
     session: lib_mongo.mongo.ClientSession,
     input: OperationBatch | null,
-    overlay: ReadonlyMap<string, LoadedSourceRecord>
+    overlay: ReadonlyMap<string, LoadedSourceRecord>,
+    evaluation: Promise<void> | undefined
   ): Promise<PreparedRows> {
     const publications: PreparedPublication[] = [];
     const repairs: storage.SaveUpdate[] = [];
@@ -628,6 +661,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           records.set(op.internalBeforeKey, loaded.get(op.internalBeforeKey) ?? null);
         }
       }
+      if (evaluation != null) {
+        // Rows evaluated in Rust have their outputs in RecordOperation.precomputed afterwards.
+        using _rust = this.tracer.span('evaluate');
+        await evaluation;
+        evaluation = undefined;
+      }
       let group: PersistedBatchV3 | null = this.createPersistedBatch(writtenSize);
       for (const op of block) {
         if (resumeBatch != null) {
@@ -640,6 +679,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           const row = this.createPersistedBatch(0);
           const sequence = allocator.sequence(lastOp);
           try {
+            if (this.rustEvaluation != null && op.precomputed == null && isRustEvaluated(op)) {
+              // Rows evaluated in Rust must never be evaluated in JavaScript, see isRustEvaluated.
+              throw new ReplicationAssertionError('Missing Rust evaluation outputs for row');
+            }
             using _evaluate = this.tracer.span('evaluate');
             next = this.saveOperation(
               row,
@@ -654,6 +697,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             );
             group!.append(row);
             hasWrites ||= row.currentSize > 0;
+            this.countEvaluation(op);
             repairs.push(...rowRepairs);
             lastOp = sequence.last();
             break;
@@ -889,6 +933,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const syncConfig = parsedOverride?.hydratedSyncConfig ?? this.sync_rules;
     const mapping = parsedOverride?.mapping ?? this.mapping;
     const eventById = (parsedOverride ?? this.options.parsedSyncConfig).eventById;
+    const { rustAddon } = this.options;
 
     const { connection_id, source } = options;
     const reconcile = options.reconcileSourceTables ?? storage.defaultSourceTableReconciler;
@@ -915,7 +960,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         .toArray();
 
       const candidateTables = candidateDocs.map((doc) =>
-        sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping, eventById)
+        sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping, eventById, { rustAddon })
       );
       const candidates = candidateTables.map((table) => table.clone());
       const resolution = await reconcile({ source, candidates });
@@ -935,7 +980,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         mapping,
         desired: sourceTableDesiredResolution(syncConfig, source, mapping, eventById),
         sourceCompatibleTables: resolution.compatibleTables,
-        newTableSourceMetadata: resolution.newTableValues.sourceMetadata
+        newTableSourceMetadata: resolution.newTableValues.sourceMetadata,
+        rustAddon
       };
 
       // Plan record reuse, membership changes, creation, and removal.
@@ -973,7 +1019,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       result = {
         tables: plan.tables,
         dropTables: plan.dropDocs.map((doc) =>
-          sourceTableFromDocument(doc, context.connectionTag, syncConfig, mapping, eventById)
+          sourceTableFromDocument(doc, context.connectionTag, syncConfig, mapping, eventById, { rustAddon })
         )
       };
     }, session);
@@ -996,7 +1042,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       table.ref.connectionTag,
       this.sync_rules,
       this.mapping,
-      this.options.parsedSyncConfig.eventById
+      this.options.parsedSyncConfig.eventById,
+      { rustAddon: this.options.rustAddon }
     );
   }
 

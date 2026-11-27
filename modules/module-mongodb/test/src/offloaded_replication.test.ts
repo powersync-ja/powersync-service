@@ -362,7 +362,7 @@ describe.skipIf(!env.TEST_MONGO_STORAGE || DATABASE_TYPE == DatabaseType.DOCUMEN
             }
             const save = writer.save.bind(writer);
             vi.spyOn(writer, 'save').mockImplementation(async (record) => {
-              snapshotRows.push(String(record.after!._id));
+              snapshotRows.push(String(storage.decodeSourceRow(record.after!)._id));
               return save(record);
             });
           }

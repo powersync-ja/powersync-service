@@ -2,6 +2,7 @@ import { ObserverClient } from '@powersync/lib-services-framework';
 import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
 import { InternalOpId } from '../util/utils.js';
+import { SourceRow } from './EncodedSourceRow.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
@@ -221,7 +222,10 @@ export interface SaveInsert {
   sourceTable: SourceTable;
   before?: undefined;
   beforeReplicaId?: undefined;
-  after: SqliteRow;
+  /**
+   * The inserted row, either decoded or in its source encoding.
+   */
+  after: SourceRow;
   afterReplicaId: ReplicaId;
 }
 
@@ -239,8 +243,10 @@ export interface SaveUpdate {
    * A null value means null column.
    *
    * An undefined value means it's a TOAST value - must be copied from another record.
+   *
+   * Rows in their source encoding (`EncodedSourceRow`) are always complete.
    */
-  after: ToastableSqliteRow;
+  after: SourceRow<ToastableSqliteRow>;
   afterReplicaId: ReplicaId;
 }
 

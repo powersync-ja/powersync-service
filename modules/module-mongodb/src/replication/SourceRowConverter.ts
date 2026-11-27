@@ -1,4 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { storage } from '@powersync/service-core';
 import { applyRowContext, CompatibilityContext, CompatibilityOption, SqliteRow } from '@powersync/service-sync-rules';
 import { bufferToSqlite, DateRenderMode, getDateRenderMode, parseDocumentId } from './bufferToSqlite.js';
 import { constructAfterRecord } from './MongoRelation.js';
@@ -11,6 +12,18 @@ export interface SourceRowConverter {
    * The returned replicaId is the plain parsed bson _id value, to preserve the source id as-is.
    */
   rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any };
+
+  /**
+   * Wraps BSON document bytes in an {@link storage.EncodedSourceRow}, without decoding the document.
+   *
+   * Storage decodes the row with {@link rawToSqliteRow} semantics if it can't process BSON directly.
+   */
+  encodeRow(source: Buffer): storage.EncodedSourceRow;
+
+  /**
+   * Parses the `_id` of BSON document bytes, as a plain bson value to preserve the source id as-is.
+   */
+  parseReplicaId(source: Buffer): any;
 
   /**
    * Convert a document, as received from MongoDB query or change stream, to
@@ -38,6 +51,14 @@ export class LegacySourceRowConverter implements SourceRowConverter {
     return { row, replicaId };
   }
 
+  encodeRow(source: Buffer): storage.EncodedSourceRow {
+    return new storage.EncodedSourceRow('bson', source, () => this.rawToSqliteRow(source).row);
+  }
+
+  parseReplicaId(source: Buffer): any {
+    return mongo.BSON.deserialize(source, { useBigInt64: true })._id;
+  }
+
   documentToSqliteRow(document: mongo.Document): SqliteRow {
     const input = constructAfterRecord(document);
     return applyRowContext<never>(input, this.compatibilityContext);
@@ -57,6 +78,16 @@ export class DirectSourceRowConverter implements SourceRowConverter {
     const row = bufferToSqlite(source, this.dateRenderMode, this.fixedBooleansInJson);
     const replicaId = parseDocumentId(source).id;
     return { row, replicaId };
+  }
+
+  encodeRow(source: Buffer): storage.EncodedSourceRow {
+    return new storage.EncodedSourceRow('bson', source, () =>
+      bufferToSqlite(source, this.dateRenderMode, this.fixedBooleansInJson)
+    );
+  }
+
+  parseReplicaId(source: Buffer): any {
+    return parseDocumentId(source).id;
   }
 
   documentToSqliteRow(document: mongo.Document): SqliteRow {

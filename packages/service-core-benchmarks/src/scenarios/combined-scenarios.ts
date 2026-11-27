@@ -9,7 +9,7 @@ import { CombinedBenchmarkScenario } from '../types/CombinedBenchmark.js';
 import { ReplicationBenchmarkProducerId } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
 import { mongoReplicationSource, postgresReplicationSource } from './replication-scenarios.js';
-import { categorySync, defineScenario, singleTableData } from './scenario-presets.js';
+import { categorySync, defineScenario, singleTableData, withEvaluator } from './scenario-presets.js';
 
 export interface CombinedBenchmarkCase {
   readonly scenario: CombinedBenchmarkScenario;
@@ -94,7 +94,10 @@ export function createStreamingCombinedCases(
   const mongoSource = mongoReplicationSource();
   return [
     {
-      scenario: createStreamingCombinedScenario(mongoSource.id, storage.id, storage.version),
+      scenario: withStorageEvaluator(
+        createStreamingCombinedScenario(mongoSource.id, storage.id, storage.version),
+        storage
+      ),
       implementation: new ControlledCombinedBenchmarkImplementation({
         source: mongoSource,
         storage,
@@ -102,7 +105,10 @@ export function createStreamingCombinedCases(
       })
     },
     {
-      scenario: createStreamingCombinedScenario(postgresSource.id, storage.id, storage.version),
+      scenario: withStorageEvaluator(
+        createStreamingCombinedScenario(postgresSource.id, storage.id, storage.version),
+        storage
+      ),
       implementation: new ControlledCombinedBenchmarkImplementation({
         source: postgresSource,
         storage,
@@ -135,7 +141,7 @@ function createCategoryCombinedCase(
   validateEnvironment?: (environment: Readonly<Record<string, string | undefined>>) => void
 ): CombinedBenchmarkCase {
   return {
-    scenario: createCategoryCombinedScenario(source.id, storage.id, storage.version),
+    scenario: withStorageEvaluator(createCategoryCombinedScenario(source.id, storage.id, storage.version), storage),
     implementation: new ControlledCombinedBenchmarkImplementation({ source, storage, validateEnvironment })
   };
 }
@@ -146,7 +152,14 @@ function createCombinedCase(
   validateEnvironment?: (environment: Readonly<Record<string, string | undefined>>) => void
 ): CombinedBenchmarkCase {
   return {
-    scenario: createQuickCombinedScenario(source.id, storage.id, storage.version),
+    scenario: withStorageEvaluator(createQuickCombinedScenario(source.id, storage.id, storage.version), storage),
     implementation: new ControlledCombinedBenchmarkImplementation({ source, storage, validateEnvironment })
   };
+}
+
+function withStorageEvaluator(
+  scenario: CombinedBenchmarkScenario,
+  storage: ReplicationBenchmarkStorageSelection
+): CombinedBenchmarkScenario {
+  return withEvaluator(scenario, storage.evaluator ?? 'javascript');
 }

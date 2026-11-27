@@ -2,7 +2,8 @@ import {
   GetIntanceOptions,
   LEGACY_STORAGE_VERSION,
   SingleSyncConfigBucketDefinitionMapping,
-  storage
+  storage,
+  type RustAddon
 } from '@powersync/service-core';
 
 import {
@@ -48,6 +49,7 @@ import { stopReplicationStreamPipeline } from './implementation/SyncRuleStateUpd
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { ObjectStorage } from './implementation/v3/object-storage/ObjectStorage.js';
 import { ObjectStorageUsage } from './implementation/v3/object-storage/ObjectStorageUsage.js';
+import { RustEvaluationStats } from './implementation/v3/RustEvaluationStats.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
@@ -77,6 +79,10 @@ export interface MongoBucketStorageOptions {
    * sync config per stream.
    */
   supportsMultipleSyncConfigs?: boolean;
+  /**
+   * The Rust addon, if loaded. When set, source tables are compiled into Rust processor groups.
+   */
+  rustAddon?: typeof RustAddon;
 }
 
 export class MongoBucketStorage extends storage.BucketStorageFactory {
@@ -111,6 +117,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   public readonly replicationBatchLimits: ReplicationBatchLimits;
   public readonly chunkCompactionConcurrency: number;
   public readonly chunkCompactionSlots: Semaphore;
+  /**
+   * Counts rows evaluated with and without Rust, across all replication streams of this factory.
+   */
+  public readonly rustEvaluationStats = new RustEvaluationStats();
 
   constructor(
     db: PowerSyncMongo,
@@ -165,7 +175,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         storageConfig,
         objectStorage: this.options.objectStorage,
         inlineThresholdBytes: this.options.inlineThresholdBytes,
-        clearBatchThrottleRate: this.options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE
+        clearBatchThrottleRate: this.options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE,
+        rustAddon: this.options.rustAddon,
+        rustEvaluationStats: this.rustEvaluationStats
       }
     );
     if (!options?.skipLifecycleHooks) {

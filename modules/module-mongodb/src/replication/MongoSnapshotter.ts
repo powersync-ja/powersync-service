@@ -551,15 +551,14 @@ export class MongoSnapshotter {
         // Pre-fetch next batch, so that we can read and write concurrently
         nextChunkPromise = query.nextChunk();
         for (const buffer of docBatch) {
-          const { row, replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
           // This auto-flushes when the batch reaches its size limit
           await batch.save({
             tag: SaveOperationTag.INSERT,
             sourceTable: table,
             before: undefined,
             beforeReplicaId: undefined,
-            after: row,
-            afterReplicaId: replicaId
+            after: this.sourceRowConverter.encodeRow(buffer),
+            afterReplicaId: this.sourceRowConverter.parseReplicaId(buffer)
           });
         }
 

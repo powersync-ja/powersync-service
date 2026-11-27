@@ -22,7 +22,8 @@ import {
   storage,
   SyncRuleState,
   utils,
-  WatchWriteCheckpointOptions
+  WatchWriteCheckpointOptions,
+  type RustAddon
 } from '@powersync/service-core';
 import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -46,6 +47,7 @@ import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { MongoCheckpointAPIOptions, MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { DEFAULT_INLINE_THRESHOLD_BYTES } from './v3/PersistedBatchV3.js';
+import type { RustEvaluationStats } from './v3/RustEvaluationStats.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
@@ -55,6 +57,11 @@ export interface MongoSyncBucketStorageOptions {
   storageConfig: StorageConfig;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
+  /**
+   * The Rust addon, if loaded. When set, source tables are compiled into Rust processor groups.
+   */
+  rustAddon?: typeof RustAddon;
+  rustEvaluationStats?: RustEvaluationStats;
 }
 
 /**
@@ -114,6 +121,8 @@ export abstract class MongoSyncBucketStorage
    * Required for writing, optional for reading.
    */
   private readonly replicationLock: MongoSyncRulesLock | null;
+  private readonly rustAddon: typeof RustAddon | undefined;
+  private readonly rustEvaluationStats: RustEvaluationStats | undefined;
 
   constructor(
     public readonly factory: MongoBucketStorage,
@@ -131,6 +140,8 @@ export abstract class MongoSyncBucketStorage
     // Configurable via object_storage.inline_threshold_bytes.
     this.inlineThresholdBytes = options.inlineThresholdBytes ?? DEFAULT_INLINE_THRESHOLD_BYTES;
     this.readPreference = options.readPreference;
+    this.rustAddon = options.rustAddon;
+    this.rustEvaluationStats = options.rustEvaluationStats;
     this.clearBatchThrottleRate = options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
@@ -291,7 +302,9 @@ export abstract class MongoSyncBucketStorage
       tracer: options.tracer,
       signal: options.signal,
       objectStorage: this.objectStorage,
-      inlineThresholdBytes: this.inlineThresholdBytes
+      inlineThresholdBytes: this.inlineThresholdBytes,
+      rustAddon: this.rustAddon,
+      rustEvaluationStats: this.rustEvaluationStats
     };
   }
 

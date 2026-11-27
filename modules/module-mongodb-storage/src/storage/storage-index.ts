@@ -23,5 +23,6 @@ export {
   taggedBucketParameterDocumentToTagged
 } from './implementation/v3/models.js';
 export * from './implementation/v3/object-storage/ObjectStorageUsage.js';
+export * from './implementation/v3/RustEvaluationStats.js';
 export * from './MongoBucketStorage.js';
 export * from './MongoReportStorage.js';

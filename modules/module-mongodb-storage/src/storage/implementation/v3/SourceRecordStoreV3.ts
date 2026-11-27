@@ -2,14 +2,19 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { BucketDefinitionMapping, storage } from '@powersync/service-core';
-import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { REPLICATION_READ_OPTIONS, REPLICATION_WRITE_OPTIONS } from '../MongoReplicationOptions.js';
 import { cacheKey } from '../OperationBatch.js';
-import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
+import { ParameterLookupOutput, parameterLookupSource } from '../common/PersistedBatch.js';
+import {
+  EvaluatedBucketRef,
+  LoadedSourceRecord,
+  SourceRecordLookupEntry,
+  SourceRecordStore
+} from '../common/SourceRecordStore.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { CurrentDataDocumentV3, serializeParameterLookup, SourceTableDocumentV3 } from './models.js';
+import { CurrentDataDocumentV3, serializedParameterLookupOutput, SourceTableDocumentV3 } from './models.js';
 
 /**
  * Source-record access for v3/v4 preparation and post-commit cleanup.
@@ -29,7 +34,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     private readonly mapping: BucketDefinitionMapping
   ) {}
 
-  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): LoadedSourceRecord['buckets'] {
+  mapEvaluatedBuckets(evaluated: EvaluatedBucketRef[]): LoadedSourceRecord['buckets'] {
     return evaluated.map((entry) => ({
       definitionId: this.mapping.bucketSourceId(entry.source),
       bucket: entry.bucket,
@@ -38,10 +43,10 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     }));
   }
 
-  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): LoadedSourceRecord['lookups'] {
+  mapParameterLookups(paramEvaluated: ParameterLookupOutput[]): LoadedSourceRecord['lookups'] {
     return paramEvaluated.map((entry) => ({
-      indexId: this.mapping.parameterLookupId(entry.lookup.source),
-      lookup: serializeParameterLookup(entry.lookup)
+      indexId: this.mapping.parameterLookupId(parameterLookupSource(entry)),
+      lookup: serializedParameterLookupOutput(entry)
     }));
   }
 

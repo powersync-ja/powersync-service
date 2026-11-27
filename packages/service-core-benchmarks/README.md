@@ -88,6 +88,17 @@ A full list of available tags can be retrieved either from the [vitest config](.
 
 After a run, `pnpm benchmark:report` can be run to generate report, both in CLI, and saved to a `benchmark-artifacts` folder.
 
+### Rust evaluation
+
+Replication and combined benchmarks from MongoDB sources into MongoDB storage v3+ also run with the Rust evaluator, tagged `evaluator:rust` (all other cases are tagged `evaluator:javascript`). These require `POWERSYNC_RUST_ADDON` to point to a release build of the addon, which CI provides. Locally, run this from the repository root:
+
+```sh
+export POWERSYNC_RUST_ADDON=$(node scripts/build-rust-addon.mts --release)
+pnpm benchmark:test --tags-filter="layer:replication and source:mongodb and storage:mongodb and version:3"
+```
+
+Rust cases fail if rows were evaluated in JavaScript instead. Exclude them with `not evaluator:rust`.
+
 ### Database CPU and memory
 
 The suite records CPU time and sampled memory usage for local MongoDB and PostgreSQL Docker containers during measured iterations. Replication and combined benchmarks report source and storage databases separately. The monitor matches each database URL to a unique container by its published local port, so source and storage services need distinct ports. The reported container memory excludes inactive file cache and is different from process RSS.

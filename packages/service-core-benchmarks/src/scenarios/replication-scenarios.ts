@@ -10,9 +10,10 @@ import {
 } from '../implementations/replication/mongodb/MongoSourceBenchmarkConfiguration.js';
 import { PostgresReplicationSourceAdapter } from '../implementations/replication/postgres/PostgresReplicationSourceAdapter.js';
 import { resolvePostgresSourceBenchmarkConfiguration } from '../implementations/replication/postgres/PostgresSourceBenchmarkConfiguration.js';
+import type { BenchmarkEvaluator } from '../types/BenchmarkScenario.js';
 import { ReplicationBenchmarkPhase, ReplicationBenchmarkScenario } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
-import { categorySync, defineScenario, singleTableData } from './scenario-presets.js';
+import { categorySync, defineScenario, singleTableData, withEvaluator } from './scenario-presets.js';
 
 export function createMongoSourceQuickReplicationScenario(
   phase: ReplicationBenchmarkPhase,
@@ -105,17 +106,26 @@ export function postgresReplicationStorage(version: number): ReplicationBenchmar
   };
 }
 
-export function mongoReplicationStorage(version: number): ReplicationBenchmarkStorageSelection {
+export function mongoReplicationStorage(
+  version: number,
+  evaluator: BenchmarkEvaluator = 'javascript'
+): ReplicationBenchmarkStorageSelection {
   return {
     id: 'storage:mongodb',
     version,
+    evaluator,
     createChildDescriptor(environment) {
       const url = requiredEnvironmentUrl(environment, 'BENCHMARK_MONGODB_STORAGE_URL', 'MongoDB storage');
       canonicalMongoAuthority(url);
+      let rustAddonPath: string | undefined;
+      if (evaluator === 'rust') {
+        rustAddonPath = environment.POWERSYNC_RUST_ADDON;
+        if (!rustAddonPath) throw new Error('POWERSYNC_RUST_ADDON is required for evaluator:rust benchmarks');
+      }
       return {
         moduleUrl: import.meta.resolve('../implementations/storage/MongoStorageBenchmarkImplementation.js'),
         exportName: 'MongoStorageBenchmarkImplementation',
-        constructorArgs: [{ url, isCI: environment.CI === 'true' }]
+        constructorArgs: [{ url, isCI: environment.CI === 'true', rustAddonPath }]
       };
     }
   };
@@ -178,7 +188,10 @@ export function mongoSourceCase(
   implementation: ControlledReplicationBenchmarkImplementation;
 } {
   return {
-    scenario: createMongoSourceQuickReplicationScenario(phase, storage.id, storage.version),
+    scenario: withEvaluator(
+      createMongoSourceQuickReplicationScenario(phase, storage.id, storage.version),
+      storage.evaluator ?? 'javascript'
+    ),
     implementation: new ControlledReplicationBenchmarkImplementation({
       source: mongoReplicationSource(),
       storage,
@@ -195,7 +208,10 @@ export function mongoSourceCategoryCase(
   implementation: ControlledReplicationBenchmarkImplementation;
 } {
   return {
-    scenario: createMongoSourceCategoryReplicationScenario(storage.id, storage.version),
+    scenario: withEvaluator(
+      createMongoSourceCategoryReplicationScenario(storage.id, storage.version),
+      storage.evaluator ?? 'javascript'
+    ),
     implementation: new ControlledReplicationBenchmarkImplementation({
       source: mongoReplicationSource(),
       storage,

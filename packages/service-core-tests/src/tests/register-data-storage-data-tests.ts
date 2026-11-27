@@ -727,7 +727,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('test2')
     });
     await writer.flush();
-    expect(unavailable.map((record) => record.after.id)).toEqual(['test2']);
+    expect(unavailable.map((record) => storage.decodeSourceRow(record.after).id)).toEqual(['test2']);
 
     // Complete the targeted resnapshot before committing source progress.
     await writer.save({

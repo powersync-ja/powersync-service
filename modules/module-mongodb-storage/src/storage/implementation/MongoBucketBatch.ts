@@ -4,7 +4,8 @@ import {
   HydratedEventDescriptor,
   HydratedSyncConfig,
   SqliteRow,
-  SqliteValue
+  SqliteValue,
+  ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
@@ -27,11 +28,18 @@ import {
   PerformanceTracer,
   SaveOperationTag,
   storage,
-  utils
+  utils,
+  type RustAddon
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
-import { PersistedBatch } from './common/PersistedBatch.js';
+import {
+  ParameterLookupOutput,
+  PersistedBatch,
+  SerializedEvaluatedRow,
+  SerializedParameterLookup,
+  serializeEvaluatedRow
+} from './common/PersistedBatch.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { SyncRuleDocumentBase } from './models.js';
@@ -46,6 +54,26 @@ import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { ReplicationBatchLimits } from './ReplicationBatchLimits.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
+import type { RustEvaluationStats } from './v3/RustEvaluationStats.js';
+
+/**
+ * Outputs of evaluating a row before {@link MongoBucketBatch.saveOperation}, e.g. with the Rust evaluator.
+ *
+ * Outputs must already be restricted to the sources of the row's {@link storage.SourceTable}.
+ */
+export interface PrecomputedEvaluation {
+  rows: SerializedEvaluatedRow[];
+  parameters: SerializedParameterLookup[];
+  /** Errors evaluating data sources, reported like JavaScript evaluation errors. */
+  dataErrors: string[];
+  /** Errors evaluating parameter lookup sources, reported like JavaScript evaluation errors. */
+  parameterErrors: string[];
+  /**
+   * Set if the row couldn't be evaluated at all (e.g. because it couldn't be decoded). The reason is also included in
+   * {@link dataErrors} and {@link parameterErrors}.
+   */
+  failure?: string;
+}
 
 export interface MongoBucketBatchOptions {
   batchLimits: ReplicationBatchLimits;
@@ -87,6 +115,14 @@ export interface MongoBucketBatchOptions {
 
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
+  /**
+   * The Rust addon, if loaded. When set, source tables are compiled into Rust processor groups.
+   */
+  rustAddon?: typeof RustAddon;
+  /**
+   * Counts rows evaluated with and without Rust (v3 storage only).
+   */
+  rustEvaluationStats?: RustEvaluationStats;
 }
 
 export abstract class MongoBucketBatch
@@ -267,6 +303,9 @@ export abstract class MongoBucketBatch
    * v3/v4 supply a collector and deliver repair notifications only after a
    * confirmed publication. A failed row attempt may have registered a repair,
    * so its caller must discard that row's collected notification on failure.
+   *
+   * With {@link RecordOperation.precomputed}, the row isn't evaluated again. Encoded rows
+   * ({@link storage.EncodedSourceRow}) are only decoded when they need to be evaluated or stored.
    */
   protected saveOperation(
     batch: PersistedBatch,
@@ -276,13 +315,29 @@ export abstract class MongoBucketBatch
     onRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined
   ) {
     const record = operation.record;
+    const precomputed = operation.precomputed;
     const beforeId = operation.beforeId;
     const afterId = operation.afterId;
-    let after = record.after;
+    let after: storage.SourceRow<ToastableSqliteRow> | undefined = record.after;
     const sourceTable = record.sourceTable;
     // Effective per-record flag: store current_data only if both the batch (source-level,
     // e.g. Postgres) and the table (e.g. non-FULL replica identity) require it.
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
+    // Encoded rows are always complete, which avoids decoding them for the check.
+    const isComplete = (row: storage.SourceRow<ToastableSqliteRow>): boolean =>
+      row instanceof storage.EncodedSourceRow || isCompleteRow(storeCurrentData, row);
+    const logId = storage.sourceRowLogId(record.after, record.afterReplicaId);
+    const reportEvaluationError = (kind: 'data' | 'parameter', error: string) => {
+      const message = `Failed to evaluate ${kind} query on ${record.sourceTable.qualifiedName}.${logId}: ${error}`;
+      container.reporter.captureMessage(message, {
+        level: errors.ErrorSeverity.WARNING,
+        metadata: {
+          replication_slot: this.replicationStreamName,
+          table: record.sourceTable.qualifiedName
+        }
+      });
+      this.logger.error(message);
+    };
 
     let existing_buckets: LoadedSourceRecord['buckets'] = [];
     let new_buckets: LoadedSourceRecord['buckets'] = [];
@@ -316,10 +371,10 @@ export abstract class MongoBucketBatch
         existing_lookups = result.lookups;
         if (storeCurrentData && result.data != null) {
           const data = deserializeBson(result.data.buffer) as SqliteRow;
-          after = storage.mergeToast<SqliteValue>(after!, data);
+          after = storage.mergeToast<SqliteValue>(storage.decodeSourceRow(after!), data);
         }
       }
-      if (!isCompleteRow(storeCurrentData, after!)) {
+      if (!isComplete(after!)) {
         if (onRecordUnavailable != null) {
           // This will trigger a "resnapshot" of the record.
           // This is not relevant if storeCurrentData is false, since we'll get the full row
@@ -361,9 +416,10 @@ export abstract class MongoBucketBatch
     if (afterId != null && !storeCurrentData) {
       afterData = null;
     } else if (afterId != null) {
+      after = storage.decodeSourceRow(after!);
       try {
         // This will fail immediately if the record is > 16MB.
-        afterData = new bson.Binary(bson.serialize(after!));
+        afterData = new bson.Binary(bson.serialize(after));
         // We additionally make sure it's <= 15MB - we need some margin for metadata.
         if (afterData.length() > MAX_ROW_SIZE) {
           throw new ServiceError(ErrorCode.PSYNC_S1002, `Row too large: ${afterData.length()}`);
@@ -378,7 +434,7 @@ export abstract class MongoBucketBatch
         afterData = new bson.Binary(bson.serialize(after!));
 
         container.reporter.captureMessage(
-          `Data too big on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${e.message}`,
+          `Data too big on ${record.sourceTable.qualifiedName}.${logId}: ${e.message}`,
           {
             level: errors.ErrorSeverity.WARNING,
             metadata: {
@@ -425,30 +481,27 @@ export abstract class MongoBucketBatch
     // However, it will be valid by the end of the transaction.
     //
     // In this case, we don't save the op, but we do save the current data.
-    if (afterId && after && utils.isCompleteRow(storeCurrentData, after)) {
-      // Insert or update
-      if (sourceTable.syncData) {
-        const { results, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
-          record: after,
-          sourceTable: sourceTable.ref,
-          bucketDataSources: sourceTable.bucketDataSources
-        });
-        const evaluated = results;
+    if (afterId && after && isComplete(after)) {
+      // Insert or update. Without precomputed outputs, we need the decoded row.
+      const row = precomputed == null ? storage.decodeSourceRow(after) : null;
 
-        for (let error of syncErrors) {
-          container.reporter.captureMessage(
-            `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
-            {
-              level: errors.ErrorSeverity.WARNING,
-              metadata: {
-                replication_slot: this.replicationStreamName,
-                table: record.sourceTable.qualifiedName
-              }
-            }
-          );
-          this.logger.error(
-            `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`
-          );
+      if (sourceTable.syncData) {
+        let evaluated: SerializedEvaluatedRow[];
+        if (precomputed != null) {
+          evaluated = precomputed.rows;
+          for (const error of precomputed.dataErrors) {
+            reportEvaluationError('data', error);
+          }
+        } else {
+          const { results, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
+            record: row as SqliteRow,
+            sourceTable: sourceTable.ref,
+            bucketDataSources: sourceTable.bucketDataSources
+          });
+          evaluated = results.map(serializeEvaluatedRow);
+          for (const error of syncErrors) {
+            reportEvaluationError('data', error.error);
+          }
         }
 
         // Save new one
@@ -464,26 +517,22 @@ export abstract class MongoBucketBatch
 
       if (sourceTable.syncParameters) {
         // Parameters
-        const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
-          sourceTable.ref,
-          after,
-          { parameterLookupSources: sourceTable.parameterLookupSources }
-        );
-
-        for (let error of paramErrors) {
-          container.reporter.captureMessage(
-            `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
-            {
-              level: errors.ErrorSeverity.WARNING,
-              metadata: {
-                replication_slot: this.replicationStreamName,
-                table: record.sourceTable.qualifiedName
-              }
-            }
+        let paramEvaluated: ParameterLookupOutput[];
+        if (precomputed != null) {
+          paramEvaluated = precomputed.parameters;
+          for (const error of precomputed.parameterErrors) {
+            reportEvaluationError('parameter', error);
+          }
+        } else {
+          const { results, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
+            sourceTable.ref,
+            row as SqliteRow,
+            { parameterLookupSources: sourceTable.parameterLookupSources }
           );
-          this.logger.error(
-            `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${after.id}: ${error.error}`
-          );
+          paramEvaluated = results;
+          for (const error of paramErrors) {
+            reportEvaluationError('parameter', error.error);
+          }
         }
 
         batch.saveParameterData({
@@ -663,13 +712,15 @@ export abstract class MongoBucketBatch
 
   /** Buffer one complete input event synchronously, including its custom checkpoints. */
   protected bufferRecord(record: storage.SaveOptions): boolean {
-    const { after, before, sourceTable, tag } = record;
+    const { before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
     // V3 source tables own disjoint event-definition ids for each physical table. Multiple
     // SourceTables may evaluate different events, but each definition is evaluated through
     // at most one record for this row change.
     // V1/v2 storage leaves eventDefinitionIds undefined and selects by table ref.
     if (sourceTable.syncEvent) {
+      // Events are evaluated in JavaScript, so encoded rows need to be decoded here.
+      const decodedAfter = storage.decodeSourceRow(record.after);
       for (const { event, eventId } of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>
           cb.replicationEvent?.({
@@ -677,7 +728,7 @@ export abstract class MongoBucketBatch
             table: sourceTable,
             data: {
               op: tag,
-              after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
+              after: decodedAfter && utils.isCompleteRow(storeCurrentData, decodedAfter) ? decodedAfter : undefined,
               before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
             },
             event,
@@ -690,7 +741,9 @@ export abstract class MongoBucketBatch
     // Event-only tables can still buffer custom checkpoints. Only data/parameter
     // rows need source-record lookup and evaluation, but both kinds of input can flush.
     if (sourceTable.syncData || sourceTable.syncParameters) {
-      this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+      this.logger.debug(
+        `Saving ${record.tag}:${record.before?.id}/${storage.sourceRowLogId(record.after, record.afterReplicaId)}`
+      );
 
       this.batch ??= new OperationBatch(this.options.batchLimits);
       this.batch.push(new RecordOperation(record));

@@ -29,6 +29,7 @@ import {
   LegacySourceRowConverter,
   SourceRowConverter
 } from '@module/replication/SourceRowConverter.js';
+import { storage } from '@powersync/service-core';
 import type { RustAddon } from '@powersync/service-rust-types';
 import { rustModuleTest } from './util.js';
 
@@ -1189,6 +1190,12 @@ function rustConverter(rust: typeof RustAddon, options: CompatibilityContext): S
     rawToSqliteRow: function (source: Buffer): { row: SqliteRow; replicaId: any } {
       const decoded = evaluator.testDecodeBson(source);
       return { row: decoded, replicaId: '' };
+    },
+    encodeRow: function (): storage.EncodedSourceRow {
+      throw new Error('Function not implemented.');
+    },
+    parseReplicaId: function (): any {
+      throw new Error('Function not implemented.');
     },
     documentToSqliteRow: function (): SqliteRow {
       throw new Error('Function not implemented.');

@@ -3,6 +3,7 @@ import * as bson from 'bson';
 
 import { storage } from '@powersync/service-core';
 import { mongoTableId } from '../../utils/util.js';
+import type { PrecomputedEvaluation } from './MongoBucketBatch.js';
 import { DEFAULT_REPLICATION_BATCH_LIMITS, ReplicationBatchLimits } from './ReplicationBatchLimits.js';
 
 /**
@@ -90,6 +91,18 @@ export class RecordOperation {
   public readonly internalAfterKey: string | null;
   public readonly estimatedSize: number;
 
+  /**
+   * Outputs of evaluating this operation before saving it (e.g. in Rust), see `RustBlockEvaluation`.
+   *
+   * When this is not set, the row is evaluated in JavaScript.
+   */
+  public precomputed: PrecomputedEvaluation | undefined = undefined;
+  /**
+   * Whether this operation has been submitted for evaluation before saving it, to avoid evaluating it twice when an
+   * operation is retried in a later flush.
+   */
+  public submittedForEvaluation = false;
+
   constructor(public readonly record: storage.SaveOptions) {
     const afterId = record.afterReplicaId ?? null;
     const beforeId = record.beforeReplicaId ?? record.afterReplicaId;
@@ -118,9 +131,13 @@ export function cacheKey(table: bson.ObjectId, id: storage.ReplicaId) {
 /**
  * Estimate in-memory size of row.
  */
-function estimateRowSize(record: ToastableSqliteRow | undefined) {
+function estimateRowSize(record: storage.SourceRow<ToastableSqliteRow> | undefined) {
   if (record == null) {
     return 12;
+  }
+  if (record instanceof storage.EncodedSourceRow) {
+    // Not the decoded size, but a reasonable estimate without decoding the row.
+    return record.bytes.byteLength;
   }
   let size = 0;
   for (let [key, value] of Object.entries(record)) {

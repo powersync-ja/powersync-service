@@ -1,10 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { idPrefixFilter } from '../../../utils/util.js';
 import { cacheKey } from '../OperationBatch.js';
+import { ParameterLookupOutput, SerializedParameterLookup } from '../common/PersistedBatch.js';
 import {
+  EvaluatedBucketRef,
   LoadedSourceRecord,
   SourceRecordLookupEntry,
   SourceRecordLookupState,
@@ -20,7 +22,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     private readonly groupId: number
   ) {}
 
-  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): LoadedSourceRecord['buckets'] {
+  mapEvaluatedBuckets(evaluated: EvaluatedBucketRef[]): LoadedSourceRecord['buckets'] {
     return evaluated.map((entry) => ({
       definitionId: null,
       bucket: entry.bucket,
@@ -29,11 +31,16 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     }));
   }
 
-  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): SourceRecordLookupState[] {
-    return paramEvaluated.map((entry) => ({
-      indexId: null,
-      lookup: storage.serializeLookup(entry.lookup)
-    }));
+  mapParameterLookups(paramEvaluated: ParameterLookupOutput[]): SourceRecordLookupState[] {
+    return paramEvaluated.map((entry) => {
+      if (entry instanceof SerializedParameterLookup) {
+        throw new ReplicationAssertionError('Serialized parameter lookups are only supported in v3 storage');
+      }
+      return {
+        indexId: null,
+        lookup: storage.serializeLookup(entry.lookup)
+      };
+    });
   }
 
   private createId(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): SourceKey {

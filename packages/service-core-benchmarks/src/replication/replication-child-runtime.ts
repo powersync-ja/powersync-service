@@ -208,6 +208,9 @@ export class ReplicationChildRuntime {
       requests: bucketRequests(buckets),
       markerIds: this.state.markerIds ?? []
     });
+    if (evidence.putCount > 0) {
+      required(this.state.resource, 'storage resource').assertExpectedEvaluation?.();
+    }
     return {
       checkpoint: lsn,
       evidence,

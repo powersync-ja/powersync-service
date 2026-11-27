@@ -1,5 +1,6 @@
 import { mongo, MONGO_SOCKET_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
 import { MongoBucketStorage, PowerSyncMongo } from '@powersync/service-module-mongodb-storage';
+import { loadRustAddon } from '@powersync/service-rust-types';
 import {
   MongoStorageBenchmarkImplementationOptions,
   StorageBenchmarkImplementation,
@@ -30,10 +31,13 @@ export class MongoStorageBenchmarkImplementation implements StorageBenchmarkImpl
       }
       await database.clear();
       await database.createCheckpointEventsCollection();
+      const rustAddonPath = this.options.rustAddonPath;
       factory = new MongoBucketStorage(database, {
         replicationStreamNamePrefix: 'benchmark_',
-        supportsMultipleSyncConfigs: true
+        supportsMultipleSyncConfigs: true,
+        rustAddon: rustAddonPath == null ? undefined : loadRustAddon(rustAddonPath)
       });
+      const stats = factory.rustEvaluationStats;
       signal.throwIfAborted();
       const serverVersion = await readServerVersion(factory);
       const systemIdentifier = await factory.getSystemIdentifier();
@@ -43,7 +47,16 @@ export class MongoStorageBenchmarkImplementation implements StorageBenchmarkImpl
         environment: {
           implementation: this.id,
           server_version: serverVersion,
-          system_identifier: systemIdentifier
+          system_identifier: systemIdentifier,
+          evaluator: rustAddonPath == null ? 'javascript' : 'rust'
+        },
+        assertExpectedEvaluation() {
+          if (rustAddonPath == null) return;
+          if (stats.evaluatedInJavaScript > 0 || stats.failedInRust > 0 || stats.evaluatedInRust == 0) {
+            throw new Error(
+              `Expected all rows to be evaluated in Rust, but ${stats.evaluatedInRust} were evaluated in Rust, ${stats.failedInRust} failed in Rust and ${stats.evaluatedInJavaScript} were evaluated in JavaScript`
+            );
+          }
         },
         async dispose() {
           await disposeMongoResources(factory, database);

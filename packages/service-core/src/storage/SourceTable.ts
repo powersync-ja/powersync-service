@@ -1,6 +1,8 @@
+import type { RustAddon } from '@powersync/service-rust-types';
 import {
   BucketDataSource,
   BucketDefinitionId,
+  CompiledRustGroup,
   DEFAULT_TAG,
   EventDefinitionId,
   ParameterIndexId,
@@ -47,6 +49,14 @@ export interface SourceTableOptions {
    * Source-specific metadata. Null when no metadata has been recorded.
    */
   sourceMetadata?: JsonValue;
+
+  /** The Rust representation of this source table, storing matching data and parameter sources. */
+  rust?: CompiledRustTable;
+}
+
+export interface CompiledRustTable {
+  table: RustAddon.SourceTable;
+  group: CompiledRustGroup;
 }
 
 export interface TableSnapshotStatus {
@@ -113,10 +123,13 @@ export class SourceTable {
    */
   public snapshotStatus: TableSnapshotStatus | undefined = undefined;
 
+  public readonly rustRepresentation: CompiledRustTable | undefined;
+
   public snapshotComplete: boolean;
 
   constructor(public readonly options: SourceTableOptions) {
     this.snapshotComplete = options.snapshotComplete;
+    this.rustRepresentation = options.rust;
   }
 
   get id() {
@@ -205,7 +218,9 @@ export class SourceTable {
       parameterLookupSourceIds:
         this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds),
       eventDefinitionIds: this.eventDefinitionIds == null ? undefined : new Set(this.eventDefinitionIds),
-      sourceMetadata: structuredClone(sourceMetadata)
+      sourceMetadata: structuredClone(sourceMetadata),
+      // The compiled Rust representation is immutable, so copies can share it.
+      rust: this.rustRepresentation
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;

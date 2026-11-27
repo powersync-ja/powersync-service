@@ -14,6 +14,7 @@ import {
   SqliteJsonValue
 } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import { ParameterLookupOutput, SerializedParameterLookup } from '../common/PersistedBatch.js';
 import {
   BucketDataKey,
   BucketParameterDocumentBase,
@@ -320,6 +321,10 @@ export interface CustomCheckpointRequestDocumentV3 {
 
 export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {
   return new bson.Binary(bson.serialize({ l: lookup.values.slice(2) }));
+}
+
+export function serializedParameterLookupOutput(output: ParameterLookupOutput): bson.Binary {
+  return output instanceof SerializedParameterLookup ? output.lookup : serializeParameterLookup(output.lookup);
 }
 
 export function deserializeParameterLookup(lookup: bson.Binary, indexId: ParameterIndexId): SqliteJsonValue[] {

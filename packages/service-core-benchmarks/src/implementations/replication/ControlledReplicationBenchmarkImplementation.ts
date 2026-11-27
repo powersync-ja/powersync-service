@@ -3,6 +3,7 @@ import { ReplicationChildResourceMonitor } from '../../monitors/ReplicationChild
 import { ForkedReplicationChildTransport } from '../../replication/ForkedReplicationChildTransport.js';
 import { ReplicationChildClassDescriptor } from '../../replication/ReplicationChildClassLoader.js';
 import { ReplicationChildController, ReplicationChildTransport } from '../../replication/ReplicationChildController.js';
+import type { BenchmarkEvaluator } from '../../types/BenchmarkScenario.js';
 import {
   ReplicationBenchmarkImplementation,
   ReplicationBenchmarkProducerId,
@@ -24,6 +25,8 @@ export interface ReplicationBenchmarkSourceSelection {
 export interface ReplicationBenchmarkStorageSelection {
   readonly id: StorageBenchmarkImplementationId;
   readonly version: number;
+  /** Defaults to `javascript`. */
+  readonly evaluator?: BenchmarkEvaluator;
   createChildDescriptor(environment: Readonly<Record<string, string | undefined>>): ReplicationChildClassDescriptor;
 }
 
