@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use bson::RawDocument;
 use bumpalo::Bump;
 use serde::{
@@ -182,8 +184,7 @@ impl<'a, E: ReplicationEmbedder> InputRow<'a, E> {
             self.group,
             self.table,
             Program::new(self.frame, self.group.max_table_valued_functions),
-            arena.alloc_slice_fill_default(self.group.max_parameters),
-            arena.alloc_slice_fill_default(self.group.max_parameter_outputs),
+            arena.alloc_slice_fill_copy(self.group.max_parameters, MaybeUninit::uninit()),
         )
     }
 }

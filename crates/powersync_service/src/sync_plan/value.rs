@@ -1,32 +1,44 @@
 use std::{fmt::Display, mem};
 
-use serde::{Serialize, ser::SerializeSeq};
+use serde::Serialize;
 use serde_json::value::RawValue;
 
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SqliteValue<'a> {
-    #[default]
-    Null,
+    Null {
+        /// Whether this `null` value is treated similarly to `undefined` in JavaScript.
+        ///
+        /// For a stream like `SELECT id, foo FROM tbl`, the JavaScript implementation omits the
+        /// `foo` column when it's missing in the source record. We do the same here, so we need to
+        /// be able to tell regular null values apart from this state.
+        ///
+        /// This value is never emitted by functions or decoders (even when decoding
+        /// [bson::spec::ElementType::Undefined]).
+        is_undefined: bool,
+    },
     Float(f64),
     Integer(i64),
     Blob(&'a [u8]),
     Text(&'a str),
 }
 
-impl SqliteValue<'_> {
+impl<'a> SqliteValue<'a> {
     /// Whether this value can be represented in JSON.
     ///
     /// Blobs can't, which is why they're omitted from rows synced to clients.
     pub fn is_json_compatible(&self) -> bool {
-        !matches!(self, Self::Blob(_))
+        !matches!(self, Self::Blob(_) | Self::Null { is_undefined: true })
     }
 
-    /// Whether this is a valid bucket parameter.
+    /// Turns this value into a [Parameter] if it's a valid value for parameters.
     ///
     /// We don't support binary parameters, and `NULL` isn't a valid parameter because it doesn't
     /// compare to itself.
-    pub fn is_valid_parameter(&self) -> bool {
-        !matches!(self, SqliteValue::Null | SqliteValue::Blob(_))
+    pub fn as_parameter(&self) -> Option<Parameter<'a>> {
+        match self {
+            SqliteValue::Null { is_undefined: _ } | SqliteValue::Blob(_) => None,
+            _ => Some(Parameter(*self)),
+        }
     }
 
     /// Whether this value is true when used as a condition, following SQLite semantics.
@@ -35,7 +47,7 @@ impl SqliteValue<'_> {
     /// number by parsing their longest numeric prefix (so `'1abc'` is true and `'abc'` is false).
     pub fn is_truthy(&self) -> bool {
         match self {
-            Self::Null => false,
+            Self::Null { is_undefined: _ } => false,
             Self::Integer(i) => *i != 0,
             Self::Float(f) => *f != 0.0,
             Self::Text(text) => numeric_prefix(text.as_bytes()) != 0.0,
@@ -44,10 +56,16 @@ impl SqliteValue<'_> {
     }
 }
 
+impl Default for SqliteValue<'_> {
+    fn default() -> Self {
+        Self::Null { is_undefined: true }
+    }
+}
+
 impl Display for SqliteValue<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SqliteValue::Null => write!(f, "null"),
+            SqliteValue::Null { is_undefined: _ } => write!(f, "null"),
             SqliteValue::Float(num) => write!(f, "{num}"),
             SqliteValue::Integer(i) => write!(f, "{i}"),
             SqliteValue::Blob(items) => write!(f, "blob ({} bytes)", items.len()),
@@ -62,7 +80,7 @@ impl Serialize for SqliteValue<'_> {
         S: serde::Serializer,
     {
         match self {
-            SqliteValue::Null => serializer.serialize_unit(),
+            SqliteValue::Null { is_undefined: _ } => serializer.serialize_unit(),
             SqliteValue::Float(f) => serializer.serialize_f64(*f),
             SqliteValue::Integer(i) => serializer.serialize_i64(*i),
             SqliteValue::Blob(items) => serializer.serialize_bytes(items),
@@ -71,51 +89,54 @@ impl Serialize for SqliteValue<'_> {
     }
 }
 
-/// A collection of [SqliteValue]s that are also valid bucket parameters.
+/// A SQLite value that's also a valid bucket parameter (not null and not a blob).
+#[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct Parameters<'s, 'a>(pub &'s [SqliteValue<'a>]);
+pub struct Parameter<'a>(SqliteValue<'a>);
 
-impl<'a> AsRef<[SqliteValue<'a>]> for Parameters<'_, 'a> {
-    fn as_ref(&self) -> &[SqliteValue<'a>] {
-        self.0
+impl<'a> AsRef<SqliteValue<'a>> for Parameter<'a> {
+    fn as_ref(&self) -> &SqliteValue<'a> {
+        &self.0
     }
 }
 
-impl Serialize for Parameters<'_, '_> {
+impl Serialize for Parameter<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        match self.0 {
+            SqliteValue::Float(f) => {
+                // Format doubles in a way that's compatible JSONBucketNameSerialize, which in
+                // turn uses JSON.stringify for numbers. It's important that Float(0.0) and
+                // Integer(0) get the same representation.
+                if !f.is_finite() {
+                    // NaN and Infinity serialize to null
+                    serializer.serialize_none()
+                } else if serializer.is_human_readable() {
+                    // Formatting to JSON, we serialize the number ourself.
+                    let mut buffer = ryu_js::Buffer::new();
+                    let formatted = buffer.format_finite(f);
+                    let as_json = unsafe {
+                        // Safety: RawValue has the same representation as str. Given that we
+                        // know the buffer holds a valid JSON value, we can cast references.
+                        mem::transmute::<&str, &RawValue>(formatted)
+                    };
 
-        for value in self.0 {
-            match value {
-                SqliteValue::Float(f) => {
-                    // Format doubles in a way that's compatible JSONBucketNameSerialize, which in
-                    // turn uses JSON.stringify for numbers. It's important that Float(0.0) and
-                    // Integer(0) get the same representation.
-                    if !f.is_finite() {
-                        // NaN and Infinity serialize to null
-                        seq.serialize_element(&None::<f64>)
+                    as_json.serialize(serializer)
+                } else {
+                    // Serializing to BSON (e.g. for parameter lookups).
+                    if f.fract() == 0.0 && (i64::MIN as f64..i64::MAX as f64).contains(&f) {
+                        serializer.serialize_i64(f as i64)
                     } else {
-                        let mut buffer = ryu_js::Buffer::new();
-                        let formatted = buffer.format_finite(*f);
-                        let as_json = unsafe {
-                            // Safety: RawValue has the same representation as str. Given that we
-                            // know the buffer holds a valid JSON value, we can cast references.
-                            mem::transmute::<&str, &RawValue>(formatted)
-                        };
-
-                        seq.serialize_element(as_json)
+                        serializer.serialize_f64(f)
                     }
                 }
-                SqliteValue::Integer(i) => seq.serialize_element(i),
-                SqliteValue::Text(str) => seq.serialize_element(str),
-                SqliteValue::Null | SqliteValue::Blob(_) => unreachable!(),
-            }?;
+            }
+            SqliteValue::Integer(i) => serializer.serialize_i64(i),
+            SqliteValue::Text(str) => serializer.serialize_str(str),
+            SqliteValue::Null { is_undefined: _ } | SqliteValue::Blob(_) => unreachable!(),
         }
-
-        seq.end()
     }
 }
 
@@ -177,13 +198,19 @@ fn numeric_prefix(bytes: &[u8]) -> f64 {
 
 #[cfg(test)]
 mod test {
-    use crate::sync_plan::Parameters;
+    use crate::sync_plan::value::Parameter;
 
     use super::SqliteValue;
 
     #[test]
     fn truthy() {
-        assert!(!SqliteValue::Null.is_truthy());
+        assert!(
+            !SqliteValue::Null {
+                is_undefined: false
+            }
+            .is_truthy()
+        );
+        assert!(!SqliteValue::Null { is_undefined: true }.is_truthy());
         assert!(SqliteValue::Integer(-1).is_truthy());
         assert!(!SqliteValue::Integer(0).is_truthy());
         assert!(SqliteValue::Float(0.5).is_truthy());
@@ -201,28 +228,22 @@ mod test {
     }
 
     fn parameter(source: SqliteValue) -> String {
-        let value: &[SqliteValue] = &[source];
-        let params = Parameters(value);
-
-        serde_json::to_string(&params).unwrap()
+        serde_json::to_string(&Parameter(source)).unwrap()
     }
 
     #[test]
     fn parameter_serialize() {
-        assert_eq!(parameter(SqliteValue::Text("a")), "[\"a\"]");
+        assert_eq!(parameter(SqliteValue::Text("a")), "\"a\"");
 
-        assert_eq!(parameter(SqliteValue::Integer(123)), "[123]");
-        assert_eq!(parameter(SqliteValue::Float(123.0)), "[123]");
-        assert_eq!(parameter(SqliteValue::Float(123.1)), "[123.1]");
-        assert_eq!(parameter(SqliteValue::Float(-0.0)), "[0]");
-        assert_eq!(
-            parameter(SqliteValue::Float(1e20)),
-            "[100000000000000000000]"
-        );
-        assert_eq!(parameter(SqliteValue::Float(1e21)), "[1e+21]"); // matches JS
+        assert_eq!(parameter(SqliteValue::Integer(123)), "123");
+        assert_eq!(parameter(SqliteValue::Float(123.0)), "123");
+        assert_eq!(parameter(SqliteValue::Float(123.1)), "123.1");
+        assert_eq!(parameter(SqliteValue::Float(-0.0)), "0");
+        assert_eq!(parameter(SqliteValue::Float(1e20)), "100000000000000000000");
+        assert_eq!(parameter(SqliteValue::Float(1e21)), "1e+21"); // matches JS
 
         // This matches what JavaScript does, arguably it shouldn't be a parameter at all.
-        assert_eq!(parameter(SqliteValue::Float(f64::INFINITY)), "[null]");
-        assert_eq!(parameter(SqliteValue::Float(f64::NAN)), "[null]");
+        assert_eq!(parameter(SqliteValue::Float(f64::INFINITY)), "null");
+        assert_eq!(parameter(SqliteValue::Float(f64::NAN)), "null");
     }
 }

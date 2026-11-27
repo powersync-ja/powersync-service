@@ -268,7 +268,9 @@ impl<Data> SqlExpression<Data> {
 impl LiteralExpression {
     pub fn evaluate<'a>(&'a self) -> SqliteValue<'a> {
         match self {
-            LiteralExpression::Null => SqliteValue::Null,
+            LiteralExpression::Null => SqliteValue::Null {
+                is_undefined: false,
+            },
             LiteralExpression::Double(value) => SqliteValue::Float(*value),
             LiteralExpression::Integer(value) => SqliteValue::Integer(*value),
             LiteralExpression::String(value) => SqliteValue::Text(value),

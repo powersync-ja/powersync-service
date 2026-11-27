@@ -4,7 +4,7 @@ use serde_json::{Value, json, to_value};
 
 use super::{Evaluator, RowEvaluation};
 use crate::sync_plan::{
-    Parameters, ProcessedGroupMember, ProcessorGroup, SqliteValue,
+    ProcessedGroupMember, ProcessorGroup, SqliteValue,
     expression::{SqlExpression, TableValuedFunction},
     plan::{
         ColumnSource, RowProjection, StreamDataSource, StreamParameterIndexLookupCreator,
@@ -12,6 +12,7 @@ use crate::sync_plan::{
         TableProcessorTableValuedFunction, TableProcessorTableValuedFunctionOutput,
     },
     test::{TestEmbedder, evaluator, source_table_ref, table_pattern},
+    value::Parameter,
 };
 
 #[derive(Debug, PartialEq)]
@@ -28,8 +29,8 @@ struct RecordingSink {
     lookups: Vec<(&'static str, String, String)>,
 }
 
-fn format_parameters(values: Parameters) -> String {
-    serde_json::to_string(&values).unwrap()
+fn format_parameters(values: &[Parameter<'_>]) -> String {
+    serde_json::to_string(values).unwrap()
 }
 
 impl RecordingSink {
@@ -234,10 +235,7 @@ fn emits_columns_once() {
         &[("a", SqliteValue::Integer(1))],
         &mut sink,
     );
-    assert_eq!(
-        sink.rows[1].columns,
-        json!({"x": 1, "y": 1, "a": 1, "z":null})
-    );
+    assert_eq!(sink.rows[1].columns, json!({"x": 1, "y": 1, "a": 1}));
 }
 
 #[test]

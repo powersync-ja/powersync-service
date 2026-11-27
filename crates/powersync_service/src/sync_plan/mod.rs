@@ -73,7 +73,7 @@ pub use evaluation::{
 pub use processor_group::ProcessorGroup;
 pub use processor_group::{ProcessedDataSource, ProcessedGroupMember, ProcessedParameterSource};
 pub use table_pattern::SourceTableRef;
-pub use value::{Parameters, SqliteValue};
+pub use value::SqliteValue;
 
 /// Interns column names and aliases referenced by processors in a [ProcessorGroup].
 ///

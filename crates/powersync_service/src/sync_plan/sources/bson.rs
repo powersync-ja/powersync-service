@@ -37,7 +37,9 @@ impl<'a> SqliteValueFromBson<'a> {
             RawBsonRef::Int64(v) => SqliteValue::Integer(v),
             RawBsonRef::String(v) => SqliteValue::Text(v),
             RawBsonRef::Null | RawBsonRef::Undefined | RawBsonRef::MaxKey | RawBsonRef::MinKey => {
-                SqliteValue::Null
+                SqliteValue::Null {
+                    is_undefined: false,
+                }
             }
 
             // TODO: Support these before using the Rust evaluator anywhere, the current BSON parser

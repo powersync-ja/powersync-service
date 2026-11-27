@@ -50,7 +50,9 @@ impl<'a> SqliteValueFromJson<'a> {
 
     fn null_value(&self) -> SqliteValue<'a> {
         if self.fixed_json_extract {
-            SqliteValue::Null
+            SqliteValue::Null {
+                is_undefined: false,
+            }
         } else {
             SqliteValue::Text("null")
         }
@@ -203,7 +205,12 @@ mod test {
         assert_eq!(scalar("1e300"), Float(1e300));
         assert_eq!(scalar("true"), Integer(1));
         assert_eq!(scalar("false"), Integer(0));
-        assert_eq!(scalar("null"), Null);
+        assert_eq!(
+            scalar("null"),
+            Null {
+                is_undefined: false
+            }
+        );
         assert_eq!(scalar(r#""str""#), Text("str"));
         assert_eq!(scalar(r#""""#), Text(""));
         assert_eq!(scalar(r#""a\n\"b\"ä""#), Text("a\n\"b\"ä"));
@@ -259,7 +266,12 @@ mod test {
 
         assert_eq!(parse_or_text("42"), Integer(42));
         assert_eq!(parse_or_text(r#""a\nb""#), Text("a\nb"));
-        assert_eq!(parse_or_text("null"), Null);
+        assert_eq!(
+            parse_or_text("null"),
+            Null {
+                is_undefined: false
+            }
+        );
 
         for json in [
             "[]",

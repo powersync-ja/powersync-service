@@ -5,7 +5,7 @@ mod projected_row;
 #[cfg(test)]
 mod test;
 
-use std::sync::Arc;
+use std::{mem::MaybeUninit, sync::Arc};
 
 use bumpalo::Bump;
 pub use frame::Frame;
@@ -13,12 +13,13 @@ pub use input_row::{InputRow, PreparedField};
 pub use projected_row::ProjectedRow;
 
 use crate::sync_plan::{
-    CompatibilityContext, EvaluationError, Parameters, ReplicationEmbedder, SourceTableRef,
-    SqliteValue, StringInterner, Symbol,
+    CompatibilityContext, EvaluationError, ReplicationEmbedder, SourceTableRef, StringInterner,
+    Symbol,
     evaluation::program::Program,
     processor_group::{
         ProcessedDataSource, ProcessedGroupMember, ProcessedParameterSource, ProcessorGroup, Slot,
     },
+    value::Parameter,
 };
 
 /// Evaluates rows to buckets and parameter results.
@@ -80,9 +81,7 @@ pub struct RowEvaluation<'a, E: ReplicationEmbedder> {
     program: Program<'a>,
     /// A buffer for parameters of data and parameter sources, large enough for all members of the
     /// group.
-    parameters: &'a mut [SqliteValue<'a>],
-    /// A buffer for outputs of parameter sources, large enough for all members of the group.
-    parameter_outputs: &'a mut [SqliteValue<'a>],
+    parameters: &'a mut [MaybeUninit<Parameter<'a>>],
 }
 
 impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
@@ -90,15 +89,13 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
         group: &'a ProcessorGroup<E>,
         table: SourceTableRef<'a>,
         program: Program<'a>,
-        parameters: &'a mut [SqliteValue<'a>],
-        parameter_outputs: &'a mut [SqliteValue<'a>],
+        parameters: &'a mut [MaybeUninit<Parameter<'a>>],
     ) -> Self {
         Self {
             group,
             table,
             program,
             parameters,
-            parameter_outputs,
         }
     }
 
@@ -141,39 +138,36 @@ impl<'a, E: ReplicationEmbedder> RowEvaluation<'a, E> {
             eval: self,
         }
     }
+}
 
-    /// Runs the program to the next match for which `read_outputs` returns `true`.
-    ///
-    /// Returns `false` once there are no further matches.
-    fn next_match(
-        &mut self,
-        read_outputs: impl Fn(&mut Self) -> bool,
-    ) -> Result<bool, EvaluationError<'a>> {
-        while self.program.next_match()? {
-            if read_outputs(self) {
-                return Ok(true);
-            }
-            // Invalid parameters, skip this match.
+/// Runs the program to the next match for which all `slots` contain valid parameters.
+///
+/// Returns the parameters read from `slots`, or [None] once there are no further valid matches.
+fn next_match<'r, 'a>(
+    program: &mut Program<'a>,
+    slots: impl Iterator<Item = Slot> + Clone,
+    buffer: &'r mut [MaybeUninit<Parameter<'a>>],
+) -> Result<Option<&'r [Parameter<'a>]>, EvaluationError<'a>> {
+    'matches: while program.next_match()? {
+        let frame = &program.frame;
+        let mut len = 0;
+        for slot in slots.clone() {
+            let Some(parameter) = frame[slot].as_parameter() else {
+                // Not valid parameters, skip this match.
+                continue 'matches;
+            };
+
+            buffer[len].write(parameter);
+            len += 1;
         }
 
-        Ok(false)
-    }
-}
-
-/// Copies values from `slots` into `buffer`, returning whether they are valid parameters.
-fn read_values<'a>(frame: &Frame<'a>, slots: &[Slot], buffer: &mut [SqliteValue<'a>]) -> bool {
-    let mut valid = true;
-    for (slot, value) in slots.iter().zip(buffer.iter_mut()) {
-        *value = frame[*slot];
-        valid &= value.is_valid_parameter();
+        return Ok(Some(unsafe {
+            // SAFETY: The loop above initialized the first `len` entries of the buffer.
+            buffer[..len].assume_init_ref()
+        }));
     }
 
-    valid
-}
-
-/// Views the first `len` values of a buffer filled by [read_values].
-fn as_parameters<'b, 'a>(buffer: &'b [SqliteValue<'a>], len: usize) -> Parameters<'b, 'a> {
-    Parameters(&buffer[..len])
+    Ok(None)
 }
 
 pub struct BucketDataIterator<'a, 'b, E: ReplicationEmbedder> {
@@ -186,7 +180,7 @@ pub struct BucketDataIterator<'a, 'b, E: ReplicationEmbedder> {
 /// An evaluated output row.
 pub struct BucketData<'a, 'r, E: ReplicationEmbedder> {
     pub bucket: &'a E::BucketId,
-    pub parameters: Parameters<'r, 'a>,
+    pub parameters: &'r [Parameter<'a>],
     pub table: &'a str,
     pub row: ProjectedRow<'r, 'a>,
 }
@@ -203,17 +197,14 @@ impl<'a, E: ReplicationEmbedder> BucketDataIterator<'a, '_, E> {
         }
 
         let source = self.source;
-        let has_match = self.eval.next_match(|eval| {
-            read_values(
-                &eval.program.frame,
-                &source.common.parameters,
-                eval.parameters,
-            )
-        });
-
-        match has_match {
-            Ok(true) => {}
-            Ok(false) => {
+        let next_match = next_match(
+            &mut self.eval.program,
+            source.common.parameters.iter().copied(),
+            self.eval.parameters,
+        );
+        let parameters = match next_match {
+            Ok(Some(parameters)) => parameters,
+            Ok(None) => {
                 self.done = true;
                 return None;
             }
@@ -221,17 +212,16 @@ impl<'a, E: ReplicationEmbedder> BucketDataIterator<'a, '_, E> {
                 self.done = true;
                 return Some(Err(e));
             }
-        }
+        };
 
-        let eval = &*self.eval;
-        let frame = &eval.program.frame;
+        let frame = &self.eval.program.frame;
         let projection = &source.projection;
         Some(Ok(BucketData {
             bucket: &source.id,
-            parameters: as_parameters(eval.parameters, source.common.parameters.len()),
+            parameters,
             table: self.table,
             row: ProjectedRow {
-                interner: &eval.group.interner,
+                interner: &self.eval.group.interner,
                 projection,
                 frame,
                 star_columns: if projection.columns.has_star() {
@@ -252,8 +242,8 @@ pub struct ParameterLookupIterator<'a, 'b, E: ReplicationEmbedder> {
 
 pub struct EvaluatedParameter<'a, 'r, E: ReplicationEmbedder> {
     pub id: &'a E::ParameterId,
-    pub lookup: Parameters<'r, 'a>,
-    pub outputs: Parameters<'r, 'a>,
+    pub lookup: &'r [Parameter<'a>],
+    pub outputs: &'r [Parameter<'a>],
 }
 
 impl<'a, E: ReplicationEmbedder> ParameterLookupIterator<'a, '_, E> {
@@ -267,16 +257,20 @@ impl<'a, E: ReplicationEmbedder> ParameterLookupIterator<'a, '_, E> {
         }
 
         let source = self.source;
-        let has_match = self.eval.next_match(|eval| {
-            let frame = &eval.program.frame;
-            // Not short-circuiting since both buffers need to be filled for a valid match.
-            read_values(frame, &source.common.parameters, eval.parameters)
-                & read_values(frame, &source.outputs, eval.parameter_outputs)
-        });
+        let next_match = next_match(
+            &mut self.eval.program,
+            source
+                .common
+                .parameters
+                .iter()
+                .chain(&source.outputs)
+                .copied(),
+            self.eval.parameters,
+        );
 
-        match has_match {
-            Ok(true) => {}
-            Ok(false) => {
+        let (lookup, outputs) = match next_match {
+            Ok(Some(values)) => values.split_at(source.common.parameters.len()),
+            Ok(None) => {
                 self.done = true;
                 return None;
             }
@@ -284,13 +278,12 @@ impl<'a, E: ReplicationEmbedder> ParameterLookupIterator<'a, '_, E> {
                 self.done = true;
                 return Some(Err(e));
             }
-        }
+        };
 
-        let eval = &*self.eval;
         Some(Ok(EvaluatedParameter {
             id: &source.id,
-            lookup: as_parameters(eval.parameters, source.common.parameters.len()),
-            outputs: as_parameters(eval.parameter_outputs, source.outputs.len()),
+            lookup,
+            outputs,
         }))
     }
 }

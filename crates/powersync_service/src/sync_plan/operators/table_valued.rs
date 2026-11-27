@@ -38,7 +38,7 @@ impl<'a> TableValuedFunctionEvaluation<'a> {
 
         let value = frame[inputs[0]];
         let state = match value {
-            SqliteValue::Null => FunctionState::JsonEach(Default::default()),
+            SqliteValue::Null { is_undefined: _ } => FunctionState::JsonEach(Default::default()),
             SqliteValue::Text(src) => {
                 let src: &'a str = src;
                 let state = JsonEachState::parse_json(src, frame)?;
@@ -92,7 +92,12 @@ impl<'a> JsonEachState<'a> {
             deserializer.end()?;
 
             // It is, we report that as a single (null, scalar value) entry.
-            let entries = frame.arena.alloc_slice_copy(&[(SqliteValue::Null, value)]);
+            let entries = frame.arena.alloc_slice_copy(&[(
+                SqliteValue::Null {
+                    is_undefined: false,
+                },
+                value,
+            )]);
 
             return Ok(Self { index: 0, entries });
         }
@@ -215,7 +220,16 @@ mod test {
     fn null_input() {
         let arena = Bump::new();
         let compatibility = CompatibilityContext::default();
-        assert!(json_each_with(&arena, &compatibility, SqliteValue::Null).is_empty());
+        assert!(
+            json_each_with(
+                &arena,
+                &compatibility,
+                SqliteValue::Null {
+                    is_undefined: false
+                }
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -231,7 +245,12 @@ mod test {
                 (Integer(3), Text("\"escaped\"")),
                 (Integer(4), Integer(1)),
                 (Integer(5), Integer(0)),
-                (Integer(6), Null),
+                (
+                    Integer(6),
+                    Null {
+                        is_undefined: false
+                    }
+                ),
                 (Integer(7), Float(18446744073709551615.0)),
             ])
         );
@@ -254,7 +273,12 @@ mod test {
         assert_eq!(
             json_each(r#"{"b": 1, "a": 2, "b": 3, "c": 4, "b": [5], "a": null}"#),
             rows(&[
-                (Text("a"), Null),
+                (
+                    Text("a"),
+                    Null {
+                        is_undefined: false
+                    }
+                ),
                 (Text("b"), Text("[5]")),
                 (Text("c"), Integer(4))
             ])
@@ -270,8 +294,24 @@ mod test {
     fn scalar() {
         use SqliteValue::*;
 
-        assert_eq!(json_each("42"), rows(&[(Null, Integer(42))]));
-        assert_eq!(json_each(r#""str""#), rows(&[(Null, Text("str"))]));
+        assert_eq!(
+            json_each("42"),
+            rows(&[(
+                Null {
+                    is_undefined: false
+                },
+                Integer(42)
+            )])
+        );
+        assert_eq!(
+            json_each(r#""str""#),
+            rows(&[(
+                Null {
+                    is_undefined: false
+                },
+                Text("str")
+            )])
+        );
     }
 
     #[test]

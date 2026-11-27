@@ -25,7 +25,9 @@ impl<'a> ProjectedRow<'_, 'a> {
     where
         S: serde::Serializer,
     {
-        let mut id = SqliteValue::Null;
+        let mut id = SqliteValue::Null {
+            is_undefined: false,
+        };
         let Self {
             interner,
             projection,
@@ -62,7 +64,13 @@ impl<'a> ProjectedRow<'_, 'a> {
             let mut name = star_column.name;
 
             if let Some(known_symbol) = star_column.symbol {
-                if projection.after_aliases.contains(&known_symbol) {
+                let is_shadowed = projection
+                    .after_aliases
+                    .get(&known_symbol)
+                    .map(|slot| frame[*slot])
+                    .is_some_and(|v| v.is_json_compatible());
+
+                if is_shadowed {
                     // Shadowed by a value after the *, e.g. id in `SELECT *, ... as id`.
                     continue;
                 }
