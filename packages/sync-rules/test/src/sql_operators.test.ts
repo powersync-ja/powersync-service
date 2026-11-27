@@ -290,6 +290,32 @@ streams:
     expect(evaluate('3', '2.0')).toStrictEqual(1.0);
   });
 
+  operatorTest('IN', ({ compileOperator }) => {
+    // Sync Streams compile IN with a JSON array to ps_json_contains.
+    const evaluate = compileOperator('IN', (a, b) => ({
+      type: 'function',
+      function: 'ps_json_contains',
+      parameters: [a, b]
+    }));
+
+    expect(evaluate(1n, '[1, 2]')).toStrictEqual(1n);
+    expect(evaluate(3n, '[1, 2]')).toStrictEqual(0n);
+    expect(evaluate(1.0, '[1, 2]')).toStrictEqual(1n);
+    expect(evaluate(2n, '[1.5, 2.0]')).toStrictEqual(1n);
+    expect(evaluate('a', '["a", "b"]')).toStrictEqual(1n);
+    expect(evaluate('1', '[1]')).toStrictEqual(0n);
+    expect(evaluate(1n, '[true]')).toStrictEqual(1n);
+    expect(evaluate(0n, '[false]')).toStrictEqual(1n);
+    expect(evaluate('[1]', '[[1]]')).toStrictEqual(1n);
+    expect(evaluate(1n, '[null]')).toStrictEqual(0n);
+    expect(evaluate(1n, '[]')).toStrictEqual(0n);
+    expect(evaluate(9223372036854775807n, '[9223372036854775807]')).toStrictEqual(1n);
+    expect(evaluate('a\n', '["a\\n"]')).toStrictEqual(1n);
+
+    expect(evaluate(null, '[null]')).toStrictEqual(null);
+    expect(evaluate(1n, null)).toStrictEqual(null);
+  });
+
   test('&&', () => {
     // This is the overlap operator, which is implemented differently for Sync Streams.
 

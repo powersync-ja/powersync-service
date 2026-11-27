@@ -267,48 +267,6 @@ mod test {
     }
 
     #[test]
-    fn ps_json_contains_values() {
-        use SqliteValue::*;
-        let t = "Ok(Integer(1))";
-        let f = "Ok(Integer(0))";
-
-        assert_eq!(call(ps_json_contains, &[Integer(1), Text("[1, 2]")]), t);
-        assert_eq!(call(ps_json_contains, &[Integer(3), Text("[1, 2]")]), f);
-        assert_eq!(call(ps_json_contains, &[Float(1.0), Text("[1, 2]")]), t);
-        assert_eq!(call(ps_json_contains, &[Integer(2), Text("[1.5, 2.0]")]), t);
-        assert_eq!(
-            call(ps_json_contains, &[Text("a"), Text(r#"["a", "b"]"#)]),
-            t
-        );
-        assert_eq!(call(ps_json_contains, &[Text("1"), Text("[1]")]), f);
-        assert_eq!(call(ps_json_contains, &[Integer(1), Text("[true]")]), t);
-        assert_eq!(call(ps_json_contains, &[Integer(0), Text("[false]")]), t);
-        assert_eq!(call(ps_json_contains, &[Text("[1]"), Text("[[1]]")]), t);
-        assert_eq!(call(ps_json_contains, &[Integer(1), Text("[null]")]), f);
-        assert_eq!(call(ps_json_contains, &[Integer(1), Text("[]")]), f);
-        assert_eq!(
-            call(
-                ps_json_contains,
-                &[Integer(9223372036854775807), Text("[9223372036854775807]")]
-            ),
-            t
-        );
-        assert_eq!(
-            call(ps_json_contains, &[Text("a\n"), Text(r#"["a\n"]"#)]),
-            t
-        );
-
-        assert_eq!(
-            call(ps_json_contains, &[SqliteValue::null(), Text("[null]")]),
-            "Ok(Null)"
-        );
-        assert_eq!(
-            call(ps_json_contains, &[Integer(1), SqliteValue::null()]),
-            "Ok(Null)"
-        );
-    }
-
-    #[test]
     fn ps_json_contains_errors() {
         use SqliteValue::*;
 

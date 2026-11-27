@@ -87,9 +87,8 @@ impl SyncStreamEvaluator {
     ) -> Result<EvaluatedBlock> {
         let tables = resolve_tables(&tables);
         let documents = InputDocument::parse_documents(&tables, &buffers, &documents)?;
-        let outputs =
-            evaluate_documents(&self.inner, &self.scratch, &tables, &buffers, &documents)?;
-        Ok(outputs.into())
+
+        evaluate_documents(&self.inner, &self.scratch, &tables, &buffers, &documents)
     }
 
     /// Like [Self::evaluate_bson_block], but evaluates the block on the libuv thread pool.
@@ -174,7 +173,7 @@ impl SyncStreamEvaluator {
                 Ok::<_, Error>(input.finish())
             })?;
 
-        Ok(outputs.into())
+        Ok(outputs)
     }
 }
 
@@ -259,7 +258,7 @@ impl Task for EvaluateBlockTask {
     }
 
     fn resolve(&mut self, _env: Env, outputs: EvaluatedBlock) -> Result<EvaluatedBlock> {
-        Ok(outputs.into())
+        Ok(outputs)
     }
 }
 

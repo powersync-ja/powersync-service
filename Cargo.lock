@@ -820,7 +820,6 @@ dependencies = [
  "ryu-js",
  "serde",
  "serde_json",
- "smallvec",
  "string-interner",
  "thiserror",
 ]

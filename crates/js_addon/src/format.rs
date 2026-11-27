@@ -157,7 +157,7 @@ impl EvaluatedBlock {
     /// 1. The index of the source row being processed.
     /// 2. The [crate::block::ParameterElement::index] of the parameter source.
     /// 3. and 4. Byte range (in [Self::bytes]) of a BSON document having the format `{l: inputs}`,
-    /// matching `serializeLookupBuffer` for Mongo bucket storage v3+.
+    ///    matching `serializeLookupBuffer` for Mongo bucket storage v3+.
     ///
     /// Bucket parameters of each lookup are not part of this array, they're in
     /// [Self::bucket_parameters] (at the same index as the lookup).
