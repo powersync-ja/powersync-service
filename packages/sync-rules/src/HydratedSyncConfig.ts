@@ -1,5 +1,7 @@
+import type { RustAddon } from '@powersync/service-rust-types';
 import { BucketDataSource, HydratedBucketSource } from './BucketSource.js';
 import {
+  BucketDataScope,
   BucketParameterQuerier,
   BucketSource,
   CompatibilityContext,
@@ -18,10 +20,13 @@ import {
   mergeDataSources,
   mergeParameterIndexLookupCreators,
   ParameterIndexLookupCreator,
+  ParameterLookupScope,
   parameterLookupScopeKey,
   QuerierError,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,
+  serializeDataSource,
+  serializeParameterSource,
   SqliteInputValue,
   SqliteValue,
   SyncConfig,
@@ -30,6 +35,9 @@ import {
 import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
 import { createScalarExpressionEngine } from './sync_plan/engine/factory.js';
+import { PreparedStreamBucketDataSource } from './sync_plan/evaluator/bucket_data_source.js';
+import { PreparedParameterIndexLookupCreator } from './sync_plan/evaluator/parameter_index_lookup_creator.js';
+import * as plan from './sync_plan/plan.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
 import { applyRowContext, uniqueBy } from './utils.js';
 
@@ -37,6 +45,27 @@ export interface MatchingSources {
   bucketDataSources: BucketDataSource[];
   parameterLookupSources: ParameterIndexLookupCreator[];
 }
+
+/**
+ * A {@link RustAddon.ProcessorGroup} created by {@link HydratedSyncConfig.compileToRustGroup}.
+ */
+export interface CompiledRustGroup {
+  group: RustAddon.ProcessorGroup;
+  /**
+   * Elements of the group, indexed by the element index reported in evaluated outputs.
+   */
+  elements: RustGroupElement[];
+}
+
+export type RustGroupElement =
+  | {
+      type: 'data';
+      /**
+       * Scopes of the data source variant, indexed by the prefix index reported for evaluated rows.
+       */
+      scopes: BucketDataScope[];
+    }
+  | { type: 'parameter'; source: ParameterIndexLookupCreator; scope: ParameterLookupScope };
 
 /**
  * HydratedSyncConfig is sync config definitions along with persisted state.
@@ -297,12 +326,100 @@ export class HydratedSyncConfig {
     return { querier, errors };
   }
 
+  /**
+   * Compiles matching sources of a source table into a processor group for the Rust evaluator.
+   *
+   * The Rust evaluator doesn't match tables against table patterns, so `sources` must only contain sources syncing
+   * `table` (e.g. from {@link getMatchingSources}). Since a data source can have variants for different tables, this
+   * only includes variants matching `table`.
+   *
+   * Returns null if a source can't be evaluated in Rust (e.g. legacy Sync Rules).
+   */
+  compileToRustGroup(
+    addon: typeof RustAddon,
+    table: SourceTableRef,
+    sources: MatchingSources
+  ): CompiledRustGroup | null {
+    const elements: RustGroupElement[] = [];
+
+    // Compiler optimizations allow sharing a variant between streams, so we emit a single element with multiple scopes
+    // for each variant.
+    const dataVariants = new Map<plan.StreamDataSource, { defaultSchema: string; scopes: BucketDataScope[] }>();
+    for (const dataSource of sources.bucketDataSources) {
+      if (!(dataSource instanceof PreparedStreamBucketDataSource)) {
+        return null;
+      }
+
+      const defaultSchema = dataSource.defaultSchema;
+      const scope = this.hydrationInput.hydrationState.getBucketSourceScope(dataSource);
+      for (const variant of dataSource.source.sources) {
+        if (!variant.sourceTable.toTablePattern(defaultSchema).matches(table)) {
+          continue;
+        }
+
+        const existing = dataVariants.get(variant);
+        if (existing != null) {
+          existing.scopes.push(scope);
+        } else {
+          dataVariants.set(variant, { defaultSchema, scopes: [scope] });
+        }
+      }
+    }
+
+    const parameters: [PreparedParameterIndexLookupCreator, ParameterLookupScope][] = [];
+    for (const parameter of sources.parameterLookupSources) {
+      if (!(parameter instanceof PreparedParameterIndexLookupCreator)) {
+        return null;
+      }
+      parameters.push([parameter, this.hydrationInput.hydrationState.getParameterIndexLookupScope(parameter)]);
+    }
+
+    const group = new addon.ProcessorGroup();
+    for (const [variant, { defaultSchema, scopes }] of dataVariants) {
+      let handle = HydratedSyncConfig.#rustStreamDataSources.get(variant);
+      if (handle == null) {
+        handle = addon.deserializeStreamDataSource(defaultSchema, JSON.stringify(serializeDataSource(variant)));
+        HydratedSyncConfig.#rustStreamDataSources.set(variant, handle);
+      }
+
+      group.includeData(
+        elements.length,
+        scopes.map((scope) => scope.bucketPrefix),
+        handle
+      );
+      elements.push({ type: 'data', scopes });
+    }
+
+    for (const [parameter, scope] of parameters) {
+      const defaultSchema = parameter.defaultSchema;
+      let handle = HydratedSyncConfig.#rustParameterLookupCreators.get(parameter.source);
+      if (handle == null) {
+        handle = addon.deserializeStreamParameterLookupCreator(
+          defaultSchema,
+          JSON.stringify(serializeParameterSource(parameter.source))
+        );
+        HydratedSyncConfig.#rustParameterLookupCreators.set(parameter.source, handle);
+      }
+
+      group.includeParameter(elements.length, scope.lookupName, scope.queryId, handle);
+      elements.push({ type: 'parameter', source: parameter, scope });
+    }
+
+    return { group, elements };
+  }
+
   private assertSingleSourceDefinition(debugName: string) {
     // We may split the types in the future to enforce this on a type level instead of runtime level
     if (this.sourceDefinitions.length != 1) {
       throw new Error(`${debugName} is not supported for HydratedSyncConfig with multiple SyncConfigs`);
     }
   }
+
+  static readonly #rustStreamDataSources = new WeakMap<plan.StreamDataSource, RustAddon.StreamDataSource>();
+  static readonly #rustParameterLookupCreators = new WeakMap<
+    plan.StreamParameterIndexLookupCreator,
+    RustAddon.StreamParameterLookupCreator
+  >();
 }
 
 function assertSharedCompatibility(definitions: SyncConfig[]): CompatibilityContext {

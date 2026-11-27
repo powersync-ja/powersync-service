@@ -2,7 +2,7 @@ use std::{borrow::Cow, sync::Arc};
 
 use serde::{Deserialize, de::Error};
 
-use crate::sync_plan::SqliteValue;
+use crate::sync_plan::{SqliteValue, operators::functions};
 
 /// An enumeration of all scalar SQL expressions supported by the sync service.
 ///
@@ -183,6 +183,21 @@ pub enum ScalarFunction {
     StAsText,
     StX,
     StY,
+    PsJsonContains,
+}
+
+impl ScalarFunction {
+    pub fn implementation(&self) -> functions::ScalarFunctionImpl {
+        match self {
+            ScalarFunction::TypeOf => functions::fn_typeof,
+            ScalarFunction::Upper => functions::upper,
+            ScalarFunction::Lower => functions::lower,
+            ScalarFunction::Substring => functions::substring,
+            ScalarFunction::Length => functions::length,
+            ScalarFunction::PsJsonContains => functions::ps_json_contains,
+            _ => todo!("Scalar function {self:?} is not yet implemented"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]

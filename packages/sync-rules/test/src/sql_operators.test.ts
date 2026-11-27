@@ -1,144 +1,324 @@
+import { JSONBig } from '@powersync/service-jsonbig';
 import { describe, expect, test } from 'vitest';
-import { evaluateOperator } from '../../src/index.js';
+import {
+  CompatibilityContext,
+  DEFAULT_HYDRATION_STATE,
+  evaluateOperator,
+  ImplicitSchemaTablePattern,
+  PrecompiledSyncConfig,
+  SqliteRow,
+  SqliteValue,
+  StreamDataSource,
+  TableProcessorData
+} from '../../src/index.js';
+import { BinaryOperator, SqlExpression } from '../../src/sync_plan/expression.js';
+import { createRustEvaluator, syncTest, TEST_TABLE } from './sync_plan/evaluator/utils.js';
+
+type Expression = SqlExpression<TableProcessorData>;
+
+const operatorTest = syncTest.extend('compileOperator', ({ rust }) => {
+  return function (jsOperator: string, buildExpr: (a: Expression, b: Expression) => Expression) {
+    const dataSource: StreamDataSource = {
+      columns: [
+        {
+          alias: 'output',
+          expr: buildExpr({ type: 'data', source: { column: 'a' } }, { type: 'data', source: { column: 'b' } })
+        }
+      ],
+      hashCode: 0,
+      sourceTable: new ImplicitSchemaTablePattern(null, 'tbl'),
+      filters: [],
+      parameters: [],
+      tableValuedFunctions: []
+    };
+    const config = new PrecompiledSyncConfig(
+      {
+        dataSources: [dataSource],
+        buckets: [
+          {
+            hashCode: 0,
+            uniqueName: 'stream',
+            sources: [dataSource]
+          }
+        ],
+        parameterIndexes: [],
+        streams: [],
+        events: []
+      },
+      CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY,
+      { defaultSchema: 'test_schema', sourceText: '' }
+    );
+
+    const evaluator = createRustEvaluator(
+      rust,
+      config.hydrate({
+        sqlite: null,
+        hydrationState: DEFAULT_HYDRATION_STATE
+      })
+    )!;
+
+    function evaluateWithRust(a: SqliteValue, b: SqliteValue) {
+      const { rows: rustRows, errors: rustErrors } = evaluator.evaluateSerialized(TEST_TABLE, { a, b });
+
+      expect(rustErrors).toStrictEqual([]);
+      return (JSONBig.parse(rustRows[0].data) as SqliteRow).output;
+    }
+
+    return function (a: SqliteValue, b: SqliteValue, allowDivergenceBetweenJavaScriptAndRust = false) {
+      const rust = evaluateWithRust(a, b);
+      const js = evaluateOperator(jsOperator, a, b);
+
+      if (!allowDivergenceBetweenJavaScriptAndRust) expect(rust).toStrictEqual(js);
+      return rust;
+    };
+  };
+});
+
+function buildBinaryExpression(op: BinaryOperator) {
+  return (a: Expression, b: Expression) => ({ type: 'binary', left: a, right: b, operator: op }) satisfies Expression;
+}
+
+function negate(inner: (a: Expression, b: Expression) => Expression) {
+  return (a: Expression, b: Expression) =>
+    ({ type: 'unary', operator: 'not', operand: inner(a, b) }) satisfies Expression;
+}
 
 describe('SQL operators', () => {
-  test('=', () => {
-    expect(evaluateOperator('=', 1, 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('=', 1.1, 1n)).toStrictEqual(0n);
-    expect(evaluateOperator('=', '1', 1n)).toStrictEqual(0n);
-    expect(evaluateOperator('=', '', 0n)).toStrictEqual(0n);
-    expect(evaluateOperator('=', 1, null)).toStrictEqual(null);
-    expect(evaluateOperator('=', 0, null)).toStrictEqual(null);
-    expect(evaluateOperator('=', null, '')).toStrictEqual(null);
-    expect(evaluateOperator('=', null, null)).toStrictEqual(null);
+  syncTest('truthiness', ({ sync }) => {
+    const plan = sync.prepareSyncStreams(`
+config:
+  edition: 3
+streams:
+  a:
+    query: SELECT value AS id FROM tbl WHERE value
+`);
+
+    function isTruthy(value: SqliteValue) {
+      // prepareSyncStreams injects a check to ensure the Rust and JS evaluator agree.
+      const rows = plan.evaluateRow({
+        sourceTable: { connectionTag: 'default', schema: 'test_schema', name: 'tbl' },
+        record: { value }
+      });
+      return rows.length != 0;
+    }
+
+    expect(isTruthy(null)).toStrictEqual(false);
+    expect(isTruthy(1)).toStrictEqual(true);
+    expect(isTruthy(-1n)).toStrictEqual(true);
+    expect(isTruthy(0n)).toStrictEqual(false);
+    expect(isTruthy(0.5)).toStrictEqual(true);
+    expect(isTruthy(0.0)).toStrictEqual(false);
+
+    // Text is converted to a number by parsing its numeric prefix.
+    for (const truthy of ['1', ' 1abc', '-2', '1e3', '5.', '+3']) {
+      expect(isTruthy(truthy), truthy).toStrictEqual(true);
+    }
+    for (const falsy of ['', 'abc', '0', '0.0', '-', '.', 'e5', '0e9', ' ']) {
+      expect(isTruthy(falsy), falsy).toStrictEqual(false);
+    }
+
+    expect(isTruthy(Uint8Array.of(0xff))).toStrictEqual(false);
+
+    // Known mismatches: Rust follows SQLite for reals in text (e.g. '0.1' or '.5') and blobs, treating them as truthy
+    // if their numeric prefix is non-zero. JavaScript uses parseInt and treats all blobs as false.
   });
 
-  test('!=', () => {
-    expect(evaluateOperator('!=', 1, 1n)).toStrictEqual(0n);
-    expect(evaluateOperator('!=', 1.1, 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('!=', '1', 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('!=', '', 0n)).toStrictEqual(1n);
-    expect(evaluateOperator('!=', 1, null)).toStrictEqual(null);
-    expect(evaluateOperator('!=', 0, null)).toStrictEqual(null);
-    expect(evaluateOperator('!=', null, '')).toStrictEqual(null);
-    expect(evaluateOperator('!=', null, null)).toStrictEqual(null);
+  operatorTest('=', ({ compileOperator }) => {
+    const evaluate = compileOperator('=', buildBinaryExpression('='));
+
+    expect(evaluate(1, 1n)).toStrictEqual(1n);
+    expect(evaluate(1.1, 1n)).toStrictEqual(0n);
+    expect(evaluate('1', 1n)).toStrictEqual(0n);
+    expect(evaluate('', 0n)).toStrictEqual(0n);
+    expect(evaluate(1, null)).toStrictEqual(null);
+    expect(evaluate(0, null)).toStrictEqual(null);
+    expect(evaluate(null, '')).toStrictEqual(null);
+    expect(evaluate(null, null)).toStrictEqual(null);
   });
 
-  test('IS', () => {
-    expect(evaluateOperator('IS', 1, 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('IS', 1.1, 1n)).toStrictEqual(0n);
-    expect(evaluateOperator('IS', '1', 1n)).toStrictEqual(0n);
-    expect(evaluateOperator('IS', '', 0n)).toStrictEqual(0n);
-    expect(evaluateOperator('IS', 1, null)).toStrictEqual(0n);
-    expect(evaluateOperator('IS', 0, null)).toStrictEqual(0n);
-    expect(evaluateOperator('IS', null, '')).toStrictEqual(0n);
-    expect(evaluateOperator('IS', null, null)).toStrictEqual(1n);
+  operatorTest('!=', ({ compileOperator }) => {
+    const evaluate = compileOperator('!=', negate(buildBinaryExpression('=')));
+
+    expect(evaluate(1, 1n)).toStrictEqual(0n);
+    expect(evaluate(1.1, 1n)).toStrictEqual(1n);
+    expect(evaluate('1', 1n)).toStrictEqual(1n);
+    expect(evaluate('', 0n)).toStrictEqual(1n);
+    expect(evaluate(1, null)).toStrictEqual(null);
+    expect(evaluate(0, null)).toStrictEqual(null);
+    expect(evaluate(null, '')).toStrictEqual(null);
+    expect(evaluate(null, null)).toStrictEqual(null);
   });
 
-  test('IS NOT', () => {
-    expect(evaluateOperator('IS NOT', 1, 1n)).toStrictEqual(0n);
-    expect(evaluateOperator('IS NOT', 1.1, 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('IS NOT', '1', 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('IS NOT', '', 0n)).toStrictEqual(1n);
-    expect(evaluateOperator('IS NOT', 1, null)).toStrictEqual(1n);
-    expect(evaluateOperator('IS NOT', 0, null)).toStrictEqual(1n);
-    expect(evaluateOperator('IS NOT', null, '')).toStrictEqual(1n);
-    expect(evaluateOperator('IS NOT', null, null)).toStrictEqual(0n);
+  operatorTest('IS', ({ compileOperator }) => {
+    const evaluate = compileOperator('IS', buildBinaryExpression('is'));
+
+    expect(evaluate(1, 1n)).toStrictEqual(1n);
+    expect(evaluate(1.1, 1n)).toStrictEqual(0n);
+    expect(evaluate('1', 1n)).toStrictEqual(0n);
+    expect(evaluate('', 0n)).toStrictEqual(0n);
+    expect(evaluate(1, null)).toStrictEqual(0n);
+    expect(evaluate(0, null)).toStrictEqual(0n);
+    expect(evaluate(null, '')).toStrictEqual(0n);
+    expect(evaluate(null, null)).toStrictEqual(1n);
   });
 
-  test('>', () => {
-    expect(evaluateOperator('>', 1, 1n)).toStrictEqual(0n);
-    expect(evaluateOperator('>', 2, 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('>', 2n, 1)).toStrictEqual(1n);
-    expect(evaluateOperator('>', 'text', 1)).toStrictEqual(1n);
-    expect(evaluateOperator('>', 1, 'text')).toStrictEqual(0n);
-    expect(evaluateOperator('>', 1, null)).toStrictEqual(null);
-    expect(evaluateOperator('>', null, null)).toStrictEqual(null);
+  operatorTest('IS NOT', ({ compileOperator }) => {
+    const evaluate = compileOperator('IS NOT', negate(buildBinaryExpression('is')));
+
+    expect(evaluate(1, 1n)).toStrictEqual(0n);
+    expect(evaluate(1.1, 1n)).toStrictEqual(1n);
+    expect(evaluate('1', 1n)).toStrictEqual(1n);
+    expect(evaluate('', 0n)).toStrictEqual(1n);
+    expect(evaluate(1, null)).toStrictEqual(1n);
+    expect(evaluate(0, null)).toStrictEqual(1n);
+    expect(evaluate(null, '')).toStrictEqual(1n);
+    expect(evaluate(null, null)).toStrictEqual(0n);
   });
 
-  test('>=', () => {
-    expect(evaluateOperator('>=', 1, 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('>=', 2, 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('>=', 2n, 1)).toStrictEqual(1n);
-    expect(evaluateOperator('>=', 'text', 1)).toStrictEqual(1n);
-    expect(evaluateOperator('>=', 1, 'text')).toStrictEqual(0n);
-    expect(evaluateOperator('>=', 1, null)).toStrictEqual(null);
-    expect(evaluateOperator('>=', null, null)).toStrictEqual(null);
+  operatorTest('>', ({ compileOperator }) => {
+    const evaluate = compileOperator('>', buildBinaryExpression('>'));
+
+    expect(evaluate(1, 1n)).toStrictEqual(0n);
+    expect(evaluate(2, 1n)).toStrictEqual(1n);
+    expect(evaluate(2n, 1)).toStrictEqual(1n);
+    expect(evaluate('text', 1)).toStrictEqual(1n);
+    expect(evaluate(1, 'text')).toStrictEqual(0n);
+    expect(evaluate(1, null)).toStrictEqual(null);
+    expect(evaluate(null, null)).toStrictEqual(null);
   });
 
-  test('<', () => {
-    expect(evaluateOperator('<', 1, 1n)).toStrictEqual(0n);
-    expect(evaluateOperator('<', 1n, 2)).toStrictEqual(1n);
-    expect(evaluateOperator('<', 1, 2n)).toStrictEqual(1n);
-    expect(evaluateOperator('<', 'text', 1)).toStrictEqual(0n);
-    expect(evaluateOperator('<', 1, 'text')).toStrictEqual(1n);
-    expect(evaluateOperator('<', 1, null)).toStrictEqual(null);
-    expect(evaluateOperator('<', null, null)).toStrictEqual(null);
+  operatorTest('>=', ({ compileOperator }) => {
+    const evaluate = compileOperator('>=', buildBinaryExpression('>='));
+
+    expect(evaluate(1, 1n)).toStrictEqual(1n);
+    expect(evaluate(2, 1n)).toStrictEqual(1n);
+    expect(evaluate(2n, 1)).toStrictEqual(1n);
+    expect(evaluate('text', 1)).toStrictEqual(1n);
+    expect(evaluate(1, 'text')).toStrictEqual(0n);
+    expect(evaluate(1, null)).toStrictEqual(null);
+    expect(evaluate(null, null)).toStrictEqual(null);
   });
 
-  test('<=', () => {
-    expect(evaluateOperator('<=', 1, 1n)).toStrictEqual(1n);
-    expect(evaluateOperator('<=', 1n, 2)).toStrictEqual(1n);
-    expect(evaluateOperator('<=', 1, 2n)).toStrictEqual(1n);
-    expect(evaluateOperator('<=', 'text', 1)).toStrictEqual(0n);
-    expect(evaluateOperator('<=', 1, 'text')).toStrictEqual(1n);
-    expect(evaluateOperator('<=', 1, null)).toStrictEqual(null);
-    expect(evaluateOperator('<=', null, null)).toStrictEqual(null);
+  operatorTest('<', ({ compileOperator }) => {
+    const evaluate = compileOperator('<', buildBinaryExpression('<'));
+
+    expect(evaluate(1, 1n)).toStrictEqual(0n);
+    expect(evaluate(1n, 2)).toStrictEqual(1n);
+    expect(evaluate(1, 2n)).toStrictEqual(1n);
+    expect(evaluate('text', 1)).toStrictEqual(0n);
+    expect(evaluate(1, 'text')).toStrictEqual(1n);
+    expect(evaluate(1, null)).toStrictEqual(null);
+    expect(evaluate(null, null)).toStrictEqual(null);
   });
 
-  test('||', () => {
-    expect(evaluateOperator('||', 'test', null)).toStrictEqual(null);
-    expect(evaluateOperator('||', 'a', 31n)).toStrictEqual('a31');
-    expect(evaluateOperator('||', 3.1, 'a')).toStrictEqual('3.1a');
+  operatorTest('<=', ({ compileOperator }) => {
+    const evaluate = compileOperator('<=', buildBinaryExpression('<='));
+
+    expect(evaluate(1, 1n)).toStrictEqual(1n);
+    expect(evaluate(1n, 2)).toStrictEqual(1n);
+    expect(evaluate(1, 2n)).toStrictEqual(1n);
+    expect(evaluate('text', 1)).toStrictEqual(0n);
+    expect(evaluate(1, 'text')).toStrictEqual(1n);
+    expect(evaluate(1, null)).toStrictEqual(null);
+    expect(evaluate(null, null)).toStrictEqual(null);
   });
 
-  test('+', () => {
-    expect(evaluateOperator('+', 1n, null)).toStrictEqual(null);
-    expect(evaluateOperator('+', 1n, 2)).toStrictEqual(3);
-    expect(evaluateOperator('+', 1n, 2n)).toStrictEqual(3n);
-    expect(evaluateOperator('+', 1, 2)).toStrictEqual(3);
-    expect(evaluateOperator('+', 1n, '2')).toStrictEqual(3n);
-    expect(evaluateOperator('+', 1n, '2.0')).toStrictEqual(3.0);
+  operatorTest('||', ({ compileOperator }) => {
+    const evaluate = compileOperator('||', buildBinaryExpression('||'));
+
+    expect(evaluate('test', null)).toStrictEqual(null);
+    expect(evaluate('a', 31n)).toStrictEqual('a31');
+    expect(evaluate(3.1, 'a')).toStrictEqual('3.1a');
   });
 
-  test('/', () => {
-    expect(evaluateOperator('/', 1n, null)).toStrictEqual(null);
-    expect(evaluateOperator('/', 5n, 2)).toStrictEqual(2.5);
-    expect(evaluateOperator('/', 5n, 2n)).toStrictEqual(2n);
-    expect(evaluateOperator('/', 5, 2)).toStrictEqual(2.5);
-    expect(evaluateOperator('/', 5n, '2')).toStrictEqual(2n);
-    expect(evaluateOperator('/', 5n, '2.0')).toStrictEqual(2.5);
+  operatorTest('+', ({ compileOperator }) => {
+    const evaluate = compileOperator('+', buildBinaryExpression('+'));
+
+    expect(evaluate(1n, null)).toStrictEqual(null);
+    expect(evaluate(1n, 2)).toStrictEqual(3);
+    expect(evaluate(1n, 2n)).toStrictEqual(3n);
+    expect(evaluate(1, 2)).toStrictEqual(3);
+    expect(evaluate(1n, '2')).toStrictEqual(3n);
+    expect(evaluate(9223372036854775807n, -1n)).toStrictEqual(9223372036854775806n);
+
+    // i64 overflow, should use floats (not implemented correctly in JS).
+    expect(evaluate(9223372036854775807n, 1n, true)).toStrictEqual(9.223372036854776e18);
   });
 
-  test('division by zero follows SQLite null semantics', () => {
-    expect(evaluateOperator('/', 5n, 0n)).toStrictEqual(null);
-    expect(evaluateOperator('/', 5n, 0)).toStrictEqual(null);
-    expect(evaluateOperator('/', 5, 0)).toStrictEqual(null);
-    expect(evaluateOperator('/', -5n, '0')).toStrictEqual(null);
-    expect(evaluateOperator('/', 0n, 0n)).toStrictEqual(null);
+  operatorTest('/', ({ compileOperator }) => {
+    const evaluate = compileOperator('/', buildBinaryExpression('/'));
+
+    expect(evaluate(1n, null)).toStrictEqual(null);
+    expect(evaluate(5n, 2)).toStrictEqual(2.5);
+    expect(evaluate(5n, 2n)).toStrictEqual(2n);
+    expect(evaluate(5, 2)).toStrictEqual(2.5);
+    expect(evaluate(5n, '2')).toStrictEqual(2n);
+    expect(evaluate(5n, '2.0')).toStrictEqual(2.5);
   });
 
-  test('*', () => {
-    expect(evaluateOperator('*', 3n, null)).toStrictEqual(null);
-    expect(evaluateOperator('*', 3n, 2)).toStrictEqual(6);
-    expect(evaluateOperator('*', 3n, 2n)).toStrictEqual(6n);
-    expect(evaluateOperator('*', 3, 2)).toStrictEqual(6);
-    expect(evaluateOperator('*', 3n, '2')).toStrictEqual(6n);
-    expect(evaluateOperator('*', 3n, '2.0')).toStrictEqual(6.0);
-    expect(evaluateOperator('*', '3', '2.0')).toStrictEqual(6.0);
+  operatorTest('division by zero follows SQLite null semantics', ({ compileOperator }) => {
+    const evaluate = compileOperator('/', buildBinaryExpression('/'));
+
+    expect(evaluate(5n, 0n)).toStrictEqual(null);
+    expect(evaluate(5n, 0)).toStrictEqual(null);
+    expect(evaluate(5, 0)).toStrictEqual(null);
+    expect(evaluate(-5n, '0')).toStrictEqual(null);
+    expect(evaluate(0n, 0n)).toStrictEqual(null);
   });
 
-  test('-', () => {
-    expect(evaluateOperator('-', 3n, null)).toStrictEqual(null);
-    expect(evaluateOperator('-', 3n, 2)).toStrictEqual(1);
-    expect(evaluateOperator('-', 3n, 2n)).toStrictEqual(1n);
-    expect(evaluateOperator('-', 3, 2)).toStrictEqual(1);
-    expect(evaluateOperator('-', 3n, '2')).toStrictEqual(1n);
-    expect(evaluateOperator('-', 3n, '2.0')).toStrictEqual(1.0);
-    expect(evaluateOperator('-', '3', '2.0')).toStrictEqual(1.0);
+  operatorTest('*', ({ compileOperator }) => {
+    const evaluate = compileOperator('*', buildBinaryExpression('*'));
+
+    expect(evaluate(3n, null)).toStrictEqual(null);
+    expect(evaluate(3n, 2)).toStrictEqual(6);
+    expect(evaluate(3n, 2n)).toStrictEqual(6n);
+    expect(evaluate(3, 2)).toStrictEqual(6);
+    expect(evaluate(3n, '2')).toStrictEqual(6n);
+    expect(evaluate(3n, '2.0')).toStrictEqual(6.0);
+    expect(evaluate('3', '2.0')).toStrictEqual(6.0);
+  });
+
+  operatorTest('-', ({ compileOperator }) => {
+    const evaluate = compileOperator('-', buildBinaryExpression('-'));
+
+    expect(evaluate(3n, null)).toStrictEqual(null);
+    expect(evaluate(3n, 2)).toStrictEqual(1);
+    expect(evaluate(3n, 2n)).toStrictEqual(1n);
+    expect(evaluate(3, 2)).toStrictEqual(1);
+    expect(evaluate(3n, '2')).toStrictEqual(1n);
+    expect(evaluate(3n, '2.0')).toStrictEqual(1.0);
+    expect(evaluate('3', '2.0')).toStrictEqual(1.0);
+  });
+
+  operatorTest('IN', ({ compileOperator }) => {
+    // Sync Streams compile IN with a JSON array to ps_json_contains.
+    const evaluate = compileOperator('IN', (a, b) => ({
+      type: 'function',
+      function: 'ps_json_contains',
+      parameters: [a, b]
+    }));
+
+    expect(evaluate(1n, '[1, 2]')).toStrictEqual(1n);
+    expect(evaluate(3n, '[1, 2]')).toStrictEqual(0n);
+    expect(evaluate(1.0, '[1, 2]')).toStrictEqual(1n);
+    expect(evaluate(2n, '[1.5, 2.0]')).toStrictEqual(1n);
+    expect(evaluate('a', '["a", "b"]')).toStrictEqual(1n);
+    expect(evaluate('1', '[1]')).toStrictEqual(0n);
+    expect(evaluate(1n, '[true]')).toStrictEqual(1n);
+    expect(evaluate(0n, '[false]')).toStrictEqual(1n);
+    expect(evaluate('[1]', '[[1]]')).toStrictEqual(1n);
+    expect(evaluate(1n, '[null]')).toStrictEqual(0n);
+    expect(evaluate(1n, '[]')).toStrictEqual(0n);
+    expect(evaluate(9223372036854775807n, '[9223372036854775807]')).toStrictEqual(1n);
+    expect(evaluate('a\n', '["a\\n"]')).toStrictEqual(1n);
+
+    expect(evaluate(null, '[null]')).toStrictEqual(null);
+    expect(evaluate(1n, null)).toStrictEqual(null);
   });
 
   test('&&', () => {
+    // This is the overlap operator, which is implemented differently for Sync Streams.
+
     // null short-circuit
     expect(evaluateOperator('&&', null, '["foo"]')).toStrictEqual(null);
     expect(evaluateOperator('&&', '["foo"]', null)).toStrictEqual(null);

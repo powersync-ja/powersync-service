@@ -70,10 +70,17 @@ pub use evaluation::{
     BucketData, BucketDataIterator, EvaluatedParameter, Evaluator, InputRow,
     ParameterLookupIterator, PreparedField, ProjectedRow, RowEvaluation,
 };
+pub use operators::cast;
+pub use plan::{
+    ColumnSource, RowProjection, StreamDataSource, StreamParameterIndexLookupCreator,
+    TableProcessor, TableProcessorData, TableProcessorExpression,
+};
 pub use processor_group::ProcessorGroup;
 pub use processor_group::{ProcessedDataSource, ProcessedGroupMember, ProcessedParameterSource};
+pub use sources::bson::{BsonSourceError, SqliteValueFromBson};
 pub use table_pattern::SourceTableRef;
-pub use value::SqliteValue;
+pub use table_pattern::{NameMatcher, TablePattern};
+pub use value::{Parameter, SqliteValue};
 
 /// Interns column names and aliases referenced by processors in a [ProcessorGroup].
 ///

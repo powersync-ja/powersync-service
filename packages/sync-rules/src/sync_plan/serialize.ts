@@ -120,6 +120,48 @@ function createTableProcessorSerializer() {
   };
 }
 
+export function serializeDataSource(
+  source: StreamDataSource,
+  serializer = createTableProcessorSerializer()
+): SerializedDataSource {
+  const { serializeTableProcessorDataExpr, serializeTablePattern, serializeTableValued, translateParameters } =
+    serializer;
+
+  return {
+    hash: source.hashCode,
+    table: serializeTablePattern(source.sourceTable),
+    outputTableName: source.outputTableName,
+    tableValuedFunctions: serializeTableValued(source),
+    filters: source.filters.map(serializeTableProcessorDataExpr),
+    partitionBy: translateParameters(source),
+    columns: source.columns.map((c): SerializedColumnSource => {
+      if (c == 'star') {
+        return 'star';
+      } else {
+        return { expr: serializeTableProcessorDataExpr(c.expr), alias: c.alias };
+      }
+    })
+  } satisfies SerializedDataSource;
+}
+
+export function serializeParameterSource(
+  source: StreamParameterIndexLookupCreator,
+  serializer = createTableProcessorSerializer()
+): SerializedParameterIndexLookupCreator {
+  const { serializeTableProcessorDataExpr, serializeTablePattern, serializeTableValued, translateParameters } =
+    serializer;
+
+  return {
+    hash: source.hashCode,
+    table: serializeTablePattern(source.sourceTable),
+    tableValuedFunctions: serializeTableValued(source),
+    filters: source.filters.map(serializeTableProcessorDataExpr),
+    partitionBy: translateParameters(source),
+    output: source.outputs.map(serializeTableProcessorDataExpr),
+    lookupScope: source.defaultLookupScope
+  } satisfies SerializedParameterIndexLookupCreator;
+}
+
 /**
  * Serializes a sync plan into a simple JSON object.
  *
@@ -133,28 +175,11 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
   const expandingLookups = new Map<ExpandingLookup, LookupReference>();
   const tableProcessorSerializer = createTableProcessorSerializer();
-  const { serializeTableProcessorDataExpr, serializeTablePattern, serializeTableValued, translateParameters } =
-    tableProcessorSerializer;
 
   function serializeDataSources(): SerializedDataSource[] {
     return plan.dataSources.map((source, i) => {
       dataSourceIndex.set(source, i);
-
-      return {
-        hash: source.hashCode,
-        table: serializeTablePattern(source.sourceTable),
-        outputTableName: source.outputTableName,
-        tableValuedFunctions: serializeTableValued(source),
-        filters: source.filters.map(serializeTableProcessorDataExpr),
-        partitionBy: translateParameters(source),
-        columns: source.columns.map((c): SerializedColumnSource => {
-          if (c == 'star') {
-            return 'star';
-          } else {
-            return { expr: serializeTableProcessorDataExpr(c.expr), alias: c.alias };
-          }
-        })
-      } satisfies SerializedDataSource;
+      return serializeDataSource(source, tableProcessorSerializer);
     });
   }
 
@@ -162,15 +187,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
     return plan.parameterIndexes.map((source, i) => {
       parameterIndex.set(source, i);
 
-      return {
-        hash: source.hashCode,
-        table: serializeTablePattern(source.sourceTable),
-        tableValuedFunctions: serializeTableValued(source),
-        filters: source.filters.map(serializeTableProcessorDataExpr),
-        partitionBy: translateParameters(source),
-        output: source.outputs.map(serializeTableProcessorDataExpr),
-        lookupScope: source.defaultLookupScope
-      } satisfies SerializedParameterIndexLookupCreator;
+      return serializeParameterSource(source, tableProcessorSerializer);
     });
   }
 

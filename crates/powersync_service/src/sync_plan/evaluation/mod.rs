@@ -171,8 +171,8 @@ fn next_match<'r, 'a>(
 }
 
 pub struct BucketDataIterator<'a, 'b, E: ReplicationEmbedder> {
-    source: &'a ProcessedDataSource<E>,
-    table: &'a str,
+    pub source: &'a ProcessedDataSource<E>,
+    pub table: &'a str,
     done: bool,
     eval: &'b mut RowEvaluation<'a, E>,
 }
@@ -186,6 +186,11 @@ pub struct BucketData<'a, 'r, E: ReplicationEmbedder> {
 }
 
 impl<'a, E: ReplicationEmbedder> BucketDataIterator<'a, '_, E> {
+    /// The allocator for values computed while evaluating the row.
+    pub fn arena(&self) -> &'a Bump {
+        self.eval.program.frame.arena
+    }
+
     /// Returns the next bucket for the row.
     ///
     /// After an error, the data source is abandoned and this returns [None].
@@ -235,7 +240,7 @@ impl<'a, E: ReplicationEmbedder> BucketDataIterator<'a, '_, E> {
 }
 
 pub struct ParameterLookupIterator<'a, 'b, E: ReplicationEmbedder> {
-    source: &'a ProcessedParameterSource<E>,
+    pub source: &'a ProcessedParameterSource<E>,
     done: bool,
     eval: &'b mut RowEvaluation<'a, E>,
 }

@@ -3,7 +3,12 @@ use napi::bindgen_prelude::Object;
 use napi_derive::napi;
 use powersync_service::PowerSyncService;
 
+mod block;
+pub mod evaluator;
+mod format;
 mod log;
+pub mod plan;
+mod values;
 
 #[napi(object)]
 pub struct RustInitializationOptions<'a> {
