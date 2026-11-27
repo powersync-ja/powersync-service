@@ -1,4 +1,4 @@
-import { mongo } from '@powersync/lib-service-mongodb';
+import { isTimeoutError, mongo } from '@powersync/lib-service-mongodb';
 import { container, ErrorCode, Logger, ReplicationAbortedError, ServiceError } from '@powersync/lib-services-framework';
 import {
   MetricsEngine,
@@ -14,6 +14,7 @@ import { performance } from 'node:perf_hooks';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { parseDocumentId } from './bufferToSqlite.js';
 import { CheckpointImplementation } from './checkpoints/CheckpointImplementation.js';
 import { createCheckpointImplementation } from './checkpoints/create-checkpoint-implementation.js';
 import { estimateFilteredSnapshotCount } from './estimateFilteredSnapshotCount.js';
@@ -29,6 +30,8 @@ import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { ChangeStreamBatch } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
+
+const SNAPSHOT_UPPER_BOUND_TIMEOUT_MS = 10_000;
 
 export interface MongoSnapshotterOptions {
   connections: MongoManager;
@@ -58,6 +61,8 @@ interface InitResult {
   needsInitialSync: boolean;
   snapshotLsn: string | null;
 }
+
+type SnapshotUpperBoundResult = { kind: 'found'; key: unknown } | { kind: 'empty' } | { kind: 'unavailable' };
 
 interface SnapshotQueueItem {
   table: SourceTable;
@@ -480,12 +485,62 @@ export class MongoSnapshotter {
     return result;
   }
 
+  /**
+   * Returns the highest matching key for this attempt. The stream handles later membership changes.
+   */
+  private async findSnapshotUpperBound(
+    collection: mongo.Collection,
+    filter: mongo.Filter<mongo.Document>,
+    resumeLsn: string
+  ): Promise<SnapshotUpperBoundResult> {
+    try {
+      return await this.client.withSession<SnapshotUpperBoundResult>({ causalConsistency: true }, async (session) => {
+        // Use the resume LSN saved before the snapshot. no_checkpoint_before is set after copying
+        // and gates client checkpoint publication.
+        // The driver sends the resume timestamp as afterClusterTime. A stale majority read could
+        // pick a bound below a matching document whose last change predates the resume position.
+        session.advanceOperationTime(MongoLSN.fromSerialized(resumeLsn).timestamp);
+        const result = await collection.findOne<Buffer>(filter, {
+          projection: { _id: 1 },
+          sort: { _id: -1 },
+          readConcern: 'majority',
+          collation: { locale: 'simple' },
+          raw: true,
+          timeoutMS: SNAPSHOT_UPPER_BOUND_TIMEOUT_MS,
+          signal: this.abortSignal,
+          session
+        });
+        return result === null ? { kind: 'empty' } : { kind: 'found', key: parseDocumentId(result).id };
+      });
+    } catch (error) {
+      this.abortSignal.throwIfAborted();
+      if (!isTimeoutError(error) && !(error instanceof mongo.MongoOperationTimeoutError)) {
+        throw error;
+      }
+      this.logger.warn(
+        `Finding the upper snapshot bound timed out for ${collection.namespace}. Continuing with an unbounded read.`
+      );
+      return { kind: 'unavailable' };
+    }
+  }
+
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
     const rowsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
     const filter = this.queryProvider.getSnapshotFilter(table);
+    const collection = this.client.db(table.schema).collection(table.name);
+    const upperBound: SnapshotUpperBoundResult =
+      filter != null && !this.isDocumentDb && batch.resumeFromLsn != null
+        ? await this.findSnapshotUpperBound(collection, filter, batch.resumeFromLsn)
+        : { kind: 'unavailable' };
+    if (upperBound.kind === 'empty') {
+      // The lookup saw no matches in a majority read at least as recent as the resume LSN.
+      // The caller still marks the snapshot complete, and the change stream handles later matches.
+      return;
+    }
+
     // Reuse known filtered estimates to avoid repeating an expensive count and sample. Unknown totals
     // (-1) can also represent uninitialized progress, so retry them. Unfiltered metadata counts are cheap
     // and refreshed before copying rows.
@@ -493,12 +548,12 @@ export class MongoSnapshotter {
     const totalEstimatedCount =
       filter != null && previousEstimate >= 0 ? previousEstimate : await this.estimatedCountNumber(table, filter);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
-    const collection = this.client.db(table.schema).collection(table.name);
     await using query = new ChunkedSnapshotQuery({
       collection,
       key: table.snapshotStatus?.lastKey,
       batchSize: this.snapshotChunkLength,
-      filter
+      filter,
+      upperKey: upperBound.kind === 'found' ? upperBound.key : undefined
     });
     if (query.lastKey != null) {
       this.logger.info(
