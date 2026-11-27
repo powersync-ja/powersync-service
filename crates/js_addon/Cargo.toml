@@ -19,3 +19,4 @@ napi-derive = { workspace = true }
 serde_json = { version = "1" }
 serde = { version = "1" }
 smallvec = "1"
+sha2 = "0.11"

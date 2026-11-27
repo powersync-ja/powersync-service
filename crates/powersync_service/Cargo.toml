@@ -20,7 +20,6 @@ thiserror = "2"
 # The serde feature is used to read DBPointers, whose fields aren't public otherwise.
 bson = { workspace = true, features = ["serde"] }
 ryu-js = "1.0.4"
-sha2 = "0.11"
 smallvec = "1"
 
 [dev-dependencies]

@@ -215,7 +215,7 @@ export function createRustEvaluator(rust: Addon, config: HydratedSyncConfig): Ru
  * `service-core`, since storage compares lookups by their serialized form.
  */
 function decodeBlock(block: RustAddon.EvaluatedBlock, elements: RustGroupElement[]) {
-  const { bytes, rows, parameters } = block;
+  const { bytes, rows, parameters, bucketParameters: allBucketParameters } = block;
   const range = (array: Uint32Array, offset: number, start: number) =>
     bytes.toString('utf8', array[offset + start], array[offset + start + 1]);
 
@@ -265,12 +265,9 @@ function decodeBlock(block: RustAddon.EvaluatedBlock, elements: RustGroupElement
       parameters[i + ParameterColumn.lookupStart],
       parameters[i + ParameterColumn.lookupEnd]
     );
-    const outputBytes = bytes.subarray(
-      parameters[i + ParameterColumn.outputsStart],
-      parameters[i + ParameterColumn.outputsEnd]
-    );
     const lookup = bson.deserialize(lookupBytes, { useBigInt64: true }).l as SqliteJsonValue[];
-    const { p: bucketParameters } = bson.deserialize(outputBytes, { useBigInt64: true });
+    // Bucket parameters can't be blobs.
+    const bucketParameters = allBucketParameters[i / ParameterColumn.WIDTH] as Record<string, SqliteJsonValue>[];
 
     // Storage compares serialized lookups, so these must match exactly. The JavaScript implementation normalizes
     // integral numbers to bigints, then serializes {l: values}.

@@ -53,10 +53,7 @@ export const ParameterColumn = {
   /** A BSON document `{l: [lookupName, queryId, ...inputs]}`, matching `serializeLookupBuffer` in `service-core`. */
   lookupStart: 2,
   lookupEnd: 3,
-  /** A BSON document `{p: [{"0": output0, ...}, ...]}`, the bucket parameters of all outputs for the lookup. */
-  outputsStart: 4,
-  outputsEnd: 5,
-  WIDTH: 6
+  WIDTH: 4
 } as const;
 
 /**
@@ -195,6 +192,13 @@ export declare namespace RustAddon {
     bytes: Buffer;
     rows: Uint32Array;
     parameters: Uint32Array;
+    /**
+     * Bucket parameters for each parameter lookup in {@link parameters} (the lookup at index `i` in this array is
+     * described by `parameters[i * ParameterColumn.WIDTH ...]`).
+     *
+     * Each lookup has a list of output rows, which are objects of the form `{"0": output0, "1": output1, ...}`.
+     */
+    bucketParameters: Record<string, SqliteValue>[][];
     errors: EvaluationError[];
   }
 

@@ -39,6 +39,7 @@ pub fn js_to_sqlite_value<'a>(
     })
 }
 
+/// Serializes a [SqliteValue] as a JavaScript value.
 pub struct SqliteValueToJs<'a>(pub SqliteValue<'a>);
 
 impl<'a> ToNapiValue for SqliteValueToJs<'a> {

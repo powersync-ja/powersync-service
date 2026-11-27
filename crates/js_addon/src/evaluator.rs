@@ -1,33 +1,26 @@
 use std::{
-    ops::Range,
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex},
 };
 
+use crate::{
+    block::{BlockEvaluator, BlockEvaluatorOptions, BlockInput, BlockScratch, ResolvedSourceTable},
+    format::{EvaluatedBlock, InputDocument},
+};
 use bson::RawDocument;
 use napi::{
     Env, Error, JsString, Result, Status, Task, Unknown,
-    bindgen_prelude::{
-        AsyncTask, Buffer, ClassInstance, JsObjectValue, Object, Uint8Array, Uint32Array,
-    },
+    bindgen_prelude::{AsyncTask, ClassInstance, JsObjectValue, Object, Uint8Array, Uint32Array},
 };
 use napi_derive::napi;
-use powersync_service::{
-    block::{
-        BlockEvaluator, BlockEvaluatorOptions, BlockInput, BlockOutputs, BlockScratch,
-        BlockSourceTable,
-    },
-    sync_plan::{BsonSourceError, CompatibilityContext, SqliteValueFromBson, TimeValuePrecision},
+use powersync_service::sync_plan::{
+    BsonSourceError, CompatibilityContext, SqliteValueFromBson, TimeValuePrecision,
 };
 
 use crate::{
-    source_table::SourceTable,
+    plan::SourceTable,
     values::{SqliteValueToJs, js_to_sqlite_value},
 };
-
-/// The amount of `u32`s describing each document passed to
-/// [SyncStreamEvaluator::evaluate_bson_block].
-const DOCUMENT_WIDTH: usize = 4;
 
 /// A Sync Streams evaluator exposed to JavaScript.
 ///
@@ -84,13 +77,7 @@ impl SyncStreamEvaluator {
 
     /// Evaluates a block of BSON documents.
     ///
-    /// Documents are slices of `buffers`, described by [DOCUMENT_WIDTH] numbers each in
-    /// `documents`: The index into `buffers`, the byte offset and length of the document in that
-    /// buffer, and the index into `tables` of the table the document belongs to.
-    ///
-    /// Source documents typically are views into a few larger buffers (responses from the source
-    /// database), passing those instead of a buffer per document avoids N-API calls per document.
-    /// Buffers are not copied, and JavaScript must not modify them while they're being evaluated.
+    /// See [crate::format] for a description of serialized inputs and outputs.
     #[napi(catch_unwind)]
     pub fn evaluate_bson_block(
         &self,
@@ -99,7 +86,7 @@ impl SyncStreamEvaluator {
         documents: Uint32Array,
     ) -> Result<EvaluatedBlock> {
         let tables = resolve_tables(&tables);
-        let documents = parse_documents(&tables, &buffers, &documents)?;
+        let documents = InputDocument::parse_documents(&tables, &buffers, &documents)?;
         let outputs =
             evaluate_documents(&self.inner, &self.scratch, &tables, &buffers, &documents)?;
         Ok(outputs.into())
@@ -107,9 +94,7 @@ impl SyncStreamEvaluator {
 
     /// Like [Self::evaluate_bson_block], but evaluates the block on the libuv thread pool.
     ///
-    /// Arguments are validated synchronously. `tables` and `documents` are copied and may be reused
-    /// immediately, but `buffers` are read without copying and must not be modified until the
-    /// returned promise completes.
+    /// See [crate::format] for a description of serialized inputs and outputs.
     #[napi()]
     pub fn evaluate_bson_block_async(
         &self,
@@ -118,7 +103,7 @@ impl SyncStreamEvaluator {
         documents: Uint32Array,
     ) -> Result<AsyncTask<EvaluateBlockTask>> {
         let tables = resolve_tables(&tables);
-        let documents = parse_documents(&tables, &buffers, &documents)?;
+        let documents = InputDocument::parse_documents(&tables, &buffers, &documents)?;
         Ok(AsyncTask::new(EvaluateBlockTask {
             evaluator: self.inner.clone(),
             scratch: self.scratch.clone(),
@@ -168,7 +153,7 @@ impl SyncStreamEvaluator {
         source: Object,
     ) -> Result<EvaluatedBlock> {
         let mut scratch = self.inner.scratch();
-        let mut outputs = BlockOutputs::default();
+        let mut outputs = EvaluatedBlock::default();
         self.inner
             .evaluate_one(&mut scratch, 0, &table.inner, &mut outputs, |mut input| {
                 let arena = input.arena();
@@ -193,58 +178,8 @@ impl SyncStreamEvaluator {
     }
 }
 
-fn resolve_tables(tables: &[ClassInstance<SourceTable>]) -> Vec<Arc<BlockSourceTable>> {
+fn resolve_tables(tables: &[ClassInstance<SourceTable>]) -> Vec<Arc<ResolvedSourceTable>> {
     tables.iter().map(|table| table.inner.clone()).collect()
-}
-
-/// Validates `documents` against `tables` and `buffers`.
-fn parse_documents(
-    tables: &[Arc<BlockSourceTable>],
-    buffers: &[Uint8Array],
-    documents: &[u32],
-) -> Result<Vec<ParsedDocument>> {
-    let (documents, rest) = documents.as_chunks::<DOCUMENT_WIDTH>();
-    if !rest.is_empty() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "documents must describe each document with 4 numbers",
-        ));
-    }
-
-    documents
-        .iter()
-        .map(|&[buffer, offset, length, table]| {
-            let buffer_len = buffers
-                .get(buffer as usize)
-                .ok_or_else(|| {
-                    Error::new(Status::InvalidArg, "document references unknown buffer")
-                })?
-                .len();
-            let range = offset as usize..(offset as usize).saturating_add(length as usize);
-            if range.end > buffer_len {
-                return Err(Error::new(Status::InvalidArg, "document is out of bounds"));
-            }
-            if table as usize >= tables.len() {
-                return Err(Error::new(
-                    Status::InvalidArg,
-                    "document references unknown table",
-                ));
-            }
-
-            Ok(ParsedDocument {
-                buffer,
-                range,
-                table,
-            })
-        })
-        .collect()
-}
-
-/// Positions of an input document in a buffer to evaluate, validated by [parse_documents].
-struct ParsedDocument {
-    buffer: u32,
-    range: Range<usize>,
-    table: u32,
 }
 
 /// Evaluates validated documents with scratch state from `pool`.
@@ -254,10 +189,10 @@ struct ParsedDocument {
 fn evaluate_documents(
     evaluator: &BlockEvaluator,
     pool: &Mutex<Vec<BlockScratch>>,
-    tables: &[Arc<BlockSourceTable>],
+    tables: &[Arc<ResolvedSourceTable>],
     buffers: &[Uint8Array],
-    documents: &[ParsedDocument],
-) -> Result<BlockOutputs> {
+    documents: &[InputDocument],
+) -> Result<EvaluatedBlock> {
     let mut scratch = pool
         .lock()
         .unwrap()
@@ -301,19 +236,19 @@ fn evaluate_documents(
 pub struct EvaluateBlockTask {
     evaluator: BlockEvaluator,
     scratch: Arc<Mutex<Vec<BlockScratch>>>,
-    tables: Vec<Arc<BlockSourceTable>>,
+    tables: Vec<Arc<ResolvedSourceTable>>,
     /// Typed arrays keep a reference to the JavaScript buffer, so they stay valid while the task is
     /// pending. Reading them doesn't require N-API calls, so this is safe on other threads. The
     /// task is dropped on the JavaScript thread, which releases the references.
     buffers: Vec<Uint8Array>,
-    documents: Vec<ParsedDocument>,
+    documents: Vec<InputDocument>,
 }
 
 impl Task for EvaluateBlockTask {
-    type Output = BlockOutputs;
+    type Output = EvaluatedBlock;
     type JsValue = EvaluatedBlock;
 
-    fn compute(&mut self) -> Result<BlockOutputs> {
+    fn compute(&mut self) -> Result<EvaluatedBlock> {
         evaluate_documents(
             &self.evaluator,
             &self.scratch,
@@ -323,7 +258,7 @@ impl Task for EvaluateBlockTask {
         )
     }
 
-    fn resolve(&mut self, _env: Env, outputs: BlockOutputs) -> Result<EvaluatedBlock> {
+    fn resolve(&mut self, _env: Env, outputs: EvaluatedBlock) -> Result<EvaluatedBlock> {
         Ok(outputs.into())
     }
 }
@@ -342,40 +277,4 @@ pub struct SyncStreamEvaluatorOptions {
     /// Whether serialized parameter lookups include the lookup name and query id (the default).
     /// MongoDB storage v3 stores lookups without them.
     pub include_lookup_scope: Option<bool>,
-}
-
-/// Outputs of evaluating a block, see [powersync_service::block] for the format.
-#[napi(object, object_from_js = false)]
-pub struct EvaluatedBlock {
-    pub bytes: Buffer,
-    pub rows: Uint32Array,
-    pub parameters: Uint32Array,
-    pub errors: Vec<SerializedEvaluationError>,
-}
-
-impl From<BlockOutputs> for EvaluatedBlock {
-    fn from(outputs: BlockOutputs) -> Self {
-        Self {
-            // Both of these move the allocation to JavaScript without copying.
-            bytes: outputs.bytes.into(),
-            rows: Uint32Array::new(outputs.rows),
-            parameters: Uint32Array::new(outputs.parameters),
-            errors: outputs
-                .errors
-                .into_iter()
-                .map(|e| SerializedEvaluationError {
-                    document: e.document,
-                    element: e.element,
-                    message: e.message,
-                })
-                .collect(),
-        }
-    }
-}
-
-#[napi(object, object_from_js = false)]
-pub struct SerializedEvaluationError {
-    pub document: u32,
-    pub element: Option<u32>,
-    pub message: String,
 }

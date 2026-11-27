@@ -1,6 +1,5 @@
 use log::info;
 
-pub mod block;
 pub mod sync_plan;
 
 // Just a stub for now.

@@ -820,7 +820,6 @@ dependencies = [
  "ryu-js",
  "serde",
  "serde_json",
- "sha2",
  "smallvec",
  "string-interner",
  "thiserror",
@@ -838,6 +837,7 @@ dependencies = [
  "powersync_service",
  "serde",
  "serde_json",
+ "sha2",
  "smallvec",
 ]
 
