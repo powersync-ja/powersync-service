@@ -157,4 +157,49 @@ describe('coalesceChunks', () => {
     expect(closed).toBe(true);
     expect(yieldedThird).toBe(false);
   });
+
+  test('propagates non-abort cleanup errors when stopped early', async () => {
+    async function* source() {
+      try {
+        yield Buffer.from('line1\n');
+      } finally {
+        throw new Error('cleanup failed');
+      }
+    }
+
+    const iter = coalesceChunks(source(), 6)[Symbol.asyncIterator]();
+    await expect(iter.next()).resolves.toEqual({ done: false, value: Buffer.from('line1\n') });
+    await expect(iter.return?.(undefined)).rejects.toThrow('cleanup failed');
+  });
+
+  test('ignores AbortError from pending read during cleanup while propagating real errors', async () => {
+    let returnCalls = 0;
+    const abortError = new DOMException('Cancelled', 'AbortError');
+    const source: AsyncIterable<Buffer> = {
+      [Symbol.asyncIterator]() {
+        let step = 0;
+        let rejectPending: ((reason: unknown) => void) | undefined;
+        return {
+          next() {
+            if (step++ === 0) {
+              return Promise.resolve({ done: false, value: Buffer.from('line1\n') });
+            }
+            return new Promise<IteratorResult<Buffer>>((_resolve, reject) => {
+              rejectPending = reject;
+            });
+          },
+          return() {
+            returnCalls++;
+            rejectPending?.(abortError);
+            return Promise.resolve({ done: true, value: undefined });
+          }
+        };
+      }
+    };
+
+    const iter = coalesceChunks(source)[Symbol.asyncIterator]();
+    await expect(iter.next()).resolves.toEqual({ done: false, value: Buffer.from('line1\n') });
+    await expect(iter.return?.(undefined)).resolves.toEqual({ done: true, value: undefined });
+    expect(returnCalls).toBe(1);
+  });
 });

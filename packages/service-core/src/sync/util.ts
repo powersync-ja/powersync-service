@@ -149,6 +149,7 @@ export async function* coalesceChunks(
 ): AsyncGenerator<Buffer> {
   const source = iterator[Symbol.asyncIterator]();
   let pendingNext: Promise<PromiseSettledResult<IteratorResult<Buffer>>> | undefined;
+  let iterationFailure: { error: unknown } | undefined;
 
   try {
     while (true) {
@@ -206,8 +207,25 @@ export async function* coalesceChunks(
         return;
       }
     }
+  } catch (error) {
+    iterationFailure = { error };
+    throw error;
   } finally {
-    await Promise.all([settledPromise(Promise.resolve().then(() => source.return?.())), pendingNext]);
+    const [closed, read] = await Promise.all([
+      settledPromise(Promise.resolve().then(() => source.return?.())),
+      pendingNext
+    ]);
+    const errors = iterationFailure ? [iterationFailure.error] : [];
+    for (const result of [closed, read]) {
+      if (result?.status === 'rejected' && !isAbortError(result.reason) && !errors.includes(result.reason)) {
+        errors.push(result.reason);
+      }
+    }
+    if (errors.length > 1) {
+      throw new AggregateError(errors, 'Chunk coalescing and cleanup both failed', { cause: errors[0] });
+    } else if (errors.length === 1 && !iterationFailure) {
+      throw errors[0];
+    }
   }
 }
 

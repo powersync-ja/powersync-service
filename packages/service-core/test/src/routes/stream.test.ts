@@ -402,7 +402,9 @@ bucket_definitions:
     { acceptEncoding: 'gzip', label: 'gzip-compressed' }
   ])('coalesces checkpoint and checkpoint_complete into one chunk ($label)', async ({ acceptEncoding }) => {
     const { createGunzip } = await import('node:zlib');
-    const syncRules = new SqlSyncRules('bucket_definitions: {}').hydrate(defaultHydrationOptions);
+    const syncRules = parseSyncConfig('config:\n  edition: 3\nstreams: {}', {
+      defaultSchema: 'public'
+    }).config.hydrate(defaultHydrationOptions);
     const storage = {
       getParsedSyncRules() {
         return syncRules;
